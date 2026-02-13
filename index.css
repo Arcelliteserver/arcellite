@@ -1,0 +1,241 @@
+/* Safe Area Insets for Mobile */
+:root {
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+}
+
+@layer utilities {
+  .h-safe-area-inset-top {
+    height: var(--safe-area-inset-top);
+  }
+  .pt-safe-area-inset-top {
+    padding-top: var(--safe-area-inset-top);
+  }
+  .pb-safe-area-inset-bottom {
+    padding-bottom: var(--safe-area-inset-bottom);
+  }
+}
+
+/* Custom scrollbar styles */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #e5e5e5;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #d1d1d1;
+}
+
+/* Animation utilities */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-bottom-4 {
+  from {
+    transform: translateY(1rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-top-4 {
+  from {
+    transform: translateY(-1rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes zoom-in {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes zoom-in-95 {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-in {
+  animation-fill-mode: both;
+}
+
+.fade-in {
+  animation: fade-in 0.5s ease-out;
+}
+
+.slide-in-from-bottom-4 {
+  animation: slide-in-from-bottom-4 0.5s ease-out;
+}
+
+.slide-in-from-top-4 {
+  animation: slide-in-from-top-4 0.5s ease-out;
+}
+
+.zoom-in {
+  animation: zoom-in 0.2s ease-out;
+}
+
+.zoom-in-95 {
+  animation: zoom-in-95 0.2s ease-out;
+}
+
+.duration-200 {
+  animation-duration: 200ms;
+}
+
+.duration-500 {
+  animation-duration: 500ms;
+}
+
+.origin-top-right {
+  transform-origin: top right;
+}
+
+/* PWA and Mobile Optimizations */
+@media (display-mode: standalone) {
+  /* Hide browser UI elements when installed as PWA */
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Prevent text selection on mobile (optional, can be removed if you want text selection) */
+@media (max-width: 768px) {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Improve touch targets */
+  button, a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+  
+  header {
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+}
+
+/* Backdrop blur support for mobile browsers */
+@supports (backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px)) {
+  .backdrop-blur-lg {
+    -webkit-backdrop-filter: blur(16px) !important;
+    backdrop-filter: blur(16px) !important;
+  }
+}
+
+/* Ensure overlay is visible and blurry on mobile */
+@media (max-width: 768px) {
+  [class*="backdrop-blur"] {
+    -webkit-backdrop-filter: blur(20px) !important;
+    backdrop-filter: blur(20px) !important;
+  }
+}
+
+/* Force left alignment for sidebar items on mobile */
+@media (max-width: 768px) {
+  .sidebar-nav button {
+    justify-content: flex-start !important;
+    text-align: left !important;
+  }
+  
+  .sidebar-nav button > * {
+    margin-left: 0 !important;
+  }
+}
+
+/* Mobile-specific improvements */
+@media (max-width: 640px) {
+  /* Prevent horizontal scroll - CRITICAL */
+  html, body {
+    overflow-x: hidden !important;
+    width: 100%;
+    max-width: 100vw;
+    position: relative;
+  }
+  
+  /* Prevent all elements from causing horizontal scroll */
+  * {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  
+  /* Ensure containers don't overflow */
+  .flex, .grid, div, section, main, header {
+    min-width: 0;
+    max-width: 100vw;
+  }
+  
+  /* Better text wrapping */
+  h1, h2, h3, h4, h5, h6, p, span {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+  }
+  
+  /* Prevent text overflow */
+  * {
+    max-width: 100%;
+  }
+  
+  /* Improve touch targets */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  /* Fix scrolling containers */
+  [class*="overflow"] {
+    -webkit-overflow-scrolling: touch;
+  }
+}

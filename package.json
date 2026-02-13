@@ -1,0 +1,47 @@
+{
+  "name": "arcellite",
+  "version": "1.0.0",
+  "description": "Self-hosted personal cloud — file management, AI assistant, and database tools",
+  "author": "Robera Desissa",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArcelliteProject/arcellite.git"
+  },
+  "keywords": ["self-hosted", "file-manager", "personal-cloud", "ai-assistant", "database", "react", "typescript"],
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "npm run build:server && node server/dist/index.js",
+    "build:server": "tsc -p server/tsconfig.json"
+  },
+  "dependencies": {
+    "@google/genai": "^1.40.0",
+    "@types/archiver": "^7.0.0",
+    "@types/bcrypt": "^6.0.0",
+    "@types/busboy": "^1.5.4",
+    "@types/nodemailer": "^7.0.9",
+    "@types/pg": "^8.16.0",
+    "archiver": "^7.0.1",
+    "bcrypt": "^6.0.0",
+    "busboy": "^1.6.0",
+    "dotenv": "^17.2.4",
+    "lucide-react": "^0.563.0",
+    "mysql2": "^3.16.3",
+    "nodemailer": "^8.0.1",
+    "pdfjs-dist": "^5.4.624",
+    "pg": "^8.18.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "recharts": "^3.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

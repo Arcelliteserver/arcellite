@@ -1,0 +1,137 @@
+import React, { useState } from 'react';
+import { Mail, Lock, Eye, EyeOff, Cloud, AlertCircle, Loader2 } from 'lucide-react';
+import { authApi } from '../../services/api.client';
+
+interface AuthViewProps {
+  onLogin: () => void;
+}
+
+const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!email || !password) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      await authApi.login(email, password);
+      onLogin();
+    } catch (err: any) {
+      setError(err.message || 'Invalid email or password');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-[#5D5FEF]/5 via-white to-[#5D5FEF]/5 flex items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-md">
+        {/* App Logo/Name */}
+        <div className="flex items-center justify-center gap-2 mb-8 sm:mb-12">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center">
+            <Cloud className="w-full h-full text-[#5D5FEF] fill-[#5D5FEF]/10" strokeWidth={2.5} />
+          </div>
+          <h1 className="font-bold text-xl sm:text-2xl tracking-tight text-[#111111]">
+            Arcellite<span className="text-[#5D5FEF]">.</span>
+          </h1>
+        </div>
+
+        {/* Auth Form */}
+        <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] border border-gray-100 shadow-2xl shadow-gray-200/50 p-6 sm:p-8 md:p-10">
+          {/* Header */}
+          <div className="text-center mb-6 sm:mb-8">
+            <h2 className="text-lg sm:text-xl font-black text-[#111111] mb-1">Welcome Back</h2>
+            <p className="text-gray-400 text-xs sm:text-sm font-medium">Sign in to your account</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5 md:space-y-6">
+            {/* Error Message */}
+            {error && (
+              <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-start gap-3">
+                <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-red-600 text-xs sm:text-sm font-medium">{error}</p>
+              </div>
+            )}
+
+            {/* Email Input */}
+            <div>
+              <label className="text-[10px] sm:text-[11px] font-black text-gray-300 uppercase tracking-widest mb-2 block">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  className="w-full pl-10 sm:pl-12 pr-4 py-3 sm:py-4 bg-[#F5F5F7] rounded-xl sm:rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[14px] sm:text-[15px] outline-none placeholder:text-gray-400 font-medium"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Password Input */}
+            <div>
+              <label className="text-[10px] sm:text-[11px] font-black text-gray-300 uppercase tracking-widest mb-2 block">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  className="w-full pl-10 sm:pl-12 pr-10 sm:pr-12 py-3 sm:py-4 bg-[#F5F5F7] rounded-xl sm:rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[14px] sm:text-[15px] outline-none placeholder:text-gray-400 font-medium"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full px-5 sm:px-6 py-3 sm:py-4 bg-[#5D5FEF] text-white rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm uppercase tracking-widest hover:bg-[#4D4FCF] transition-all shadow-lg shadow-[#5D5FEF]/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                  Signing In...
+                </>
+              ) : (
+                'Sign In'
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Footer */}
+        <p className="text-center text-gray-400 text-[10px] sm:text-xs font-medium mt-6 sm:mt-8 px-4">
+          By continuing, you agree to our Terms of Service and Privacy Policy
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default AuthView;

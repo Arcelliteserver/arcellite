@@ -1,0 +1,529 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Usb, RefreshCw, HardDrive, MapPin, MoreVertical } from 'lucide-react';
+import type { RemovableDeviceInfo, SystemStorageResponse } from '@/types';
+
+const STORAGE_API = '/api/system/storage';
+const MOUNT_API = '/api/system/mount';
+const UNMOUNT_API = '/api/system/unmount';
+
+interface RemovableStorageViewProps {
+  onMountedDeviceOpen?: (device: RemovableDeviceInfo) => void;
+}
+
+// Separate device card component to avoid hooks in map
+interface DeviceCardProps {
+  dev: RemovableDeviceInfo;
+  label: string;
+  isMounting: boolean;
+  isUnmounting: boolean;
+  onMount: (dev: RemovableDeviceInfo) => void;
+  onUnmount: (dev: RemovableDeviceInfo) => void;
+  onEditLabel: (dev: RemovableDeviceInfo) => void;
+  onOpen: (dev: RemovableDeviceInfo) => void;
+}
+
+const DeviceCard: React.FC<DeviceCardProps> = ({
+  dev,
+  label,
+  isMounting,
+  isUnmounting,
+  onMount,
+  onUnmount,
+  onEditLabel,
+  onOpen,
+}) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const canOpen = !!dev.mountpoint;
+  const busy = isMounting || isUnmounting;
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [menuOpen]);
+
+  return (
+    <div className="w-full bg-white p-5 md:p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col relative">
+      {/* Header: Icon, Name, Status, Menu */}
+      <div className="flex items-start justify-between mb-4 gap-3">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+            {dev.deviceType === 'portable' ? (
+              <HardDrive className="w-5 h-5 text-[#5D5FEF]" />
+            ) : (
+              <Usb className="w-5 h-5 text-[#5D5FEF]" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-black text-gray-900 truncate">{label}</p>
+            {canOpen && (
+              <span className="inline-block mt-1 px-2 py-0.5 bg-green-100 text-green-700 text-[8px] font-black uppercase rounded tracking-wider">
+                Connected
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Menu Button */}
+        {canOpen && (
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-8 z-50 w-40 bg-white rounded-lg border border-gray-200 shadow-lg py-1 animate-in fade-in zoom-in-95 duration-150">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onEditLabel(dev);
+                    setMenuOpen(false);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors text-xs"
+                >
+                  Edit Label
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUnmount(dev);
+                    setMenuOpen(false);
+                  }}
+                  disabled={busy}
+                  className="w-full text-left px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors text-xs disabled:opacity-50"
+                >
+                  {isUnmounting ? 'Unmounting…' : 'Unmount'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Info Row: Size, Usage & Label */}
+      <div className="flex flex-col gap-2 mb-4 pb-3 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
+            <HardDrive className="w-3.5 h-3.5 text-gray-400" />
+            <span>{dev.sizeHuman}</span>
+          </div>
+          <div className="text-xs font-bold text-gray-500 truncate max-w-[120px]" title={dev.label || dev.name}>
+            {dev.label || dev.mountpoint?.split('/').pop() || dev.name}
+          </div>
+        </div>
+        {/* Usage bar — only when mounted and usage data available */}
+        {canOpen && dev.fsUsedHuman && dev.fsAvailHuman && (
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-gray-500 mb-1">
+              <span><span className="font-bold text-gray-700">{dev.fsUsedHuman}</span> used</span>
+              <span><span className="font-bold text-green-600">{dev.fsAvailHuman}</span> free</span>
+            </div>
+            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-[#5D5FEF] rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(dev.fsUsedPercent ?? 0, 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Action Button */}
+      <button
+        type="button"
+        onClick={() => {
+          if (canOpen) {
+            onOpen(dev);
+          } else {
+            onMount(dev);
+          }
+        }}
+        disabled={busy}
+        className={`w-full py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 ${
+          canOpen
+            ? 'bg-[#5D5FEF] text-white hover:bg-[#4D4FDF] disabled:opacity-50'
+            : 'bg-[#5D5FEF]/10 text-[#5D5FEF] hover:bg-[#5D5FEF]/20 disabled:opacity-50'
+        }`}
+      >
+        {isMounting ? (
+          <>
+            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            Mounting…
+          </>
+        ) : canOpen ? (
+          'View'
+        ) : (
+          'Mount'
+        )}
+      </button>
+    </div>
+  );
+};
+
+const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDeviceOpen }) => {
+  const [data, setData] = useState<SystemStorageResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  const [mountingDevice, setMountingDevice] = useState<string | null>(null);
+  const [unmountingDevice, setUnmountingDevice] = useState<string | null>(null);
+  const [mountError, setMountError] = useState<string | null>(null);
+  const [passwordModal, setPasswordModal] = useState<{
+    isOpen: boolean;
+    device: RemovableDeviceInfo | null;
+    action: 'mount' | 'unmount';
+  }>({ isOpen: false, device: null, action: 'mount' });
+  const [password, setPassword] = useState('');
+
+  const fetchStorage = useCallback(async () => {
+    try {
+      setError(false);
+      const res = await fetch(STORAGE_API);
+      if (!res.ok) throw new Error('Storage API error');
+      const json: SystemStorageResponse = await res.json();
+      setData(json);
+    } catch {
+      setError(true);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStorage();
+  }, [fetchStorage]);
+
+  // SSE: auto-refresh when USB devices are plugged/unplugged
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let reconnect: ReturnType<typeof setTimeout>;
+
+    const connect = () => {
+      es = new EventSource('/api/system/usb-events');
+      es.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'change') {
+            fetchStorage();
+          }
+        } catch {}
+      };
+      es.onerror = () => {
+        es?.close();
+        reconnect = setTimeout(connect, 10000);
+      };
+    };
+    connect();
+
+    return () => {
+      es?.close();
+      clearTimeout(reconnect);
+    };
+  }, [fetchStorage]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('removableLabels');
+      if (raw) setLabels(JSON.parse(raw));
+    } catch {}
+  }, []);
+
+  const editLabel = (dev: RemovableDeviceInfo) => {
+    const current = labels[dev.name] || dev.model || dev.name;
+    const v = prompt('Label for device:', current);
+    if (v == null) return;
+    const next = { ...labels, [dev.name]: v };
+    setLabels(next);
+    try {
+      localStorage.setItem('removableLabels', JSON.stringify(next));
+    } catch {}
+  };
+
+  const handleMount = async (dev: RemovableDeviceInfo, password?: string) => {
+    // Always require system password for mount
+    if (!password) {
+      setMountError(null);
+      setPasswordModal({ isOpen: true, device: dev, action: 'mount' });
+      return;
+    }
+
+    setMountError(null);
+    setMountingDevice(dev.name);
+
+    try {
+      const res = await fetch(MOUNT_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device: dev.name,
+          password: password,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        mountpoint?: string;
+        error?: string;
+        requiresAuth?: boolean;
+      };
+
+      if (res.status === 401 && json.requiresAuth) {
+        // Server needs sudo password — show the password modal
+        if (!password) {
+          setPasswordModal({ isOpen: true, device: dev, action: 'mount' });
+          setMountingDevice(null);
+          return;
+        }
+        // Wrong password — keep modal open for retry
+        setMountError(json.error || 'Incorrect password');
+        setMountingDevice(null);
+        return;
+      }
+
+      if (res.status === 401) {
+        setMountError(json.error || 'Authentication failed');
+        setMountingDevice(null);
+        return;
+      }
+
+      if (!res.ok) throw new Error(json.error || 'Mount failed');
+
+      // Mount succeeded — refresh the storage list to show updated state
+      await fetchStorage();
+
+      // Close password modal
+      setPasswordModal({ isOpen: false, device: null, action: 'mount' });
+      setPassword('');
+      setMountError(null);
+    } catch (e) {
+      setMountError((e as Error).message);
+    } finally {
+      setMountingDevice(null);
+    }
+  };
+
+  const handlePasswordSubmit = () => {
+    if (passwordModal.device && password) {
+      if (passwordModal.action === 'unmount') {
+        handleUnmount(passwordModal.device, password);
+      } else {
+        handleMount(passwordModal.device, password);
+      }
+    }
+  };
+
+  const handleUnmount = async (dev: RemovableDeviceInfo, password?: string) => {
+    // Always require system password for unmount
+    if (!password) {
+      setMountError(null);
+      setPasswordModal({ isOpen: true, device: dev, action: 'unmount' });
+      return;
+    }
+
+    setMountError(null);
+    setUnmountingDevice(dev.name);
+    try {
+      const res = await fetch(UNMOUNT_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: dev.name, password: password }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        requiresAuth?: boolean;
+      };
+
+      if (res.status === 401 && json.requiresAuth) {
+        // Server needs sudo password — show the password modal
+        if (!password) {
+          setPasswordModal({ isOpen: true, device: dev, action: 'unmount' });
+          setUnmountingDevice(null);
+          return;
+        }
+        // Wrong password — keep modal open for retry
+        setMountError(json.error || 'Incorrect password');
+        setUnmountingDevice(null);
+        return;
+      }
+
+      if (!res.ok) throw new Error(json.error || 'Unmount failed');
+      await fetchStorage();
+
+      setPasswordModal({ isOpen: false, device: null, action: 'mount' });
+      setPassword('');
+      setMountError(null);
+    } catch (e) {
+      setMountError((e as Error).message);
+    } finally {
+      setUnmountingDevice(null);
+    }
+  };
+
+  const root = data?.rootStorage ?? null;
+  const removable = data?.removable ?? [];
+
+  return (
+    <div className="w-full animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-10 gap-4">
+        <div className="relative">
+          <div className="absolute -left-2 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
+          <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-4 md:pl-6 relative">
+            USB & Removable storage
+            <span className="absolute -top-2 -right-8 md:-right-12 w-16 h-16 md:w-20 md:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
+          </h2>
+        </div>
+        <button
+          onClick={() => {
+            setLoading(true);
+            fetchStorage();
+          }}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-50 border border-gray-100 hover:bg-gray-100 text-gray-600 font-bold text-xs uppercase tracking-wider disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Storage overview – main disk used/total */}
+      {!loading && !error && root && (
+        <div className="mb-6 md:mb-8 p-4 md:p-5 rounded-xl md:rounded-2xl bg-white border border-gray-100 shadow-sm">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-4">Whole storage (main disk)</p>
+          <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2">
+            <div className="flex items-baseline gap-3">
+              <span className="text-2xl md:text-3xl lg:text-4xl font-extrabold text-gray-900">{root.usedHuman}</span>
+              <span className="text-sm text-gray-400">used</span>
+              <span className="text-gray-300 mx-2">/</span>
+              <span className="text-lg md:text-xl font-black text-gray-700">{root.totalHuman}</span>
+              <span className="hidden sm:inline text-sm text-gray-400 ml-2">total</span>
+            </div>
+            <div className="flex items-baseline gap-3">
+              <span className="text-sm font-bold text-green-600">{root.availableHuman} available</span>
+              <span className="text-xs text-gray-400">({root.usedPercent}% used)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loading && !data && (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+          <Usb className="w-14 h-14 mb-4 animate-pulse" />
+          <p className="text-sm font-bold">Loading devices…</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-800 text-sm font-medium">
+          Could not load removable storage. Make sure the server is running and has access to system info.
+        </div>
+      )}
+
+      {!loading && !error && removable.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+          <Usb className="w-14 h-14 mb-4" />
+          <p className="text-sm font-bold uppercase tracking-wider">No USB or removable drives connected</p>
+          <p className="text-xs mt-2 text-gray-400">Connect a drive to see it here.</p>
+        </div>
+      )}
+
+      {mountError && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-red-800 text-sm font-medium">
+          {mountError}
+        </div>
+      )}
+
+      {!loading && !error && removable.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+          {removable.map((dev: RemovableDeviceInfo, i: number) => (
+            <DeviceCard
+              key={`${dev.name}-${i}`}
+              dev={dev}
+              label={labels[dev.name] || dev.model || dev.name}
+              isMounting={mountingDevice === dev.name}
+              isUnmounting={unmountingDevice === dev.name}
+              onMount={handleMount}
+              onUnmount={handleUnmount}
+              onEditLabel={editLabel}
+              onOpen={onMountedDeviceOpen || (() => {})}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Password Modal */}
+      {passwordModal.isOpen && passwordModal.device && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[1000] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-black text-gray-900 mb-2">Authentication Required</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Enter your system password to {passwordModal.action} <span className="font-bold">{passwordModal.device.model || passwordModal.device.name}</span>
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                  System Password
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && password) {
+                      handlePasswordSubmit();
+                    } else if (e.key === 'Escape') {
+                      setPasswordModal({ isOpen: false, device: null, action: 'mount' });
+                      setPassword('');
+                    }
+                  }}
+                  placeholder="Enter your password"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-[#5D5FEF] focus:outline-none text-sm font-medium transition-colors"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setPasswordModal({ isOpen: false, device: null, action: 'mount' });
+                    setPassword('');
+                  }}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-gray-700 bg-white border-2 border-gray-200 hover:bg-gray-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handlePasswordSubmit}
+                  disabled={!password}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-white bg-[#5D5FEF] hover:bg-[#4D4FCF] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#5D5FEF]/25"
+                >
+                  {passwordModal.action === 'unmount' ? 'Unmount' : 'Mount'}
+                </button>
+              </div>
+            </div>
+
+            {mountError && (
+              <div className="mt-4 p-3 bg-red-50 border-2 border-red-200 rounded-xl">
+                <p className="text-sm text-red-700 font-medium">{mountError}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default RemovableStorageView;
