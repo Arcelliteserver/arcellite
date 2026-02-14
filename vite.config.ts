@@ -899,6 +899,11 @@ export default defineConfig(({ mode }) => {
                 authRoutes.handleMarkAllNotificationsRead(req, res);
                 return;
               }
+              if (url === '/api/notifications/clear-all' && req.method === 'DELETE') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleClearAllNotifications(req, res);
+                return;
+              }
               if (url?.match(/^\/api\/notifications\/\d+\/read$/) && req.method === 'PUT') {
                 const authRoutes = await import('./server/routes/auth.routes.js');
                 authRoutes.handleMarkNotificationRead(req, res);

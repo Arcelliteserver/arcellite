@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Bell, AlertCircle, CheckCircle, Info, AlertTriangle, Settings, CheckCheck } from 'lucide-react';
+import { Bell, AlertCircle, CheckCircle, Info, AlertTriangle, Settings, CheckCheck, Trash2 } from 'lucide-react';
 import { authApi } from '../../services/api.client';
 
 interface Notification {
@@ -87,6 +87,15 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     }
   };
 
+  const handleClearAll = async () => {
+    setNotifications([]);
+    try {
+      await authApi.clearAllNotifications();
+    } catch (e) {
+      // Best-effort
+    }
+  };
+
   const getIcon = (type: string) => {
     switch (type) {
       case 'success':
@@ -133,6 +142,16 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {notifications.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              className="p-2 hover:bg-white rounded-xl transition-all"
+              aria-label="Clear all notifications"
+              title="Clear all"
+            >
+              <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" />
+            </button>
+          )}
           {unreadCount > 0 && (
             <button
               onClick={handleMarkAllRead}

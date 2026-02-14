@@ -117,7 +117,14 @@ export const authApi = {
   getSettings: () =>
     apiRequest('/api/auth/settings'),
 
-  updateSettings: (settings: { notificationsEnabled?: boolean; autoMirroring?: boolean; vaultLockdown?: boolean; storageDevice?: string }) =>
+  updateSettings: (settings: {
+    notificationsEnabled?: boolean; autoMirroring?: boolean; vaultLockdown?: boolean; storageDevice?: string;
+    aiFileCreate?: boolean; aiFileModify?: boolean; aiFileDelete?: boolean; aiFolderCreate?: boolean;
+    aiFileOrganize?: boolean; aiTrashAccess?: boolean; aiTrashRestore?: boolean; aiTrashEmpty?: boolean;
+    aiDatabaseCreate?: boolean; aiDatabaseDelete?: boolean; aiDatabaseQuery?: boolean;
+    aiSendEmail?: boolean; aiCastMedia?: boolean; aiFileRead?: boolean;
+    aiAutoRename?: boolean; pdfThumbnails?: boolean;
+  }) =>
     apiRequest('/api/auth/settings', {
       method: 'PUT',
       body: JSON.stringify(settings),
@@ -131,4 +138,7 @@ export const authApi = {
 
   markAllNotificationsRead: () =>
     apiRequest('/api/notifications/read-all', { method: 'PUT' }),
+
+  clearAllNotifications: () =>
+    apiRequest('/api/notifications/clear-all', { method: 'DELETE' }),
 };

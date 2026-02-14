@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ExternalLink, FileText, Image, File, Video, Music, Download, RefreshCw, ChevronRight } from 'lucide-react';
+import { Users, ExternalLink, FileText, Image, File, Video, Music, RefreshCw, ChevronRight, Loader2, FolderDown } from 'lucide-react';
 
 interface GoogleFile {
   id: string;
@@ -7,6 +7,7 @@ interface GoogleFile {
   type: 'doc' | 'sheet' | 'slide' | 'folder' | 'file' | 'image' | 'video' | 'audio';
   mimeType?: string;
   webViewLink?: string;
+  url?: string;
   size?: number;
   modifiedTime?: string;
   thumbnailLink?: string;
@@ -26,11 +27,16 @@ interface ConnectedApp {
   children?: ConnectedApp[];
 }
 
-const SharedView: React.FC = () => {
+interface SharedViewProps {
+  showToast?: (message: string, type: 'success' | 'error' | 'info') => void;
+}
+
+const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
   const [apps, setApps] = useState<ConnectedApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
+  const [savingFile, setSavingFile] = useState<string | null>(null);
 
   // Load connected apps from localStorage
   useEffect(() => {
@@ -103,6 +109,44 @@ const SharedView: React.FC = () => {
       }
       return newSet;
     });
+  };
+
+  const handleFileClick = (file: GoogleFile) => {
+    const link = file.webViewLink || file.url;
+    if (link) {
+      window.open(link, '_blank');
+    }
+  };
+
+  const handleSaveToVault = async (file: GoogleFile, app: ConnectedApp) => {
+    if (savingFile) return;
+    setSavingFile(file.id);
+    showToast?.(`Saving "${file.name}" to vault...`, 'info');
+
+    try {
+      const response = await fetch('/api/files/save-shared', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileId: file.id,
+          fileName: file.name,
+          mimeType: file.mimeType,
+          appId: app.id,
+          webhookUrl: app.webhookUrl,
+        }),
+      });
+
+      const result = await response.json();
+      if (result.ok) {
+        showToast?.(`Saved "${result.savedFileName}" to ${result.category}`, 'success');
+      } else {
+        showToast?.(result.error || 'Failed to save file', 'error');
+      }
+    } catch (e) {
+      showToast?.(`Save failed: ${(e as Error).message}`, 'error');
+    } finally {
+      setSavingFile(null);
+    }
   };
 
   const getFileIcon = (file: GoogleFile) => {
@@ -225,7 +269,8 @@ const SharedView: React.FC = () => {
                     {files.map((file, idx) => (
                       <div
                         key={file.id || idx}
-                        className="px-8 py-5 hover:bg-gray-50 transition-all group"
+                        onClick={() => handleFileClick(file)}
+                        className="px-8 py-5 hover:bg-gray-50 transition-all group cursor-pointer"
                       >
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-xl bg-white border border-gray-100 flex items-center justify-center shadow-sm flex-shrink-0">
@@ -247,7 +292,7 @@ const SharedView: React.FC = () => {
                           </div>
 
                           <div className="flex-1 min-w-0">
-                            <p className="text-[14px] font-bold text-gray-900 truncate">
+                            <p className="text-[14px] font-bold text-gray-900 truncate group-hover:text-[#5D5FEF] transition-colors">
                               {file.name}
                             </p>
                             <div className="flex items-center gap-3 mt-1">
@@ -265,18 +310,37 @@ const SharedView: React.FC = () => {
                             </div>
                           </div>
 
-                          {file.webViewLink && (
-                            <a
-                              href={file.webViewLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold text-[#5D5FEF] hover:bg-[#5D5FEF]/10 transition-all opacity-0 group-hover:opacity-100"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                              Open
-                            </a>
-                          )}
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {/* Save to Vault */}
+                            {app.id !== 'n8n' && app.id !== 'mcp' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleSaveToVault(file, app); }}
+                                disabled={savingFile === file.id}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-bold text-emerald-600 hover:bg-emerald-50 transition-all disabled:opacity-50"
+                                title="Save to Vault"
+                              >
+                                {savingFile === file.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <FolderDown className="w-4 h-4" />
+                                )}
+                              </button>
+                            )}
+                            {/* Open in browser */}
+                            {(file.webViewLink || file.url) && (
+                              <a
+                                href={file.webViewLink || file.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-bold text-[#5D5FEF] hover:bg-[#5D5FEF]/10 transition-all"
+                                title="Open in browser"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                                <span className="hidden sm:inline">Open</span>
+                              </a>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -294,10 +358,12 @@ const SharedView: React.FC = () => {
           <h3 className="text-[13px] font-black text-gray-900 mb-2">About Shared Files</h3>
           <p className="text-[12px] text-gray-600">
             This section displays files from all your connected apps in one place.
+            Click any file to open it in your browser, or use the save button to download it to your vault.
             To connect more apps or manage existing connections, visit the <strong>My Apps</strong> section.
           </p>
         </div>
       )}
+
     </div>
   );
 };

@@ -568,6 +568,22 @@ export async function getUserSettings(userId: number): Promise<{
   autoMirroring: boolean;
   vaultLockdown: boolean;
   storageDevice: string;
+  aiFileCreate: boolean;
+  aiFileModify: boolean;
+  aiFileDelete: boolean;
+  aiFolderCreate: boolean;
+  aiFileOrganize: boolean;
+  aiTrashAccess: boolean;
+  aiTrashRestore: boolean;
+  aiTrashEmpty: boolean;
+  aiDatabaseCreate: boolean;
+  aiDatabaseDelete: boolean;
+  aiDatabaseQuery: boolean;
+  aiSendEmail: boolean;
+  aiCastMedia: boolean;
+  aiFileRead: boolean;
+  aiAutoRename: boolean;
+  pdfThumbnails: boolean;
 }> {
   // Ensure a settings row exists
   await pool.query(
@@ -588,7 +604,74 @@ export async function getUserSettings(userId: number): Promise<{
     autoMirroring: prefs.autoMirroring ?? true,
     vaultLockdown: prefs.vaultLockdown ?? true,
     storageDevice: prefs.storageDevice ?? 'builtin',
+    // AI Security permissions (default to sensible values)
+    aiFileCreate: prefs.aiFileCreate ?? true,
+    aiFileModify: prefs.aiFileModify ?? true,
+    aiFileDelete: prefs.aiFileDelete ?? true,
+    aiFolderCreate: prefs.aiFolderCreate ?? true,
+    aiFileOrganize: prefs.aiFileOrganize ?? true,
+    aiTrashAccess: prefs.aiTrashAccess ?? true,
+    aiTrashRestore: prefs.aiTrashRestore ?? true,
+    aiTrashEmpty: prefs.aiTrashEmpty ?? false,
+    aiDatabaseCreate: prefs.aiDatabaseCreate ?? true,
+    aiDatabaseDelete: prefs.aiDatabaseDelete ?? false,
+    aiDatabaseQuery: prefs.aiDatabaseQuery ?? true,
+    aiSendEmail: prefs.aiSendEmail ?? true,
+    aiCastMedia: prefs.aiCastMedia ?? true,
+    aiFileRead: prefs.aiFileRead ?? true,
+    // Smart features
+    aiAutoRename: prefs.aiAutoRename ?? false,
+    pdfThumbnails: prefs.pdfThumbnails ?? true,
   };
+}
+
+/**
+ * Get AI permissions by user email (for AI action enforcement)
+ */
+export async function getAIPermissionsByEmail(email: string): Promise<Record<string, boolean>> {
+  try {
+    const userResult = await pool.query(
+      `SELECT id FROM users WHERE email = $1`,
+      [email]
+    );
+    if (userResult.rows.length === 0) {
+      // No user found — return all defaults (permissive)
+      return {
+        aiFileCreate: true, aiFileModify: true, aiFileDelete: true,
+        aiFolderCreate: true, aiFileOrganize: true,
+        aiTrashAccess: true, aiTrashRestore: true, aiTrashEmpty: false,
+        aiDatabaseCreate: true, aiDatabaseDelete: false,
+        aiDatabaseQuery: true, aiSendEmail: true, aiCastMedia: true, aiFileRead: true,
+      };
+    }
+    const settings = await getUserSettings(userResult.rows[0].id);
+    return {
+      aiFileCreate: settings.aiFileCreate,
+      aiFileModify: settings.aiFileModify,
+      aiFileDelete: settings.aiFileDelete,
+      aiFolderCreate: settings.aiFolderCreate,
+      aiFileOrganize: settings.aiFileOrganize,
+      aiTrashAccess: settings.aiTrashAccess,
+      aiTrashRestore: settings.aiTrashRestore,
+      aiTrashEmpty: settings.aiTrashEmpty,
+      aiDatabaseCreate: settings.aiDatabaseCreate,
+      aiDatabaseDelete: settings.aiDatabaseDelete,
+      aiDatabaseQuery: settings.aiDatabaseQuery,
+      aiSendEmail: settings.aiSendEmail,
+      aiCastMedia: settings.aiCastMedia,
+      aiFileRead: settings.aiFileRead,
+    };
+  } catch (e) {
+    console.error('[Auth] Failed to get AI permissions:', e);
+    // On error, return permissive defaults
+    return {
+      aiFileCreate: true, aiFileModify: true, aiFileDelete: true,
+      aiFolderCreate: true, aiFileOrganize: true,
+      aiTrashAccess: true, aiTrashRestore: true, aiTrashEmpty: false,
+      aiDatabaseCreate: true, aiDatabaseDelete: false,
+      aiDatabaseQuery: true, aiSendEmail: true, aiCastMedia: true, aiFileRead: true,
+    };
+  }
 }
 
 /**
@@ -601,6 +684,22 @@ export async function updateUserSettings(
     autoMirroring?: boolean;
     vaultLockdown?: boolean;
     storageDevice?: string;
+    aiFileCreate?: boolean;
+    aiFileModify?: boolean;
+    aiFileDelete?: boolean;
+    aiFolderCreate?: boolean;
+    aiFileOrganize?: boolean;
+    aiTrashAccess?: boolean;
+    aiTrashRestore?: boolean;
+    aiTrashEmpty?: boolean;
+    aiDatabaseCreate?: boolean;
+    aiDatabaseDelete?: boolean;
+    aiDatabaseQuery?: boolean;
+    aiSendEmail?: boolean;
+    aiCastMedia?: boolean;
+    aiFileRead?: boolean;
+    aiAutoRename?: boolean;
+    pdfThumbnails?: boolean;
   }
 ): Promise<void> {
   // Ensure row exists
@@ -621,6 +720,17 @@ export async function updateUserSettings(
   if (settings.autoMirroring !== undefined) updatedPrefs.autoMirroring = settings.autoMirroring;
   if (settings.vaultLockdown !== undefined) updatedPrefs.vaultLockdown = settings.vaultLockdown;
   if (settings.storageDevice !== undefined) updatedPrefs.storageDevice = settings.storageDevice;
+  // AI Security permissions
+  const aiKeys = [
+    'aiFileCreate', 'aiFileModify', 'aiFileDelete', 'aiFolderCreate',
+    'aiFileOrganize', 'aiTrashAccess', 'aiTrashRestore', 'aiTrashEmpty',
+    'aiDatabaseCreate', 'aiDatabaseDelete', 'aiDatabaseQuery',
+    'aiSendEmail', 'aiCastMedia', 'aiFileRead',
+    'aiAutoRename', 'pdfThumbnails',
+  ] as const;
+  for (const key of aiKeys) {
+    if (settings[key] !== undefined) updatedPrefs[key] = settings[key];
+  }
 
   const notif = settings.notificationsEnabled !== undefined
     ? settings.notificationsEnabled
@@ -693,6 +803,16 @@ export async function markNotificationRead(userId: number, notificationId: numbe
 export async function markAllNotificationsRead(userId: number): Promise<void> {
   await pool.query(
     `UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND is_read = FALSE`,
+    [userId]
+  );
+}
+
+/**
+ * Clear (delete) all notifications for a user
+ */
+export async function clearAllNotifications(userId: number): Promise<void> {
+  await pool.query(
+    `DELETE FROM notifications WHERE user_id = $1`,
     [userId]
   );
 }

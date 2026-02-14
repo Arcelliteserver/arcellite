@@ -10,6 +10,7 @@ import {
   FolderInput,
   ChevronRight,
   Pencil,
+  Sparkles,
 } from 'lucide-react';
 import { FileItem } from '../../types';
 import FileIcon from './FileIcon';
@@ -22,6 +23,8 @@ interface FileGridProps {
   onAction?: (action: string, file: FileItem, targetFolder?: FileItem) => void;
   allFiles?: FileItem[]; // Pass all files to calculate folder counts
   availableFolders?: FileItem[]; // Pass available folders for Move option
+  pdfThumbnails?: boolean; // Enable/disable PDF thumbnail rendering
+  aiRenamedSet?: Set<string>; // Set of "category/relPath" keys for AI-renamed files
 }
 
 const CustomFolderIcon = ({ className }: { className?: string }) => (
@@ -44,8 +47,8 @@ const CustomFolderIcon = ({ className }: { className?: string }) => (
 );
 
 /** Renders a PDF/book first-page thumbnail with graceful fallback */
-const PdfBookThumbnail: React.FC<{ file: FileItem; isPdf?: boolean }> = ({ file, isPdf }) => {
-  const thumb = usePdfThumbnail(file.url, true);
+const PdfBookThumbnail: React.FC<{ file: FileItem; isPdf?: boolean; enabled?: boolean }> = ({ file, isPdf, enabled = true }) => {
+  const thumb = usePdfThumbnail(file.url, enabled);
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   const isPdfFile = isPdf || ext === 'pdf';
   
@@ -100,7 +103,7 @@ const PdfBookThumbnail: React.FC<{ file: FileItem; isPdf?: boolean }> = ({ file,
   );
 };
 
-const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [] }) => {
+const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [], pdfThumbnails = true, aiRenamedSet }) => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -305,7 +308,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                     </div>
                   </div>
                 ) : isPdf ? (
-                  <PdfBookThumbnail file={file} isPdf />
+                  <PdfBookThumbnail file={file} isPdf enabled={pdfThumbnails} />
                 ) : file.type === 'code' ? (
                   <div className="relative w-full h-full bg-gradient-to-br from-emerald-50 to-teal-50 flex items-center justify-center">
                     <div className="absolute inset-0 opacity-[0.07]">
@@ -383,7 +386,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                     <FileIcon type={file.type} className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 text-green-500 group-hover:text-green-600 transition-colors relative z-10" />
                   </div>
                 ) : file.type === 'book' ? (
-                  <PdfBookThumbnail file={file} />
+                  <PdfBookThumbnail file={file} enabled={pdfThumbnails} />
                 ) : (
                   <FileIcon type={file.type} fileName={file.name} className="w-7 h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 text-gray-400 group-hover:text-[#5D5FEF] transition-colors" />
                 )}
@@ -391,9 +394,17 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
             </div>
 
             <div className="overflow-hidden">
-              <h3 className="text-xs sm:text-sm md:text-[14px] font-bold text-gray-800 truncate mb-0.5 group-hover:text-[#5D5FEF] transition-colors pr-4 sm:pr-6">
-                {file.name}
-              </h3>
+              <div className="flex items-center gap-1 mb-0.5 pr-4 sm:pr-6">
+                <h3 className="text-xs sm:text-sm md:text-[14px] font-bold text-gray-800 truncate group-hover:text-[#5D5FEF] transition-colors">
+                  {file.name}
+                </h3>
+                {aiRenamedSet && file.category && (() => {
+                  const relPath = file.id.replace(`server-${file.category}-`, '');
+                  return aiRenamedSet.has(`${file.category}/${relPath}`);
+                })() && (
+                  <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#5D5FEF] flex-shrink-0" title="Renamed by AI" />
+                )}
+              </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[6px] sm:text-[7px] font-black uppercase tracking-[0.1em] px-1 sm:px-1.5 py-0.5 rounded-md sm:rounded-lg bg-gray-100 text-gray-500 group-hover:bg-[#5D5FEF]/10 group-hover:text-[#5D5FEF] transition-colors">
                   {file.type}

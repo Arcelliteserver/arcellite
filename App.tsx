@@ -16,6 +16,7 @@ import AccountSettingsView from './components/views/settings/AccountSettingsView
 import AppearanceView from './components/views/settings/AppearanceView';
 import AIModelsView from './components/views/settings/AIModelsView';
 import APIKeysView from './components/views/settings/APIKeysView';
+import AISecurityView from './components/views/settings/AISecurityView';
 import NotificationsView from './components/views/settings/NotificationsView';
 
 // System
@@ -167,7 +168,19 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [folderListLoading, setFolderListLoading] = useState(false);
   const [recentItems, setRecentItems] = useState<FileItem[]>([]);
-  const [selectedModel, setSelectedModel] = useState(AI_MODELS[0].id);
+  const [selectedModel, setSelectedModel] = useState(() => {
+    try {
+      const saved = localStorage.getItem('arcellite_selected_model');
+      if (saved) return saved;
+    } catch {}
+    return AI_MODELS[0].id;
+  });
+
+  // Persist selected model to localStorage
+  const handleModelChange = useCallback((model: string) => {
+    setSelectedModel(model);
+    try { localStorage.setItem('arcellite_selected_model', model); } catch {}
+  }, []);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -191,6 +204,11 @@ const App: React.FC = () => {
   // Upload progress state
   const [uploadProgress, setUploadProgress] = useState<UploadFileProgress[]>([]);
   const [uploadProgressVisible, setUploadProgressVisible] = useState(false);
+
+  // Smart features settings
+  const [pdfThumbnails, setPdfThumbnails] = useState(true);
+  const [aiAutoRename, setAiAutoRename] = useState(false);
+  const [aiRenamedSet, setAiRenamedSet] = useState<Set<string>>(new Set());
 
   // New Folder modal state
   const [newFolderModal, setNewFolderModal] = useState<{ isOpen: boolean; folderName: string; error: string | null }>({
@@ -256,30 +274,51 @@ const App: React.FC = () => {
   const loadServerFolders = useCallback(
     async (cat: string, path: string) => {
       setFolderListLoading(true);
-      try {
-        const { folders, files: filesList } = await fetchFolderList(cat, path);
-        const parentId = path ? `server-${cat}-${path}` : null;
-        const folderItems = folderEntriesToFileItems(cat, path, folders);
-        const fileItems = fileEntriesToFileItems(cat, path, filesList);
-        const newItems = [...folderItems, ...fileItems];
-        setFiles((prev) => {
-          const without = prev.filter(
-            (f) =>
-              !(
-                f.id.startsWith(`server-${cat}-`) &&
-                (path ? f.parentId === parentId : f.parentId === null)
-              )
-          );
-          return [...without, ...newItems];
-        });
-      } catch {
-        // API may be unavailable (e.g. dev without server)
-      } finally {
-        setFolderListLoading(false);
+      const maxRetries = 2;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const { folders, files: filesList } = await fetchFolderList(cat, path);
+          const parentId = path ? `server-${cat}-${path}` : null;
+          const folderItems = folderEntriesToFileItems(cat, path, folders);
+          const fileItems = fileEntriesToFileItems(cat, path, filesList);
+          const newItems = [...folderItems, ...fileItems];
+          setFiles((prev) => {
+            const without = prev.filter(
+              (f) =>
+                !(
+                  f.id.startsWith(`server-${cat}-`) &&
+                  (path ? f.parentId === parentId : f.parentId === null)
+                )
+            );
+            return [...without, ...newItems];
+          });
+          break; // success — exit retry loop
+        } catch {
+          if (attempt < maxRetries) {
+            // Wait briefly before retrying (server may be busy with batch operations)
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          }
+          // On final failure, keep existing files in state (don't clear them)
+        }
       }
+      setFolderListLoading(false);
     },
     []
   );
+
+  const loadAiRenamedFiles = useCallback(async () => {
+    try {
+      const res = await fetch(`${FILES_API.replace('/files', '/ai')}/renamed-files`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.renamedFiles) {
+          setAiRenamedSet(new Set(Object.keys(data.renamedFiles)));
+        }
+      }
+    } catch {
+      // Non-critical — sparkle indicators just won't show
+    }
+  }, []);
 
   const loadRecentFiles = useCallback(async () => {
     try {
@@ -380,6 +419,11 @@ const App: React.FC = () => {
             } else {
               setIsAuthenticated(true);
               loadRecentFiles();
+              // Load smart feature settings
+              authApi.getSettings().then(({ settings }) => {
+                if (settings.pdfThumbnails !== undefined) setPdfThumbnails(settings.pdfThumbnails);
+                if (settings.aiAutoRename !== undefined) setAiAutoRename(settings.aiAutoRename);
+              }).catch(() => {});
             }
           } catch (err) {
             // Session invalid, clear token
@@ -413,6 +457,28 @@ const App: React.FC = () => {
     setSelectedFile(null);
   }, []);
 
+  const handleGoBack = useCallback(() => {
+    if (!currentFolderId) return;
+    // currentFolderId format: server-{category}-{path}
+    const match = currentFolderId.match(/^server-([^-]+)-(.+)$/);
+    if (match) {
+      const category = match[1];
+      const path = match[2];
+      const parentPath = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+      if (parentPath) {
+        const parentId = `server-${category}-${parentPath}`;
+        setCurrentFolderId(parentId);
+        loadServerFolders(category, parentPath);
+      } else {
+        setCurrentFolderId(null);
+        loadServerFolders(category, '');
+      }
+    } else {
+      setCurrentFolderId(null);
+    }
+    setSelectedFile(null);
+  }, [currentFolderId, loadServerFolders]);
+
   const handleLogin = useCallback(async () => {
     try {
       const { user } = await authApi.getCurrentUser();
@@ -422,6 +488,12 @@ const App: React.FC = () => {
     }
     setIsAuthenticated(true);
     loadRecentFiles();
+    loadAiRenamedFiles();
+    // Load smart feature settings
+    authApi.getSettings().then(({ settings }) => {
+      if (settings.pdfThumbnails !== undefined) setPdfThumbnails(settings.pdfThumbnails);
+      if (settings.aiAutoRename !== undefined) setAiAutoRename(settings.aiAutoRename);
+    }).catch(() => {});
   }, [loadRecentFiles]);
 
   const handleSignOut = useCallback(async () => {
@@ -533,6 +605,11 @@ const App: React.FC = () => {
     }
   };
 
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success', icon?: 'usb') => {
+    setToast({ message, type, icon });
+    setTimeout(() => setToast(null), 4000);
+  }, []);
+
   const handleUploadSingle = useCallback(async (file: File, uploadCategory: string, uploadPath: string, progressId: string) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -589,7 +666,36 @@ const App: React.FC = () => {
       category: uploadCategory,
       sizeBytes: file.size,
     }).then(() => loadRecentFiles()).catch(() => {});
-  }, [loadRecentFiles]);
+
+    // AI Auto-Rename: if enabled and the file is an image, analyze and rename
+    const imageExtsForRename = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'tif', 'avif', 'heic', 'heif'];
+    if (aiAutoRename && imageExtsForRename.includes(ext)) {
+      showToast(`Analyzing "${file.name}" with AI...`, 'info');
+      try {
+        const response = await fetch('/api/ai/analyze-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category: uploadCategory, filePath: relativePath }),
+        });
+        const result = await response.json();
+        if (result.ok && result.renamed) {
+          showToast(`AI renamed: "${file.name}" → "${result.newFileName}"`, 'success');
+          // Refresh file list to show the new name
+          const cat = uploadCategory;
+          const currentPath = currentFolderId ? currentFolderId.replace(/^server-[^-]+-/, '') : '';
+          await loadServerFolders(cat, currentPath);
+          loadRecentFiles();
+          loadAiRenamedFiles();
+        } else if (result.ok && !result.renamed) {
+          showToast(`AI suggested: "${result.title}" but rename failed`, 'error');
+        } else {
+          showToast(`AI analysis failed: ${result.error || 'Unknown error'}`, 'error');
+        }
+      } catch (e) {
+        showToast(`AI rename failed: ${(e as Error).message}`, 'error');
+      }
+    }
+  }, [loadRecentFiles, loadAiRenamedFiles, aiAutoRename, currentFolderId, loadServerFolders, showToast]);
 
   const handleUpload = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
@@ -705,11 +811,6 @@ const App: React.FC = () => {
       }
     }
   }, [activeTab, currentFolderId, currentPath, loadServerFolders, handleUploadSingle]);
-
-  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success', icon?: 'usb') => {
-    setToast({ message, type, icon });
-    setTimeout(() => setToast(null), 4000);
-  }, []);
 
   // ── Real-time USB device detection via SSE ──
   useEffect(() => {
@@ -910,7 +1011,7 @@ const App: React.FC = () => {
   const filteredFolders = useMemo(() => {
     if (activeTab === 'overview') {
       // Show recent folders from recentItems
-      return recentItems.filter(f => f.isFolder).sort((a, b) => b.modifiedTimestamp - a.modifiedTimestamp).slice(0, 8);
+      return recentItems.filter(f => f.isFolder).sort((a, b) => b.modifiedTimestamp - a.modifiedTimestamp).slice(0, 12);
     }
     
     let list = files.filter(f => f.isFolder);
@@ -1108,7 +1209,7 @@ const App: React.FC = () => {
               ) : activeTab === 'settings' ? (
                 <AccountSettingsView
                   selectedModel={selectedModel}
-                  onModelChange={setSelectedModel}
+                  onModelChange={handleModelChange}
                   onNavigate={setActiveTab}
                   user={currentUser}
                   onUserUpdate={setCurrentUser}
@@ -1127,11 +1228,19 @@ const App: React.FC = () => {
               ) : activeTab === 'notifications' ? (
                 <NotificationsView />
               ) : activeTab === 'appearance' ? (
-                <AppearanceView />
+                <AppearanceView
+                  showToast={showToast}
+                  onSettingsChange={(s) => {
+                    setPdfThumbnails(s.pdfThumbnails);
+                    setAiAutoRename(s.aiAutoRename);
+                  }}
+                />
               ) : activeTab === 'aimodels' ? (
                 <AIModelsView />
               ) : activeTab === 'apikeys' ? (
                 <APIKeysView showToast={showToast} />
+              ) : activeTab === 'aisecurity' ? (
+                <AISecurityView showToast={showToast} />
               ) : activeTab === 'myapps' ? (
                 <MyAppsView />
               ) : activeTab === 'activity' ? (
@@ -1145,7 +1254,7 @@ const App: React.FC = () => {
               ) : activeTab === 'database' ? (
                 <DatabaseView />
               ) : activeTab === 'shared' ? (
-                <SharedView />
+                <SharedView showToast={showToast} />
               ) : (
                 <FilesView
                   activeTab={activeTab}
@@ -1166,6 +1275,9 @@ const App: React.FC = () => {
                   handleFileClick={handleFileClick}
                   handleFileAction={handleFileAction}
                   selectedFile={selectedFile}
+                  onGoBack={handleGoBack}
+                  pdfThumbnails={pdfThumbnails}
+                  aiRenamedSet={aiRenamedSet}
                 />
               )}
             </div>
@@ -1177,7 +1289,7 @@ const App: React.FC = () => {
         <>
           <div onMouseDown={startResizing} className={`w-1 h-full cursor-col-resize hover:bg-[#5D5FEF]/20 transition-colors z-20 ${isResizing ? 'bg-[#5D5FEF]' : 'bg-gray-50'}`} />
           <div className="flex-shrink-0 h-full overflow-hidden" style={{ width: detailsWidth }}>
-            <FileDetails file={selectedFile} onClose={() => setSelectedFile(null)} onDelete={handleDelete} />
+            <FileDetails file={selectedFile} onClose={() => setSelectedFile(null)} onDelete={handleDelete} onFileRenamed={() => { if (category) loadServerFolders(category, currentPath); loadRecentFiles(); loadAiRenamedFiles(); }} />
           </div>
         </>
       )}

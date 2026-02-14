@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, ArrowRight, RotateCcw, CheckCircle, XCircle, FolderPlus, Trash2, Database, FileText, Sparkles, Folder, File, ExternalLink, Image as ImageIcon, Film, Music, BookOpen, FileArchive, Table, Settings, FileCode, Mail } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Loader2, ArrowRight, RotateCcw, CheckCircle, XCircle, FolderPlus, Trash2, Database, FileText, Sparkles, Folder, File, ExternalLink, Image as ImageIcon, Film, Music, BookOpen, FileArchive, Table, Settings, FileCode, Mail, MessageSquare, Plus, Clock, ChevronLeft, X } from 'lucide-react';
 import DrawIcon from '../../DrawIcon';
 import { usePdfThumbnail } from '../../files/usePdfThumbnail';
 
@@ -68,6 +68,15 @@ interface ActionResult {
   data?: any;
 }
 
+interface ConversationSummary {
+  id: string;
+  title: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
 interface ChatViewProps {
   selectedModel: string;
   onRefreshFiles?: () => void;
@@ -84,6 +93,101 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Chat history state
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Load conversations list
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await fetch('/api/chat/conversations?limit=50');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) setConversations(data.conversations);
+      }
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
+  // Load conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+
+  // Load a specific conversation
+  const loadConversation = useCallback(async (conversationId: string) => {
+    try {
+      const res = await fetch(`/api/chat/conversations/${conversationId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          setMessages(data.messages);
+          setCurrentConversationId(conversationId);
+          setShowHistory(false);
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
+  // Create a new conversation
+  const createConversation = useCallback(async (): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/chat/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: selectedModel }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          setCurrentConversationId(data.conversation.id);
+          return data.conversation.id;
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+    return null;
+  }, [selectedModel]);
+
+  // Save a message to the DB
+  const saveMessage = useCallback(async (conversationId: string, msg: ChatMessage) => {
+    try {
+      await fetch('/api/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId,
+          role: msg.role,
+          content: msg.content,
+          actions: msg.actions || null,
+          blocks: msg.blocks || null,
+        }),
+      });
+    } catch {
+      // Non-critical — messages still show in UI
+    }
+  }, []);
+
+  // Delete a conversation
+  const deleteConversation = useCallback(async (conversationId: string) => {
+    try {
+      await fetch(`/api/chat/conversations/${conversationId}`, { method: 'DELETE' });
+      setConversations(prev => prev.filter(c => c.id !== conversationId));
+      if (currentConversationId === conversationId) {
+        setCurrentConversationId(null);
+        setMessages([]);
+      }
+    } catch {
+      // Non-critical
+    }
+  }, [currentConversationId]);
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -92,6 +196,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
 
   const handleClearChat = () => {
     setMessages([]);
+    setCurrentConversationId(null);
   };
 
   const handleSend = async () => {
@@ -102,6 +207,17 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
     setMessages(prev => [...prev, newUserMsg]);
     setInput('');
     setIsLoading(true);
+
+    // Ensure we have a conversation ID (create one if needed)
+    let convoId = currentConversationId;
+    if (!convoId) {
+      convoId = await createConversation();
+    }
+
+    // Save user message to DB
+    if (convoId) {
+      saveMessage(convoId, newUserMsg);
+    }
 
     const assistantTimestamp = Date.now() + 1;
 
@@ -117,7 +233,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: history,
-          model: 'deepseek-chat',
+          model: selectedModel,
           userEmail: user?.email,
         }),
       });
@@ -218,12 +334,26 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
           timestamp: assistantTimestamp,
         }]);
       }
+
+      // Save assistant message to DB
+      if (convoId) {
+        saveMessage(convoId, {
+          role: 'assistant',
+          content: accContent || 'Done.',
+          actions: accActions.length > 0 ? accActions : undefined,
+          blocks: accBlocks.length > 0 ? accBlocks : [{ type: 'text', text: accContent || 'Done.' }],
+          timestamp: assistantTimestamp,
+        });
+        loadConversations(); // Refresh sidebar list
+      }
     } catch (error) {
-      setMessages(prev => [...prev, {
+      const errorMsg: ChatMessage = {
         role: 'assistant' as const,
         content: 'Failed to connect to the AI service. Make sure the server is running and your DeepSeek API key is configured.',
         timestamp: Date.now(),
-      }]);
+      };
+      setMessages(prev => [...prev, errorMsg]);
+      if (convoId) saveMessage(convoId, errorMsg);
     } finally {
       setIsLoading(false);
       setIsStreaming(false);
@@ -907,10 +1037,83 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
 
   return (
     <div className="flex flex-col h-full bg-white w-full relative overflow-hidden">
-      {/* DrawIcon - Phone & Desktop */}
-      <div className="absolute top-20 sm:top-24 md:top-6 left-4 sm:left-8 z-30 flex items-center justify-center w-12 h-12 bg-gray-50/50 backdrop-blur-md rounded-2xl border border-gray-100">
-        <DrawIcon color="#5D5FEF" size={24} />
-      </div>
+      {/* History toggle button - Phone & Desktop */}
+      <button
+        onClick={() => { setShowHistory(prev => !prev); if (!showHistory) loadConversations(); }}
+        className={`absolute top-20 sm:top-24 md:top-6 left-4 sm:left-8 z-30 flex items-center justify-center w-12 h-12 backdrop-blur-md rounded-2xl border transition-all ${showHistory ? 'bg-[#5D5FEF] border-[#5D5FEF] shadow-lg shadow-[#5D5FEF]/30' : 'bg-gray-50/50 border-gray-100 hover:border-[#5D5FEF]/30 hover:bg-[#5D5FEF]/5'}`}
+        title="Chat History"
+      >
+        {showHistory ? <X className="w-5 h-5 text-white" /> : <MessageSquare className="w-5 h-5 text-[#5D5FEF]" />}
+      </button>
+
+      {/* Chat History Panel */}
+      {showHistory && (
+        <>
+          {/* Click-away backdrop */}
+          <div className="fixed inset-0 z-20" onClick={() => setShowHistory(false)} />
+          <div className="absolute top-36 sm:top-40 md:top-20 left-4 sm:left-8 z-30 w-80 max-h-[70vh] bg-white/95 backdrop-blur-xl rounded-2xl border border-gray-100 shadow-2xl shadow-black/10 overflow-hidden animate-in fade-in slide-in-from-left-4 duration-300">
+          {/* Panel Header */}
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-[#5D5FEF]" />
+              <h3 className="font-black text-sm text-gray-800">Chat History</h3>
+            </div>
+            <button
+              onClick={() => { handleClearChat(); setShowHistory(false); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5D5FEF] hover:bg-[#4B4DD4] text-white rounded-xl transition-all text-[10px] font-black tracking-wide"
+            >
+              <Plus className="w-3 h-3" />
+              New Chat
+            </button>
+          </div>
+
+          {/* Conversations List */}
+          <div className="overflow-y-auto max-h-[calc(70vh-60px)] py-2">
+            {conversations.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                <MessageSquare className="w-8 h-8 text-gray-200 mb-3" />
+                <p className="text-xs font-bold text-gray-400">No conversations yet</p>
+                <p className="text-[10px] text-gray-300 mt-1">Start chatting to see history here</p>
+              </div>
+            ) : (
+              conversations.map((convo) => (
+                <div
+                  key={convo.id}
+                  className={`group mx-2 mb-1 rounded-xl transition-all cursor-pointer ${currentConversationId === convo.id ? 'bg-[#5D5FEF]/10 border border-[#5D5FEF]/20' : 'hover:bg-gray-50 border border-transparent'}`}
+                >
+                  <div className="flex items-start gap-3 px-3 py-3" onClick={() => loadConversation(convo.id)}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${currentConversationId === convo.id ? 'bg-[#5D5FEF] shadow-md shadow-[#5D5FEF]/20' : 'bg-gray-100'}`}>
+                      <MessageSquare className={`w-3.5 h-3.5 ${currentConversationId === convo.id ? 'text-white' : 'text-gray-400'}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-[13px] font-bold truncate ${currentConversationId === convo.id ? 'text-[#5D5FEF]' : 'text-gray-700'}`}>
+                        {convo.title || 'Untitled Chat'}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[9px] font-bold text-gray-300">
+                          {new Date(convo.updated_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        </span>
+                        <span className="text-[9px] font-bold text-gray-300">•</span>
+                        <span className="text-[9px] font-bold text-gray-300">
+                          {convo.message_count} msg{convo.message_count !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteConversation(convo.id); }}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-50 rounded-lg transition-all"
+                      title="Delete conversation"
+                    >
+                      <Trash2 className="w-3 h-3 text-gray-300 hover:text-red-500 transition-colors" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+        </>
+      )}
 
       {/* Clear Chat - Phone & Desktop */}
       {messages.length > 0 && (

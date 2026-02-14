@@ -307,5 +307,143 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
     return true;
   }
 
+  // Save shared file from external service (Google Drive, etc.) to vault
+  if ((url === '/api/files/save-shared' || url?.startsWith('/api/files/save-shared?')) && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', async () => {
+      try {
+        const { fileId, fileName, mimeType, appId, webhookUrl } = JSON.parse(body);
+        if (!fileId || !fileName) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'fileId and fileName are required' }));
+          return;
+        }
+
+        // Determine the download webhook — use the same webhook base with a download action
+        const baseWebhookUrl = webhookUrl || 'https://n8n.arcelliteserver.com/webhook/google-files';
+
+        // Try to download the file via n8n webhook by POSTing with download action
+        let downloadResponse: Response | null = null;
+
+        // Strategy 1: POST to the same webhook with download action
+        try {
+          downloadResponse = await fetch(baseWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'download', fileId, mimeType }),
+          });
+
+          // If POST returned error or HTML, try GET with query param
+          if (!downloadResponse.ok || downloadResponse.headers.get('content-type')?.includes('text/html')) {
+            downloadResponse = null;
+          }
+        } catch {
+          downloadResponse = null;
+        }
+
+        // Strategy 2: GET with fileId query param
+        if (!downloadResponse) {
+          try {
+            downloadResponse = await fetch(`${baseWebhookUrl}?action=download&fileId=${encodeURIComponent(fileId)}&mimeType=${encodeURIComponent(mimeType || '')}`, {
+              method: 'GET',
+            });
+            if (!downloadResponse.ok) {
+              downloadResponse = null;
+            }
+          } catch {
+            downloadResponse = null;
+          }
+        }
+
+        // Strategy 3: Try a dedicated download webhook
+        if (!downloadResponse) {
+          const downloadWebhookUrl = baseWebhookUrl.replace(/\/webhook\/.*$/, '/webhook/google-download');
+          try {
+            downloadResponse = await fetch(`${downloadWebhookUrl}?fileId=${encodeURIComponent(fileId)}&mimeType=${encodeURIComponent(mimeType || '')}`, {
+              method: 'GET',
+            });
+            if (!downloadResponse.ok) {
+              downloadResponse = null;
+            }
+          } catch {
+            downloadResponse = null;
+          }
+        }
+
+        if (!downloadResponse) {
+          res.statusCode = 422;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({
+            error: 'Could not download file. Your n8n workflow needs to support file downloads.',
+            hint: 'Update your Google Drive n8n workflow to handle POST requests with { action: "download", fileId } and return the file binary data.',
+          }));
+          return;
+        }
+
+        // Determine target category and file extension
+        const ext = path.extname(fileName).toLowerCase();
+        const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'];
+        const videoExts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.webm'];
+        const audioExts = ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'];
+
+        let category = 'files';
+        if (imageExts.includes(ext)) category = 'photos';
+        else if (videoExts.includes(ext)) category = 'videos';
+        else if (audioExts.includes(ext)) category = 'music';
+
+        // Add extension for Google Workspace files (Docs → .pdf, Sheets → .xlsx, Slides → .pptx)
+        let savedFileName = fileName;
+        if (!ext || ext === '.') {
+          if (mimeType?.includes('google-apps.document')) savedFileName += '.pdf';
+          else if (mimeType?.includes('google-apps.spreadsheet')) savedFileName += '.xlsx';
+          else if (mimeType?.includes('google-apps.presentation')) savedFileName += '.pptx';
+          else savedFileName += '.pdf';
+        }
+
+        // Sanitize filename
+        savedFileName = savedFileName.replace(/[<>:"|?*]/g, '_');
+
+        // Save to vault
+        const targetDir = path.join(baseDir, category);
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        // Avoid overwriting — add number suffix if file exists
+        let finalPath = path.join(targetDir, savedFileName);
+        let counter = 1;
+        const baseName = path.parse(savedFileName).name;
+        const finalExt = path.extname(savedFileName);
+        while (fs.existsSync(finalPath)) {
+          finalPath = path.join(targetDir, `${baseName} (${counter})${finalExt}`);
+          counter++;
+        }
+
+        // Write file to disk
+        const fileBuffer = Buffer.from(await downloadResponse.arrayBuffer());
+        fs.writeFileSync(finalPath, fileBuffer);
+
+        const savedName = path.basename(finalPath);
+        const fileSizeBytes = fs.statSync(finalPath).size;
+
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          ok: true,
+          savedFileName: savedName,
+          category,
+          sizeBytes: fileSizeBytes,
+          path: `${category}/${savedName}`,
+        }));
+      } catch (e) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: String((e as Error).message) }));
+      }
+    });
+    return true;
+  }
+
   return false;
 }

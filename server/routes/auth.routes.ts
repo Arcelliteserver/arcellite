@@ -637,13 +637,24 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
     }
 
     const body = await parseBody(req);
-    const { notificationsEnabled, autoMirroring, vaultLockdown, storageDevice } = body;
+    const { notificationsEnabled, autoMirroring, vaultLockdown, storageDevice,
+      aiFileCreate, aiFileModify, aiFileDelete, aiFolderCreate,
+      aiFileOrganize, aiTrashAccess, aiTrashRestore, aiTrashEmpty,
+      aiDatabaseCreate, aiDatabaseDelete, aiDatabaseQuery,
+      aiSendEmail, aiCastMedia, aiFileRead,
+      aiAutoRename, pdfThumbnails,
+    } = body;
 
     await authService.updateUserSettings(user.id, {
       notificationsEnabled,
       autoMirroring,
       vaultLockdown,
       storageDevice,
+      aiFileCreate, aiFileModify, aiFileDelete, aiFolderCreate,
+      aiFileOrganize, aiTrashAccess, aiTrashRestore, aiTrashEmpty,
+      aiDatabaseCreate, aiDatabaseDelete, aiDatabaseQuery,
+      aiSendEmail, aiCastMedia, aiFileRead,
+      aiAutoRename, pdfThumbnails,
     });
 
     // Log the settings change
@@ -652,6 +663,21 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
     if (autoMirroring !== undefined) changedFields.push(`Auto Mirroring: ${autoMirroring ? 'enabled' : 'disabled'}`);
     if (vaultLockdown !== undefined) changedFields.push(`Vault Lockdown: ${vaultLockdown ? 'enabled' : 'disabled'}`);
     if (storageDevice !== undefined) changedFields.push(`Storage: ${storageDevice}`);
+
+    // Log AI security changes
+    const aiLabels: Record<string, string> = {
+      aiFileCreate: 'AI File Create', aiFileModify: 'AI File Modify', aiFileDelete: 'AI File Delete',
+      aiFolderCreate: 'AI Folder Create', aiFileOrganize: 'AI File Organize',
+      aiTrashAccess: 'AI Trash Access', aiTrashRestore: 'AI Trash Restore', aiTrashEmpty: 'AI Trash Empty',
+      aiDatabaseCreate: 'AI DB Create', aiDatabaseDelete: 'AI DB Delete', aiDatabaseQuery: 'AI DB Query',
+      aiSendEmail: 'AI Send Email', aiCastMedia: 'AI Cast Media', aiFileRead: 'AI File Read',
+      aiAutoRename: 'AI Auto-Rename', pdfThumbnails: 'PDF Thumbnails',
+    };
+    for (const [key, label] of Object.entries(aiLabels)) {
+      if ((body as any)[key] !== undefined) {
+        changedFields.push(`${label}: ${(body as any)[key] ? 'enabled' : 'disabled'}`);
+      }
+    }
 
     if (changedFields.length > 0) {
       authService.logActivity(user.id, 'settings', changedFields.join(', ')).catch(() => {});
@@ -767,5 +793,33 @@ export async function handleMarkAllNotificationsRead(req: IncomingMessage, res: 
   } catch (error: any) {
     console.error('[Auth] Mark all notifications read error:', error);
     sendJson(res, 500, { error: error.message || 'Failed to mark all notifications read' });
+  }
+}
+
+/**
+ * DELETE /api/notifications/clear-all
+ * Clear (delete) all notifications for current user
+ */
+export async function handleClearAllNotifications(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
+    const sessionToken = authHeader.substring(7);
+    const user = await authService.validateSession(sessionToken);
+
+    if (!user) {
+      sendJson(res, 401, { error: 'Invalid or expired session' });
+      return;
+    }
+
+    await authService.clearAllNotifications(user.id);
+    sendJson(res, 200, { success: true });
+  } catch (error: any) {
+    console.error('[Auth] Clear all notifications error:', error);
+    sendJson(res, 500, { error: error.message || 'Failed to clear notifications' });
   }
 }

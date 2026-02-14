@@ -102,6 +102,19 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   const settingsRef = useRef<HTMLDivElement>(null);
   const activeModelData = AI_MODELS.find(m => m.id === selectedModel) || AI_MODELS[0];
 
+  // Only show models whose provider has an API key configured
+  const [configuredProviders, setConfiguredProviders] = useState<string[]>([]);
+  const configuredModels = AI_MODELS.filter(m => configuredProviders.includes(m.provider));
+
+  useEffect(() => {
+    fetch('/api/ai/configured-providers')
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok && data.providers) setConfiguredProviders(data.providers);
+      })
+      .catch(() => {});
+  }, []);
+
   const displayName = user?.firstName && user?.lastName
     ? `${user.firstName} ${user.lastName}`
     : user?.email || 'User';
@@ -490,8 +503,21 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                     <div className="px-6 py-2 mb-2 border-b border-gray-50">
                       <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Select Processing Core</p>
                     </div>
+                    {configuredModels.length === 0 ? (
+                      <div className="px-6 py-8 text-center">
+                        <BrainCircuit className="w-8 h-8 text-gray-200 mx-auto mb-3" />
+                        <p className="text-sm font-bold text-gray-400 mb-1">No models configured</p>
+                        <p className="text-[10px] text-gray-300 mb-4">Add an API key in Settings → API Keys first</p>
+                        <button
+                          onClick={() => { if (onNavigate) onNavigate('apikeys'); setIsModelDropdownOpen(false); }}
+                          className="px-4 py-2 bg-[#5D5FEF] text-white rounded-xl text-[11px] font-bold hover:bg-[#4D4FCF] transition-all"
+                        >
+                          Go to API Keys
+                        </button>
+                      </div>
+                    ) : (
                     <div className="max-h-72 overflow-y-auto px-2 space-y-1 custom-scrollbar">
-                      {AI_MODELS.map((model) => (
+                      {configuredModels.map((model) => (
                         <button
                           key={model.id}
                           onClick={() => { onModelChange(model.id); setIsModelDropdownOpen(false); }}
@@ -533,16 +559,17 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                         </button>
                       ))}
                     </div>
+                    )}
                     <div className="px-6 pt-3 border-t border-gray-50">
                       <button
                         onClick={() => {
-                          setIsSettingsOpen(true);
+                          if (onNavigate) onNavigate('apikeys');
                           setIsModelDropdownOpen(false);
                         }}
                         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#5D5FEF]/5 hover:bg-[#5D5FEF]/10 text-[#5D5FEF] rounded-xl transition-all text-[12px] font-bold"
                       >
                         <Key className="w-3.5 h-3.5" />
-                        <span>Configure API & Settings</span>
+                        <span>Manage API Keys</span>
                       </button>
                     </div>
                   </div>

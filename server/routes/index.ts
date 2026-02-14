@@ -7,6 +7,7 @@ import { handleAIRoutes } from './ai.routes';
 import { handleExportRoutes } from './export.routes';
 import { handleSupportRoutes } from './support.routes';
 import { handleTransferRoutes } from './transfer.routes';
+import { handleChatRoutes } from './chat.routes';
 
 /**
  * Central router that handles all API routes
@@ -23,6 +24,7 @@ export function handleApiRoutes(
   if (handleDatabaseRoutes(req, res, url)) return true;
   if (handleAnalyticsRoutes(req, res, url)) return true;
   if (handleAIRoutes(req, res, url)) return true;
+  if (handleChatRoutes(req, res, url)) return true;
   if (handleExportRoutes(req, res, url)) return true;
   if (handleSupportRoutes(req, res, url)) return true;
   if (handleTransferRoutes(req, res, url)) return true;

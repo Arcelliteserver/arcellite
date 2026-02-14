@@ -17,6 +17,8 @@ import {
   Check,
   Copy,
   Type,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { FileItem } from '../../types';
 import FileIcon from './FileIcon';
@@ -34,13 +36,16 @@ interface FileDetailsProps {
   file: FileItem | null;
   onClose: () => void;
   onDelete?: (file: FileItem) => void;
+  onFileRenamed?: () => void;
 }
 
-const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete }) => {
+const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFileRenamed }) => {
   const [casting, setCasting] = useState(false);
   const [castMenuOpen, setCastMenuOpen] = useState(false);
   const [castSuccess, setCastSuccess] = useState<string | null>(null);
   const [titleCopied, setTitleCopied] = useState(false);
+  const [aiRenaming, setAiRenaming] = useState(false);
+  const [aiRenameResult, setAiRenameResult] = useState<{ success: boolean; message: string } | null>(null);
   const castMenuRef = useRef<HTMLDivElement>(null);
 
   // Close cast menu on outside click
@@ -96,6 +101,38 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete }) =>
   const handleDelete = () => {
     if (onDelete && confirm(`Are you sure you want to delete "${file.name}"?`)) {
       onDelete(file);
+    }
+  };
+
+  const handleAiRename = async () => {
+    if (aiRenaming || !file) return;
+    // Extract category and relative path from file ID: server-<category>-<path>
+    const category = file.category || 'general';
+    const idPrefix = `server-${category}-`;
+    const relPath = file.id.startsWith(idPrefix) ? file.id.slice(idPrefix.length) : file.name;
+
+    setAiRenaming(true);
+    setAiRenameResult(null);
+    try {
+      const response = await fetch('/api/ai/analyze-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, filePath: relPath }),
+      });
+      const result = await response.json();
+      if (result.ok && result.renamed) {
+        setAiRenameResult({ success: true, message: `Renamed to "${result.newFileName}"` });
+        onFileRenamed?.();
+      } else if (result.ok && !result.renamed) {
+        setAiRenameResult({ success: false, message: `Suggested "${result.title}" but rename failed` });
+      } else {
+        setAiRenameResult({ success: false, message: result.error || 'Analysis failed' });
+      }
+    } catch (e) {
+      setAiRenameResult({ success: false, message: (e as Error).message });
+    } finally {
+      setAiRenaming(false);
+      setTimeout(() => setAiRenameResult(null), 4000);
     }
   };
 
@@ -369,6 +406,28 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete }) =>
                     <p className="text-[10px] font-bold text-gray-300 uppercase tracking-wide mb-0.5">Title</p>
                     <p className="text-[14px] font-bold text-gray-700 truncate" title={cleanTitle}>{cleanTitle}</p>
                   </div>
+                  {isImage && (
+                    <button
+                      onClick={handleAiRename}
+                      disabled={aiRenaming}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 flex-shrink-0 ${
+                        aiRenaming
+                          ? 'bg-[#5D5FEF]/10 text-[#5D5FEF]'
+                          : aiRenameResult?.success
+                          ? 'bg-emerald-50 text-emerald-500'
+                          : 'text-gray-300 hover:bg-[#5D5FEF]/10 hover:text-[#5D5FEF]'
+                      }`}
+                      title={aiRenaming ? 'Analyzing...' : 'AI rename with Gemini'}
+                    >
+                      {aiRenaming ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : aiRenameResult?.success ? (
+                        <Check className="w-4 h-4" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                    </button>
+                  )}
                   <button
                     onClick={handleCopyTitle}
                     className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-300 hover:bg-[#5D5FEF]/10 hover:text-[#5D5FEF] transition-all active:scale-90 flex-shrink-0"
@@ -381,6 +440,15 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete }) =>
                     )}
                   </button>
                 </div>
+                {aiRenameResult && (
+                  <div className={`mt-2 ml-15 text-xs font-medium px-3 py-1.5 rounded-xl ${
+                    aiRenameResult.success
+                      ? 'bg-emerald-50 text-emerald-600'
+                      : 'bg-red-50 text-red-500'
+                  }`}>
+                    {aiRenameResult.message}
+                  </div>
+                )}
                 <div className="flex items-center gap-4 group">
                   <div className="w-11 h-11 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-[#5D5FEF]/5 group-hover:text-[#5D5FEF] transition-all">
                     <FileText className="w-5 h-5" />

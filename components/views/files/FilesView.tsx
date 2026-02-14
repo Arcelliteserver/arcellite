@@ -17,7 +17,8 @@ import {
   BookOpen,
   SortAsc,
   ChevronDown,
-  Filter
+  Filter,
+  ChevronLeft
 } from 'lucide-react';
 import FileGrid from '../../files/FileGrid';
 import FileListView from '../../files/FileListView';
@@ -44,6 +45,9 @@ interface FilesViewProps {
   handleFileClick: (file: FileItem) => void;
   handleFileAction: (action: string, file: FileItem, targetFolder?: FileItem) => void;
   selectedFile: FileItem | null;
+  onGoBack?: () => void;
+  pdfThumbnails?: boolean;
+  aiRenamedSet?: Set<string>;
 }
 
 const FilesView: React.FC<FilesViewProps> = ({
@@ -65,6 +69,9 @@ const FilesView: React.FC<FilesViewProps> = ({
   handleFileClick,
   handleFileAction,
   selectedFile,
+  onGoBack,
+  pdfThumbnails = true,
+  aiRenamedSet,
 }) => {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -224,6 +231,15 @@ const FilesView: React.FC<FilesViewProps> = ({
         </div>
         {showFileControls && (
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            {currentFolderId && onGoBack && (
+              <button
+                onClick={onGoBack}
+                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 md:px-5 py-2 sm:py-2.5 md:py-3 bg-white text-gray-600 rounded-lg sm:rounded-xl text-[8px] sm:text-[9px] md:text-[10px] font-black uppercase tracking-widest border border-gray-100 hover:bg-gray-50 transition-all"
+              >
+                <ChevronLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
+                <span>Back</span>
+              </button>
+            )}
             {showNewFolder && (
               <button
                 onClick={createFolder}
@@ -339,6 +355,8 @@ const FilesView: React.FC<FilesViewProps> = ({
             allFiles={files}
             onAction={handleFileAction}
             availableFolders={filteredFolders}
+            pdfThumbnails={pdfThumbnails}
+            aiRenamedSet={aiRenamedSet}
           />
         </div>
       )}
@@ -357,6 +375,8 @@ const FilesView: React.FC<FilesViewProps> = ({
               allFiles={files}
               onAction={handleFileAction}
               availableFolders={filteredFolders}
+              pdfThumbnails={pdfThumbnails}
+              aiRenamedSet={aiRenamedSet}
             />
           ) : (
             <FileListView

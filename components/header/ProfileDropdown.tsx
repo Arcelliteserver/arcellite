@@ -7,7 +7,8 @@ import {
   Activity,
   Download,
   Settings,
-  Sparkles
+  Sparkles,
+  ShieldCheck
 } from 'lucide-react';
 import type { UserData } from '../../App';
 
@@ -164,6 +165,13 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
               >
                 <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">AI Models</span>
+              </button>
+              <button 
+                onClick={() => handleTabNavigate('aisecurity')}
+                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+              >
+                <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">AI Security</span>
               </button>
               <button 
                 onClick={() => handleTabNavigate('myapps')}

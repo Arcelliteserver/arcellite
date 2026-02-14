@@ -3,6 +3,7 @@
  */
 
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
@@ -45,6 +46,102 @@ export function loadApiKeys(): Record<string, string> {
 export function getApiKey(provider: string): string | null {
   const keys = loadApiKeys();
   return keys[provider] || null;
+}
+
+/** Return list of provider names that have a saved API key */
+export function getConfiguredProviders(): string[] {
+  const keys = loadApiKeys();
+  return Object.keys(keys).filter(k => !!keys[k]);
+}
+
+// ─── Provider API Configuration ─────────────────────────────────────
+
+interface ProviderConfig {
+  apiUrl: string;
+  /** Map our model ID to the provider's model name */
+  resolveModel: (modelId: string) => string;
+}
+
+const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
+  DeepSeek: {
+    apiUrl: 'https://api.deepseek.com/v1/chat/completions',
+    resolveModel: (id) => id, // deepseek-chat, deepseek-reasoner
+  },
+  Google: {
+    apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    resolveModel: (id) => {
+      // Map our IDs to Gemini API model names
+      const map: Record<string, string> = {
+        'gemini-3-pro': 'gemini-2.5-pro-preview-06-05',
+        'gemini-3-flash': 'gemini-2.5-flash-preview-05-20',
+        'gemini-2.5-pro': 'gemini-2.5-pro-preview-06-05',
+        'gemini-2.5-flash': 'gemini-2.5-flash-preview-05-20',
+        'gemini-2.5-flash-lite': 'gemini-2.5-flash-preview-05-20',
+        'gemini-2-flash': 'gemini-2.0-flash',
+      };
+      return map[id] || id;
+    },
+  },
+  OpenAI: {
+    apiUrl: 'https://api.openai.com/v1/chat/completions',
+    resolveModel: (id) => {
+      const map: Record<string, string> = {
+        'gpt-5.2': 'gpt-4o',
+        'gpt-5.2-pro': 'gpt-4o',
+        'gpt-5': 'gpt-4o',
+        'gpt-5-mini': 'gpt-4o-mini',
+        'gpt-5-nano': 'gpt-4o-mini',
+        'gpt-4.1': 'gpt-4.1',
+      };
+      return map[id] || 'gpt-4o';
+    },
+  },
+  Anthropic: {
+    apiUrl: 'https://api.anthropic.com/v1/messages',
+    resolveModel: (id) => {
+      const map: Record<string, string> = {
+        'claude-4.5-opus': 'claude-sonnet-4-20250514',
+        'claude-4.1-sonnet': 'claude-sonnet-4-20250514',
+        'claude-4.1-haiku': 'claude-haiku-3-5-20241022',
+        'claude-3.7-sonnet': 'claude-3-7-sonnet-20250219',
+      };
+      return map[id] || 'claude-sonnet-4-20250514';
+    },
+  },
+  Grok: {
+    apiUrl: 'https://api.x.ai/v1/chat/completions',
+    resolveModel: (id) => id,
+  },
+  Qwen: {
+    apiUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
+    resolveModel: (id) => {
+      const map: Record<string, string> = {
+        'qwen-2.5-72b': 'qwen-plus',
+        'qwen-2.5-32b': 'qwen-turbo',
+      };
+      return map[id] || id;
+    },
+  },
+};
+
+/** Model ID → Provider name mapping (built from constants) */
+const MODEL_PROVIDER_MAP: Record<string, string> = {
+  'gemini-3-pro': 'Google', 'gemini-3-flash': 'Google', 'gemini-2.5-pro': 'Google',
+  'gemini-2.5-flash': 'Google', 'gemini-2.5-flash-lite': 'Google', 'gemini-2-flash': 'Google',
+  'gpt-5.2': 'OpenAI', 'gpt-5.2-pro': 'OpenAI', 'gpt-5': 'OpenAI',
+  'gpt-5-mini': 'OpenAI', 'gpt-5-nano': 'OpenAI', 'gpt-4.1': 'OpenAI',
+  'claude-4.5-opus': 'Anthropic', 'claude-4.1-sonnet': 'Anthropic',
+  'claude-4.1-haiku': 'Anthropic', 'claude-3.7-sonnet': 'Anthropic',
+  'llama-3.1-405b': 'Meta', 'llama-3-70b': 'Meta', 'llama-3-8b': 'Meta',
+  'grok-4-1-fast-reasoning': 'Grok', 'grok-4-1-fast-non-reasoning': 'Grok',
+  'grok-4-fast-reasoning': 'Grok', 'grok-4-fast-non-reasoning': 'Grok',
+  'ollama-llama3': 'Ollama', 'ollama-mistral': 'Ollama', 'gpt-oss': 'Ollama', 'kimi-k2.5': 'Ollama',
+  'qwen-2.5-72b': 'Qwen', 'qwen-2.5-32b': 'Qwen',
+  'deepseek-chat': 'DeepSeek', 'deepseek-reasoner': 'DeepSeek',
+};
+
+export function getProviderForModel(modelId: string): string {
+  return MODEL_PROVIDER_MAP[modelId] || 'DeepSeek';
 }
 
 // ─── DeepSeek Chat Proxy ────────────────────────────────────────────
@@ -596,22 +693,38 @@ MULTI-STEP TASKS (CRITICAL):
 - NEVER stop after just one step if the user asked for multiple things. Always continue until the entire request is fulfilled.
 - After the final step completes, ALWAYS end with a confident confirmation that everything is done. Never leave the conversation hanging without a wrap-up.
 
+VERIFICATION (CRITICAL — DO NOT HALLUCINATE):
+- NEVER assume an action worked. Each action returns a real result (✅ success or ❌ failure). Read the result CAREFULLY before saying anything succeeded.
+- If a move_file or organize action result says "verified", it actually succeeded. If it says "failed" or the message contains an error, it DID NOT work — tell the user honestly and try again or suggest a fix.
+- After completing a batch of moves (e.g. organizing books into subfolders), VERIFY your work: emit a list action on the target folder to confirm the files are actually there. Do NOT just say "Done!" without checking.
+- When you receive "[SYSTEM — ACTION RESULTS]", READ every single result line. Count how many succeeded (✅) and how many failed (❌). Report the actual numbers: "Successfully moved 15 out of 20 files. 5 failed because..." — do NOT say "all done" if some failed.
+- If a file move fails, it's usually because the file name doesn't match exactly. The system auto-resolves cleaned names, but if it still fails, the file may not exist at the path you specified. Check the filesystem context to use the EXACT file name.
+- NEVER say you completed a task if the action results show failures. Be honest about what worked and what didn't.
+- For large batch operations (moving many files), work through ALL the files systematically. Do NOT stop halfway. If the max actions per response is reached, continue in the next iteration until every file has been processed.
+
 ${filesCtx}
 
 ${dbCtx}`;
 }
 
 /**
- * Send a chat to DeepSeek and return the response.
+ * Send a chat to the appropriate AI provider and return the response.
+ * Automatically routes to the correct API based on the model ID.
  */
 export async function chatWithAI(
   messages: ChatMessage[],
   model: string = 'deepseek-chat',
   userEmail?: string
 ): Promise<{ content: string; error?: string }> {
-  const apiKey = getApiKey('DeepSeek');
+  const provider = getProviderForModel(model);
+  const apiKey = getApiKey(provider);
   if (!apiKey) {
-    return { content: '', error: 'No DeepSeek API key configured. Go to Profile → AI Models → API Keys to add your key.' };
+    return { content: '', error: `No ${provider} API key configured. Go to Settings → API Keys to add your key.` };
+  }
+
+  const config = PROVIDER_CONFIGS[provider];
+  if (!config) {
+    return { content: '', error: `Provider "${provider}" is not yet supported for chat. Please use a supported model.` };
   }
 
   // Build context
@@ -619,21 +732,57 @@ export async function chatWithAI(
   const dbCtx = await getDatabaseContext();
   const systemPrompt = buildSystemPrompt(filesCtx, dbCtx, userEmail);
 
-  // Prepend system message
+  // Resolve the actual API model name
+  const apiModel = config.resolveModel(model);
+
+  // ─── Anthropic uses a different API format ─────────────────────
+  if (provider === 'Anthropic') {
+    try {
+      const response = await fetch(config.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: apiModel,
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: messages.map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[AI] ${provider} API error:`, response.status, errorText);
+        return { content: '', error: `${provider} API error (${response.status}): ${errorText}` };
+      }
+
+      const data: any = await response.json();
+      const content = data.content?.[0]?.text || '';
+      return { content };
+    } catch (e) {
+      console.error('[AI] Chat error:', e);
+      return { content: '', error: `Failed to connect to ${provider}: ${(e as Error).message}` };
+    }
+  }
+
+  // ─── OpenAI-compatible providers (DeepSeek, OpenAI, Google, Grok, Qwen) ──
   const fullMessages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     ...messages,
   ];
 
   try {
-    const response = await fetch(DEEPSEEK_API_URL, {
+    const response = await fetch(config.apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model,
+        model: apiModel,
         messages: fullMessages,
         temperature: 0.7,
         max_tokens: 4096,
@@ -643,8 +792,8 @@ export async function chatWithAI(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[AI] DeepSeek API error:', response.status, errorText);
-      return { content: '', error: `DeepSeek API error (${response.status}): ${errorText}` };
+      console.error(`[AI] ${provider} API error:`, response.status, errorText);
+      return { content: '', error: `${provider} API error (${response.status}): ${errorText}` };
     }
 
     const data: any = await response.json();
@@ -652,7 +801,7 @@ export async function chatWithAI(
     return { content };
   } catch (e) {
     console.error('[AI] Chat error:', e);
-    return { content: '', error: `Failed to connect to DeepSeek: ${(e as Error).message}` };
+    return { content: '', error: `Failed to connect to ${provider}: ${(e as Error).message}` };
   }
 }
 
@@ -789,8 +938,9 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
       case 'delete': {
         const { deleteFile } = await import('./files.js');
         const category = action.category || 'general';
-        deleteFile(category, action.path);
-        return { success: true, message: `"${action.path}" deleted successfully.` };
+        const resolvedPath = resolveFilePath(category, action.path || '');
+        deleteFile(category, resolvedPath);
+        return { success: true, message: `"${cleanFileName(action.path)}" deleted successfully.` };
       }
 
       case 'rename': {
@@ -812,17 +962,20 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
             break;
           }
         }
+        // Resolve cleaned file name to actual file on disk
+        oldPathSanitized = resolveFilePath(category, oldPathSanitized);
         const parentDir = path.dirname(oldPathSanitized);
         const newPath = parentDir === '.' ? action.newName : `${parentDir}/${action.newName}`;
         moveFile(category, oldPathSanitized, newPath);
-        return { success: true, message: `Renamed "${path.basename(oldPathSanitized)}" to "${action.newName}".` };
+        return { success: true, message: `Renamed "${cleanFileName(path.basename(oldPathSanitized))}" to "${action.newName}".` };
       }
 
       case 'trash': {
         const { moveToTrash } = await import('./trash.js');
         const category = action.category || 'general';
-        moveToTrash(category, action.path);
-        return { success: true, message: `"${action.path}" moved to trash.` };
+        const resolvedPath = resolveFilePath(category, action.path || '');
+        moveToTrash(category, resolvedPath);
+        return { success: true, message: `"${cleanFileName(action.path)}" moved to trash.` };
       }
 
       case 'list_databases': {
@@ -1029,16 +1182,29 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
       case 'move_file': {
         const { moveFile } = await import('./files.js');
         const category = action.category || 'general';
-        const sourcePath = (action.sourcePath || '').replace(/^\/+/, '').trim();
+        let sourcePath = (action.sourcePath || '').replace(/^\/+/, '').trim();
         const targetFolder = (action.targetFolder || '').replace(/^\/+/, '').trim();
+        // Resolve cleaned file name to actual file on disk
+        sourcePath = resolveFilePath(category, sourcePath);
         const fileName = path.basename(sourcePath);
         const targetPath = targetFolder ? `${targetFolder}/${fileName}` : fileName;
         if (sourcePath === targetPath) {
-          return { success: true, message: `"${fileName}" is already in the right location.` };
+          return { success: true, message: `"${cleanFileName(fileName)}" is already in the right location.` };
         }
         moveFile(category, sourcePath, targetPath);
+        // Verify the move actually succeeded
+        const catMap: Record<string, string> = { general: 'files', media: 'photos', video_vault: 'videos', music: 'music' };
+        const baseDir = path.join(DATA_DIR, catMap[category] || 'files');
+        const targetFull = path.join(baseDir, targetPath);
+        const sourceFull = path.join(baseDir, sourcePath);
+        if (!fs.existsSync(targetFull)) {
+          return { success: false, message: `Move failed: "${cleanFileName(fileName)}" was not found at the target location after move.` };
+        }
+        if (fs.existsSync(sourceFull)) {
+          return { success: false, message: `Move incomplete: "${cleanFileName(fileName)}" still exists at the source location.` };
+        }
         const targetLabel = targetFolder || 'root';
-        return { success: true, message: `Moved "${fileName}" to ${targetLabel}.` };
+        return { success: true, message: `Moved "${cleanFileName(fileName)}" to ${targetLabel}/ — verified.` };
       }
 
       case 'organize': {
@@ -1093,20 +1259,40 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
         // Create folders that don't exist yet and move files
         const foldersCreated = new Set<string>();
         const movedFiles: string[] = [];
+        const failedFiles: string[] = [];
+        const catMapOrg: Record<string, string> = { general: 'files', media: 'photos', video_vault: 'videos', music: 'music' };
+        const baseDirOrg = path.join(DATA_DIR, catMapOrg[category] || 'files');
         for (const mv of moves) {
           if (!folderMap[mv.targetFolder.toLowerCase()] && !foldersCreated.has(mv.targetFolder)) {
             mkdir(category, mv.targetFolder);
             foldersCreated.add(mv.targetFolder);
           }
-          moveFile(category, mv.name, `${mv.targetFolder}/${mv.name}`);
-          movedFiles.push(`${mv.name} → ${mv.targetFolder}/`);
+          try {
+            moveFile(category, mv.name, `${mv.targetFolder}/${mv.name}`);
+            // Verify the move
+            const targetFull = path.join(baseDirOrg, mv.targetFolder, mv.name);
+            if (fs.existsSync(targetFull)) {
+              movedFiles.push(`${cleanFileName(mv.name)} → ${mv.targetFolder}/`);
+            } else {
+              failedFiles.push(cleanFileName(mv.name));
+            }
+          } catch {
+            failedFiles.push(cleanFileName(mv.name));
+          }
         }
 
         const catLabel = category === 'general' ? 'Files' : category === 'media' ? 'Photos' : category === 'video_vault' ? 'Videos' : 'Music';
+        let organizeMsg = `Organized ${movedFiles.length} file${movedFiles.length === 1 ? '' : 's'} in ${catLabel} — verified.`;
+        if (movedFiles.length > 0) {
+          organizeMsg += `\n${movedFiles.map(m => `• ${m}`).join('\n')}`;
+        }
+        if (failedFiles.length > 0) {
+          organizeMsg += `\n⚠️ Failed to move ${failedFiles.length} file(s): ${failedFiles.join(', ')}`;
+        }
         return {
-          success: true,
-          message: `Organized ${movedFiles.length} file${movedFiles.length === 1 ? '' : 's'} in ${catLabel}:\n${movedFiles.map(m => `• ${m}`).join('\n')}`,
-          data: { type: 'organize_result', moved: movedFiles, foldersCreated: Array.from(foldersCreated) },
+          success: failedFiles.length === 0,
+          message: organizeMsg,
+          data: { type: 'organize_result', moved: movedFiles, failed: failedFiles, foldersCreated: Array.from(foldersCreated) },
         };
       }
 
@@ -1204,5 +1390,104 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
     }
   } catch (e) {
     return { success: false, message: `Action failed: ${(e as Error).message}` };
+  }
+}
+
+// ─── Gemini Vision: Auto-Rename Images ──────────────────────────────
+
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+
+/**
+ * Use Google Gemini Vision to analyze an image and suggest a descriptive filename.
+ * Reads the image from disk, sends base64 to Gemini, returns a clean title.
+ */
+export async function analyzeImageForTitle(imagePath: string): Promise<{ ok: boolean; title?: string; error?: string }> {
+  const apiKey = getApiKey('Google');
+  if (!apiKey) {
+    return { ok: false, error: 'No Google API key configured. Add your Gemini API key in Settings → API Keys.' };
+  }
+
+  // Read the image file (async to avoid blocking the event loop during batch operations)
+  const absolutePath = imagePath.startsWith('/') ? imagePath : path.join(DATA_DIR, imagePath);
+  try {
+    const stats = await fsp.stat(absolutePath);
+    if (stats.size > 15 * 1024 * 1024) {
+      return { ok: false, error: 'Image too large (>15MB). Skipping AI analysis.' };
+    }
+  } catch {
+    return { ok: false, error: `Image file not found: ${imagePath}` };
+  }
+
+  const imageBuffer = await fsp.readFile(absolutePath);
+  const base64Image = imageBuffer.toString('base64');
+
+  // Determine MIME type from extension
+  const ext = path.extname(absolutePath).toLowerCase();
+  const mimeMap: Record<string, string> = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+    '.tiff': 'image/tiff', '.tif': 'image/tiff', '.heic': 'image/heic',
+    '.heif': 'image/heif', '.avif': 'image/avif',
+  };
+  const mimeType = mimeMap[ext] || 'image/jpeg';
+
+  try {
+    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Image,
+              }
+            },
+            {
+              text: 'Look at this image and give it a short, descriptive filename (2-6 words). Return ONLY the filename without any extension, punctuation, or explanation. Use Title Case. Examples: Golden Gate Bridge Sunset, Family Beach Vacation, Cat Sleeping On Couch'
+            }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 50,
+          topP: 0.8,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { ok: false, error: `Gemini API error (${response.status}): ${errorText}` };
+    }
+
+    const data = await response.json();
+    const rawTitle = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+    if (!rawTitle) {
+      return { ok: false, error: 'Gemini returned an empty response.' };
+    }
+
+    // Clean the title: remove quotes, periods, extensions, limit length
+    let title = rawTitle
+      .replace(/^["']|["']$/g, '')    // Remove wrapping quotes
+      .replace(/\.\w{2,4}$/i, '')     // Remove file extension if included
+      .replace(/[<>:"/\\|?*]/g, '')   // Remove filesystem-unsafe chars
+      .replace(/\.+$/, '')            // Remove trailing dots
+      .trim();
+
+    // Limit to reasonable length
+    if (title.length > 80) {
+      title = title.substring(0, 80).trim();
+    }
+
+    if (!title) {
+      return { ok: false, error: 'Could not extract a meaningful title from the AI response.' };
+    }
+
+    return { ok: true, title };
+  } catch (e) {
+    return { ok: false, error: `Gemini Vision request failed: ${(e as Error).message}` };
   }
 }

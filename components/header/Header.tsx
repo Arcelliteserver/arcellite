@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronRight, HelpCircle, Bell, Menu } from 'lucide-react';
+import { authApi } from '../../services/api.client';
 import SearchBar from './SearchBar';
 import ProfileDropdown from './ProfileDropdown';
 import HelpDropdown from './HelpDropdown';
@@ -36,6 +37,22 @@ const Header: React.FC<HeaderProps> = ({
   const [isProfileOpen, setIsProfileOpen] = React.useState(false);
   const [isHelpOpen, setIsHelpOpen] = React.useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = React.useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = React.useState(0);
+
+  // Fetch unread notification count on mount and periodically
+  React.useEffect(() => {
+    const fetchCount = () => {
+      authApi.getNotifications(50)
+        .then(data => {
+          const unread = (data.notifications || []).filter((n: any) => !n.read).length;
+          setUnreadNotificationCount(unread);
+        })
+        .catch(() => {});
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleProfile = () => {
     setIsProfileOpen(!isProfileOpen);
@@ -60,6 +77,17 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   const closeNotification = () => setIsNotificationOpen(false);
+
+  // Refresh unread count when dropdown closes
+  const handleNotificationClose = () => {
+    closeNotification();
+    authApi.getNotifications(50)
+      .then(data => {
+        const unread = (data.notifications || []).filter((n: any) => !n.read).length;
+        setUnreadNotificationCount(unread);
+      })
+      .catch(() => {});
+  };
 
   const handleAccountSettings = () => {
     onAccountSettings();
@@ -141,11 +169,13 @@ const Header: React.FC<HeaderProps> = ({
             aria-label="Notifications"
           >
             <Bell className="w-4 h-4 md:w-5 md:h-5" />
-            <span className="absolute top-2 md:top-2.5 right-2 md:right-2.5 w-1.5 h-1.5 bg-[#5D5FEF] rounded-full animate-pulse" />
+            {unreadNotificationCount > 0 && (
+              <span className="absolute top-2 md:top-2.5 right-2 md:right-2.5 w-1.5 h-1.5 bg-[#5D5FEF] rounded-full animate-pulse" />
+            )}
           </button>
           <NotificationDropdown
             isOpen={isNotificationOpen}
-            onClose={closeNotification}
+            onClose={handleNotificationClose}
             onNavigate={onTabChange || (() => {})}
           />
         </div>
