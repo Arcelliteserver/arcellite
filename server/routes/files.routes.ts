@@ -118,7 +118,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
       const category = urlObj.searchParams.get('category') || 'general';
       const pathParam = urlObj.searchParams.get('path') || '';
 
-      const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files' };
+      const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
       const categoryDir = catMap[category] || 'files';
       const filePath = path.join(baseDir, categoryDir, pathParam);
 
@@ -135,18 +135,55 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         '.png': 'image/png',
         '.gif': 'image/gif',
         '.webp': 'image/webp',
+        '.svg': 'image/svg+xml',
         '.mp4': 'video/mp4',
         '.webm': 'video/webm',
+        '.mov': 'video/quicktime',
+        '.avi': 'video/x-msvideo',
+        '.mkv': 'video/x-matroska',
+        '.mp3': 'audio/mpeg',
+        '.wav': 'audio/wav',
+        '.flac': 'audio/flac',
+        '.ogg': 'audio/ogg',
+        '.aac': 'audio/aac',
+        '.m4a': 'audio/mp4',
         '.pdf': 'application/pdf',
         '.txt': 'text/plain',
       };
 
       const contentType = contentTypes[ext] || 'application/octet-stream';
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      const stat = fs.statSync(filePath);
+      const fileSize = stat.size;
 
-      const stream = fs.createReadStream(filePath);
-      stream.pipe(res);
+      // Support HTTP Range requests (required for mobile video/audio playback)
+      const rangeHeader = req.headers.range;
+      if (rangeHeader) {
+        const parts = rangeHeader.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
+
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=31536000',
+        });
+
+        const stream = fs.createReadStream(filePath, { start, end });
+        stream.pipe(res);
+      } else {
+        res.writeHead(200, {
+          'Content-Length': fileSize,
+          'Content-Type': contentType,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'public, max-age=31536000',
+        });
+
+        const stream = fs.createReadStream(filePath);
+        stream.pipe(res);
+      }
     } catch (e) {
       res.statusCode = 500;
       res.end('Server error');
@@ -161,7 +198,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
       const category = urlObj.searchParams.get('category') || 'general';
       const pathParam = urlObj.searchParams.get('path') || '';
 
-      const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files' };
+      const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
       const categoryDir = catMap[category] || 'files';
       const filePath = path.join(baseDir, categoryDir, pathParam);
 

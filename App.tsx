@@ -3,6 +3,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import Sidebar from './components/sidebar/Sidebar';
 import Header from './components/header/Header';
 import FileDetails from './components/files/FileDetails';
+import MobileApp from './components/mobile/MobileApp';
 // Features
 import ChatView from './components/views/features/ChatView';
 import HelpSupportView from './components/views/features/HelpSupportView';
@@ -199,6 +200,7 @@ const App: React.FC = () => {
   const [detailsWidth, setDetailsWidth] = useState(340);
   const [isResizing, setIsResizing] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; icon?: 'usb' } | null>(null);
 
   // Upload progress state
@@ -267,6 +269,15 @@ const App: React.FC = () => {
       window.removeEventListener('mouseup', stopResizing);
     };
   }, [resize, stopResizing]);
+
+  // Mobile viewport detection
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 767px)');
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => setIsMobile(e.matches);
+    handler(mql);
+    mql.addEventListener('change', handler as (e: MediaQueryListEvent) => void);
+    return () => mql.removeEventListener('change', handler as (e: MediaQueryListEvent) => void);
+  }, []);
 
   const category = getCategoryFromTab(activeTab);
   const currentPath = category ? getFolderPath(currentFolderId, category) : '';
@@ -1099,6 +1110,251 @@ const App: React.FC = () => {
   // Show auth view if not authenticated
   if (!isAuthenticated) {
     return <AuthView onLogin={handleLogin} />;
+  }
+
+  // ── Mobile Application ──
+  if (isMobile) {
+    return (
+      <>
+        <MobileApp
+          user={currentUser}
+          onUserUpdate={setCurrentUser}
+          onSignOut={handleSignOut}
+          files={files}
+          recentItems={recentItems}
+          currentFolderId={currentFolderId}
+          selectedFile={selectedFile}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          activeTab={activeTab}
+          onTabChange={(tab) => { setActiveTab(tab); handleNavigate(null); setCurrentFolderId(null); }}
+          onFileClick={handleFileClick}
+          onFileAction={handleFileAction}
+          onGoBack={handleGoBack}
+          onNavigate={handleNavigate}
+          onCreateFolder={createFolder}
+          onUpload={handleUpload}
+          filteredFolders={filteredFolders}
+          filteredFilesOnly={filteredFilesOnly}
+          selectedModel={selectedModel}
+          onModelChange={handleModelChange}
+          pdfThumbnails={pdfThumbnails}
+          aiRenamedSet={aiRenamedSet}
+          showToast={showToast}
+          onRefreshFiles={() => {
+            loadServerFolders('general', '');
+            loadServerFolders('media', '');
+            loadServerFolders('video_vault', '');
+            loadServerFolders('music', '');
+            loadRecentFiles();
+          }}
+          onNavigateToFile={(category, itemPath, isFolder) => {
+            const tabMap: Record<string, string> = { general: 'all', media: 'photos', video_vault: 'videos', music: 'music' };
+            const tab = tabMap[category] || 'all';
+            setActiveTab(tab);
+            if (isFolder) {
+              const folderId = `server-${category}-${itemPath}`;
+              setCurrentFolderId(folderId);
+              loadServerFolders(category, itemPath);
+            } else {
+              const parentPath = itemPath.includes('/') ? itemPath.substring(0, itemPath.lastIndexOf('/')) : '';
+              if (parentPath) {
+                setCurrentFolderId(`server-${category}-${parentPath}`);
+                loadServerFolders(category, parentPath);
+              } else {
+                setCurrentFolderId(null);
+                loadServerFolders(category, '');
+              }
+            }
+          }}
+          onSettingsChange={(s) => {
+            setPdfThumbnails(s.pdfThumbnails);
+            setAiAutoRename(s.aiAutoRename);
+          }}
+          onDeleteAccount={() => {
+            setCurrentUser(null);
+            setIsAuthenticated(false);
+            setRecentItems([]);
+            setActiveTab('overview');
+            setCurrentFolderId(null);
+            setSelectedFile(null);
+            setSetupNeeded(true);
+          }}
+          mountedDevice={mountedDevice}
+          onMountedDeviceOpen={(dev) => {
+            setMountedDevice(dev);
+          }}
+          onDeselectFile={() => setSelectedFile(null)}
+          onDelete={handleDelete}
+        />
+
+        {/* Upload Progress Popup */}
+        <UploadProgress
+          files={uploadProgress}
+          visible={uploadProgressVisible}
+          onDismiss={() => { setUploadProgressVisible(false); setUploadProgress([]); }}
+        />
+
+        {/* Toast Notification */}
+        {toast && (
+          <div className="fixed bottom-20 left-4 right-4 z-[1000] animate-in slide-in-from-bottom-4 fade-in duration-300">
+            <div className={`px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 ${
+              toast.type === 'success'
+                ? 'bg-green-500 text-white'
+                : toast.type === 'info'
+                ? 'bg-[#5D5FEF] text-white'
+                : 'bg-red-500 text-white'
+            }`}>
+              {toast.type === 'success' ? (
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : toast.type === 'info' ? (
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              )}
+              <span className="font-bold text-sm">{toast.message}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation Modal */}
+        <ConfirmModal
+          isOpen={confirmModal.isOpen}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmText={confirmModal.confirmText}
+          variant={confirmModal.variant}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => {
+            if ((window as any).__tempCancelHandler) {
+              (window as any).__tempCancelHandler();
+              delete (window as any).__tempCancelHandler;
+            } else {
+              setConfirmModal({ ...confirmModal, isOpen: false });
+            }
+          }}
+        />
+
+        {/* New Folder Modal */}
+        {newFolderModal.isOpen && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/50 z-[600] animate-in fade-in duration-200"
+              onClick={() => setNewFolderModal({ isOpen: false, folderName: '', error: null })}
+            />
+            <div className="fixed inset-0 z-[700] flex items-end justify-center p-0 animate-in fade-in slide-in-from-bottom-4 duration-200">
+              <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-md overflow-hidden safe-area-bottom">
+                <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mt-3" />
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <h3 className="text-lg font-black text-gray-900">Create New Folder</h3>
+                </div>
+                <div className="p-6">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={newFolderModal.folderName}
+                    onChange={(e) => setNewFolderModal(prev => ({ ...prev, folderName: e.target.value, error: null }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCreateFolderSubmit();
+                      if (e.key === 'Escape') setNewFolderModal({ isOpen: false, folderName: '', error: null });
+                    }}
+                    placeholder="Folder name"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-medium"
+                  />
+                  {newFolderModal.error && (
+                    <p className="text-xs text-red-500 mt-2 font-medium">{newFolderModal.error}</p>
+                  )}
+                </div>
+                <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-3">
+                  <button
+                    onClick={() => setNewFolderModal({ isOpen: false, folderName: '', error: null })}
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreateFolderSubmit}
+                    disabled={!newFolderModal.folderName.trim()}
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                  >
+                    Create
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Rename Modal */}
+        {renameModal.isOpen && renameModal.file && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/50 z-[600] animate-in fade-in duration-200"
+              onClick={() => setRenameModal({ isOpen: false, file: null, newName: '', error: null })}
+            />
+            <div className="fixed inset-0 z-[700] flex items-end justify-center p-0 animate-in fade-in slide-in-from-bottom-4 duration-200">
+              <div className="bg-white rounded-t-3xl shadow-2xl w-full max-w-md overflow-hidden safe-area-bottom">
+                <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mt-3" />
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <h3 className="text-lg font-black text-gray-900">Rename</h3>
+                  <p className="text-xs text-gray-500 mt-1">Rename <span className="font-bold text-gray-700">{renameModal.file.name}</span></p>
+                </div>
+                <div className="p-6">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={renameModal.newName}
+                    onChange={(e) => setRenameModal(prev => ({ ...prev, newName: e.target.value, error: null }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameSubmit();
+                      if (e.key === 'Escape') setRenameModal({ isOpen: false, file: null, newName: '', error: null });
+                    }}
+                    onFocus={(e) => {
+                      const val = e.target.value;
+                      const dotIdx = val.lastIndexOf('.');
+                      if (dotIdx > 0 && !renameModal.file?.isFolder) {
+                        e.target.setSelectionRange(0, dotIdx);
+                      } else {
+                        e.target.select();
+                      }
+                    }}
+                    placeholder="New name"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-medium"
+                  />
+                  {renameModal.error && (
+                    <p className="text-xs text-red-500 mt-2 font-medium">{renameModal.error}</p>
+                  )}
+                </div>
+                <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-3">
+                  <button
+                    onClick={() => setRenameModal({ isOpen: false, file: null, newName: '', error: null })}
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleRenameSubmit}
+                    disabled={!renameModal.newName.trim() || renameModal.newName.trim() === renameModal.file?.name}
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                  >
+                    Rename
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* PWA Install Prompt */}
+        <InstallPrompt />
+      </>
+    );
   }
 
   return (

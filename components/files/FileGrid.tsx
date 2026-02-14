@@ -25,6 +25,7 @@ interface FileGridProps {
   availableFolders?: FileItem[]; // Pass available folders for Move option
   pdfThumbnails?: boolean; // Enable/disable PDF thumbnail rendering
   aiRenamedSet?: Set<string>; // Set of "category/relPath" keys for AI-renamed files
+  mobileColumns?: 2 | 3; // Number of columns on mobile (default: 2)
 }
 
 const CustomFolderIcon = ({ className }: { className?: string }) => (
@@ -103,7 +104,7 @@ const PdfBookThumbnail: React.FC<{ file: FileItem; isPdf?: boolean; enabled?: bo
   );
 };
 
-const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [], pdfThumbnails = true, aiRenamedSet }) => {
+const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [], pdfThumbnails = true, aiRenamedSet, mobileColumns = 2 }) => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -163,7 +164,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
   };
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-[repeat(auto-fill,minmax(200px,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 sm:gap-4 md:gap-6 lg:gap-8">
+    <div className={`grid ${mobileColumns === 3 ? 'grid-cols-3 gap-2' : 'grid-cols-2 gap-3'} sm:grid-cols-2 sm:gap-3 md:grid-cols-[repeat(auto-fill,minmax(200px,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(220px,1fr))] md:gap-6 lg:gap-8`}>
       {files.map((file) => {
         const isSelected = selectedFileId === file.id;
         const isMenuOpen = activeMenuId === file.id;

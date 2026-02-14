@@ -413,34 +413,34 @@ const DatabaseDetailView: React.FC<{
   return (
     <div className="w-full animate-in fade-in duration-300">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+      <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+        <button onClick={onBack} className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-xl transition-colors flex-shrink-0">
           <ArrowLeft className="w-5 h-5 text-gray-500" />
         </button>
-        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${dbType?.color || 'from-gray-500 to-gray-600'} shadow-md flex items-center justify-center p-2`}>
+        <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-gradient-to-br ${dbType?.color || 'from-gray-500 to-gray-600'} shadow-md flex items-center justify-center p-1.5 sm:p-2 flex-shrink-0`}>
           <img src={dbType?.icon || ''} alt="" className="w-full h-full object-contain filter brightness-0 invert" />
         </div>
-        <div className="flex-1">
-          <h2 className="text-xl md:text-2xl font-black text-gray-900">{db.name}</h2>
-          <p className="text-xs text-gray-500 font-bold">{db.pgDatabaseName || db.type}</p>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-lg sm:text-xl md:text-2xl font-black text-gray-900 truncate">{db.name}</h2>
+          <p className="text-[10px] sm:text-xs text-gray-500 font-bold truncate">{db.pgDatabaseName || db.type}</p>
         </div>
-        <div className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${db.status === 'running' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-          <div className={`w-2 h-2 rounded-full ${db.status === 'running' ? 'bg-green-500' : 'bg-gray-400'}`} />
+        <div className={`px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 sm:gap-1.5 flex-shrink-0 ${db.status === 'running' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+          <div className={`w-1.5 sm:w-2 h-1.5 sm:h-2 rounded-full ${db.status === 'running' ? 'bg-green-500' : 'bg-gray-400'}`} />
           {db.status === 'running' ? 'Running' : 'Stopped'}
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1">
+      <div className="flex gap-1 mb-4 sm:mb-6 bg-gray-100 rounded-xl p-1">
         {(['tables', 'query', 'info'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === tab ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all ${activeTab === tab ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            {tab === 'tables' && <Table className="w-4 h-4" />}
-            {tab === 'query' && <Terminal className="w-4 h-4" />}
-            {tab === 'info' && <Eye className="w-4 h-4" />}
+            {tab === 'tables' && <Table className="w-3.5 sm:w-4 h-3.5 sm:h-4" />}
+            {tab === 'query' && <Terminal className="w-3.5 sm:w-4 h-3.5 sm:h-4" />}
+            {tab === 'info' && <Eye className="w-3.5 sm:w-4 h-3.5 sm:h-4" />}
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
@@ -467,15 +467,15 @@ const DatabaseDetailView: React.FC<{
 
           {/* Create table form */}
           {showCreateTable && (
-            <div className="mb-6 bg-white rounded-2xl border-2 border-[#5D5FEF]/20 p-5 animate-in slide-in-from-top duration-200">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-black text-gray-900">Create Table</h3>
+            <div className="mb-4 sm:mb-6 bg-white rounded-2xl border-2 border-[#5D5FEF]/20 p-3.5 sm:p-5 animate-in slide-in-from-top duration-200">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h3 className="text-sm sm:text-base font-black text-gray-900">Create Table</h3>
                 <button onClick={() => setShowCreateTable(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
                   <X className="w-4 h-4 text-gray-400" />
                 </button>
               </div>
 
-              <div className="mb-4">
+              <div className="mb-3 sm:mb-4">
                 <label className="block text-xs font-bold text-gray-600 mb-1.5">Table Name</label>
                 <input
                   type="text"
@@ -491,44 +491,49 @@ const DatabaseDetailView: React.FC<{
                 <label className="block text-xs font-bold text-gray-600 mb-2">Columns</label>
                 <div className="space-y-2">
                   {newTableCols.map((col, idx) => (
-                    <div key={idx} className="flex items-center gap-2 bg-gray-50 rounded-lg p-2.5">
-                      <input
-                        type="text"
-                        value={col.name}
-                        onChange={(e) => updateColumn(idx, 'name', e.target.value)}
-                        placeholder="column_name"
-                        className="flex-1 min-w-0 px-2.5 py-2 rounded-lg border border-gray-200 focus:border-[#5D5FEF] focus:outline-none text-xs font-medium"
-                      />
-                      <select
-                        value={col.type}
-                        onChange={(e) => updateColumn(idx, 'type', e.target.value)}
-                        className="px-2 py-2 rounded-lg border border-gray-200 focus:border-[#5D5FEF] focus:outline-none text-xs font-medium bg-white min-w-[130px]"
-                      >
-                        {PG_TYPES.map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </select>
-                      <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 whitespace-nowrap cursor-pointer">
+                    <div key={idx} className="bg-gray-50 rounded-lg p-2.5">
+                      {/* Mobile: stack vertically, Desktop: inline row */}
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                         <input
-                          type="checkbox"
-                          checked={col.primaryKey}
-                          onChange={(e) => updateColumn(idx, 'primaryKey', e.target.checked)}
-                          className="rounded"
+                          type="text"
+                          value={col.name}
+                          onChange={(e) => updateColumn(idx, 'name', e.target.value)}
+                          placeholder="column_name"
+                          className="flex-1 min-w-0 px-2.5 py-2 rounded-lg border border-gray-200 focus:border-[#5D5FEF] focus:outline-none text-xs font-medium"
                         />
-                        PK
-                      </label>
-                      <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 whitespace-nowrap cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={col.nullable}
-                          onChange={(e) => updateColumn(idx, 'nullable', e.target.checked)}
-                          className="rounded"
-                        />
-                        Null
-                      </label>
-                      <button onClick={() => removeColumn(idx)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        <select
+                          value={col.type}
+                          onChange={(e) => updateColumn(idx, 'type', e.target.value)}
+                          className="w-full sm:w-auto px-2 py-2 rounded-lg border border-gray-200 focus:border-[#5D5FEF] focus:outline-none text-xs font-medium bg-white sm:min-w-[130px]"
+                        >
+                          {PG_TYPES.map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                        <div className="flex items-center gap-3 sm:gap-2">
+                          <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 whitespace-nowrap cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={col.primaryKey}
+                              onChange={(e) => updateColumn(idx, 'primaryKey', e.target.checked)}
+                              className="rounded"
+                            />
+                            PK
+                          </label>
+                          <label className="flex items-center gap-1 text-[10px] font-bold text-gray-500 whitespace-nowrap cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={col.nullable}
+                              onChange={(e) => updateColumn(idx, 'nullable', e.target.checked)}
+                              className="rounded"
+                            />
+                            Null
+                          </label>
+                          <button onClick={() => removeColumn(idx)} className="ml-auto p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -603,11 +608,11 @@ const DatabaseDetailView: React.FC<{
 
           {/* Table data viewer */}
           {selectedTable && (
-            <div className="mt-6 bg-white rounded-2xl border-2 border-gray-100 overflow-hidden">
-              <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-black text-gray-900">{selectedTable}</h4>
-                  <p className="text-[11px] text-gray-500 font-medium">{tableTotalCount} total rows &bull; {tableColumns.length} columns</p>
+            <div className="mt-4 sm:mt-6 bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 overflow-hidden">
+              <div className="px-3.5 sm:px-5 py-2.5 sm:py-3 border-b border-gray-100 flex items-center justify-between">
+                <div className="min-w-0">
+                  <h4 className="text-xs sm:text-sm font-black text-gray-900 truncate">{selectedTable}</h4>
+                  <p className="text-[10px] sm:text-[11px] text-gray-500 font-medium">{tableTotalCount} total rows &bull; {tableColumns.length} columns</p>
                 </div>
                 <button onClick={() => setSelectedTable(null)} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
                   <X className="w-4 h-4 text-gray-400" />
@@ -615,11 +620,11 @@ const DatabaseDetailView: React.FC<{
               </div>
 
               {/* Columns schema */}
-              <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Schema</p>
-                <div className="flex flex-wrap gap-1.5">
+              <div className="px-3.5 sm:px-5 py-2.5 sm:py-3 bg-gray-50 border-b border-gray-100">
+                <p className="text-[9px] sm:text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Schema</p>
+                <div className="flex flex-wrap gap-1 sm:gap-1.5">
                   {tableColumns.map((col) => (
-                    <span key={col.name} className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 rounded-md text-[11px] font-medium text-gray-700">
+                    <span key={col.name} className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-white border border-gray-200 rounded-md text-[10px] sm:text-[11px] font-medium text-gray-700">
                       <span className="font-bold">{col.name}</span>
                       <span className="text-gray-400">{col.type}</span>
                       {col.nullable && <span className="text-yellow-500 text-[9px]">NULL</span>}
@@ -666,8 +671,8 @@ const DatabaseDetailView: React.FC<{
       {activeTab === 'query' && (
         <div>
           <div className="bg-white rounded-2xl border-2 border-gray-100 overflow-hidden mb-4">
-            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-              <p className="text-xs font-black text-gray-400 uppercase tracking-widest">SQL Query</p>
+            <div className="px-3.5 sm:px-5 py-2.5 sm:py-3 border-b border-gray-100 flex items-center justify-between">
+              <p className="text-[10px] sm:text-xs font-black text-gray-400 uppercase tracking-widest">SQL Query</p>
               <button
                 onClick={handleRunQuery}
                 disabled={queryRunning || !sql.trim()}
@@ -677,11 +682,11 @@ const DatabaseDetailView: React.FC<{
                 Run
               </button>
             </div>
-            <div className="relative min-h-[320px]">
+            <div className="relative min-h-[180px] sm:min-h-[320px]">
               {/* Highlighted layer */}
               <pre
                 aria-hidden
-                className="absolute inset-0 px-5 py-4 text-sm font-mono whitespace-pre-wrap break-words pointer-events-none overflow-hidden m-0 bg-transparent"
+                className="absolute inset-0 px-3 sm:px-5 py-3 sm:py-4 text-xs sm:text-sm font-mono whitespace-pre-wrap break-words pointer-events-none overflow-hidden m-0 bg-transparent"
                 style={{ color: 'transparent' }}
               >
                 {sql ? highlightSQL(sql) : <span className="text-gray-400">{'SELECT * FROM my_table LIMIT 10;\n\n-- Or create tables, insert data, etc.'}</span>}
@@ -693,7 +698,7 @@ const DatabaseDetailView: React.FC<{
                 value={sql}
                 onChange={(e) => setSql(e.target.value)}
                 placeholder={'SELECT * FROM my_table LIMIT 10;\n\n-- Or create tables, insert data, etc.'}
-                className="relative w-full h-full px-5 py-4 text-sm font-mono focus:outline-none resize-none min-h-[320px] bg-transparent caret-gray-900"
+                className="relative w-full h-full px-3 sm:px-5 py-3 sm:py-4 text-xs sm:text-sm font-mono focus:outline-none resize-none min-h-[180px] sm:min-h-[320px] bg-transparent caret-gray-900"
                 style={{ color: sql ? 'transparent' : undefined, caretColor: '#111827', WebkitTextFillColor: sql ? 'transparent' : undefined }}
                 spellCheck={false}
                 onKeyDown={(e) => {
@@ -772,10 +777,10 @@ const DatabaseDetailView: React.FC<{
 
       {/* ─── INFO TAB ─── */}
       {activeTab === 'info' && (
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           {/* Connection Details */}
-          <div className="bg-white rounded-2xl border-2 border-gray-100 p-5">
-            <h3 className="text-sm font-black text-gray-900 mb-4">Connection Details</h3>
+          <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3.5 sm:p-5">
+            <h3 className="text-sm font-black text-gray-900 mb-3 sm:mb-4">Connection Details</h3>
             <div className="space-y-1">
               {[
                 { label: 'Host', value: getNetworkHost() },
@@ -783,10 +788,10 @@ const DatabaseDetailView: React.FC<{
                 { label: 'Database', value: db.config?.database || db.pgDatabaseName || '-' },
                 { label: 'Username', value: db.config?.username || '-' },
               ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between text-sm py-2.5 border-b border-gray-50">
-                  <span className="text-gray-500 font-medium">{item.label}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-900 font-bold font-mono text-xs">{item.value}</span>
+                <div key={item.label} className="flex items-center justify-between text-xs sm:text-sm py-2 sm:py-2.5 border-b border-gray-50 gap-2">
+                  <span className="text-gray-500 font-medium flex-shrink-0">{item.label}</span>
+                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                    <span className="text-gray-900 font-bold font-mono text-[10px] sm:text-xs truncate">{item.value}</span>
                     <button
                       onClick={() => copyToClipboard(item.value, item.label)}
                       className="p-1 hover:bg-gray-100 rounded-md transition-colors text-gray-300 hover:text-gray-500"
@@ -799,10 +804,10 @@ const DatabaseDetailView: React.FC<{
               ))}
 
               {/* Password row with show/hide toggle */}
-              <div className="flex items-center justify-between text-sm py-2.5 border-b border-gray-50">
-                <span className="text-gray-500 font-medium">Password</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-900 font-bold font-mono text-xs">
+              <div className="flex items-center justify-between text-xs sm:text-sm py-2 sm:py-2.5 border-b border-gray-50 gap-2">
+                <span className="text-gray-500 font-medium flex-shrink-0">Password</span>
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                  <span className="text-gray-900 font-bold font-mono text-[10px] sm:text-xs truncate">
                     {showPassword ? (db.config?.password || '-') : '••••••••••'}
                   </span>
                   <button
@@ -823,27 +828,27 @@ const DatabaseDetailView: React.FC<{
               </div>
 
               {/* Size & Created */}
-              <div className="flex items-center justify-between text-sm py-2.5 border-b border-gray-50">
+              <div className="flex items-center justify-between text-xs sm:text-sm py-2 sm:py-2.5 border-b border-gray-50">
                 <span className="text-gray-500 font-medium">Size</span>
-                <span className="text-gray-900 font-bold font-mono text-xs">{db.size}</span>
+                <span className="text-gray-900 font-bold font-mono text-[10px] sm:text-xs">{db.size}</span>
               </div>
-              <div className="flex items-center justify-between text-sm py-2.5">
+              <div className="flex items-center justify-between text-xs sm:text-sm py-2 sm:py-2.5">
                 <span className="text-gray-500 font-medium">Created</span>
-                <span className="text-gray-900 font-bold font-mono text-xs">{new Date(db.created).toLocaleString()}</span>
+                <span className="text-gray-900 font-bold font-mono text-[10px] sm:text-xs">{new Date(db.created).toLocaleString()}</span>
               </div>
             </div>
           </div>
 
           {/* Connection URLs */}
           {db.config && (
-            <div className="bg-white rounded-2xl border-2 border-gray-100 p-5">
-              <h3 className="text-sm font-black text-gray-900 mb-4">Connection URLs</h3>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3.5 sm:p-5">
+              <h3 className="text-sm font-black text-gray-900 mb-3 sm:mb-4">Connection URLs</h3>
               <div className="space-y-3">
                 {/* PostgreSQL URL */}
                 <div>
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">PostgreSQL URL</label>
-                  <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-3 border border-gray-100">
-                    <code className="flex-1 text-xs font-mono text-gray-800 break-all">{getConnectionUrl()}</code>
+                  <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
+                    <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getConnectionUrl()}</code>
                     <button
                       onClick={() => copyToClipboard(getConnectionUrl(), 'pgUrl')}
                       className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
@@ -857,8 +862,8 @@ const DatabaseDetailView: React.FC<{
                 {/* JDBC URL */}
                 <div>
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">JDBC URL (DataGrip / IntelliJ)</label>
-                  <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-3 border border-gray-100">
-                    <code className="flex-1 text-xs font-mono text-gray-800 break-all">{getJdbcUrl()}</code>
+                  <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
+                    <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getJdbcUrl()}</code>
                     <button
                       onClick={() => copyToClipboard(getJdbcUrl(), 'jdbcUrl')}
                       className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
@@ -1019,9 +1024,9 @@ const DatabaseView: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-10 gap-4">
         <div className="relative">
           <div className="absolute -left-2 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-4 md:pl-6 relative flex items-center gap-3">
-            <Database className="w-8 h-8 text-[#5D5FEF]" />
-            Database Management
+          <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-3 sm:pl-4 md:pl-6 relative flex items-center gap-2 sm:gap-3">
+            <Database className="w-6 sm:w-8 h-6 sm:h-8 text-[#5D5FEF] flex-shrink-0" />
+            <span className="truncate">Database Management</span>
           </h2>
         </div>
 
@@ -1122,41 +1127,41 @@ const DatabaseView: React.FC = () => {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white rounded-2xl border-2 border-gray-100 p-5 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center">
-              <Activity className="w-5 h-5 text-green-600" />
+      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8">
+        <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3 sm:p-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row items-center sm:items-center gap-1.5 sm:gap-3">
+            <div className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
+              <Activity className="w-4 sm:w-5 h-4 sm:h-5 text-green-600" />
             </div>
-            <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Active</p>
-              <p className="text-2xl font-black text-gray-900">
+            <div className="text-center sm:text-left">
+              <p className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider">Active</p>
+              <p className="text-lg sm:text-2xl font-black text-gray-900">
                 {databases.filter((db) => db.status === 'running').length}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border-2 border-gray-100 p-5 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-              <Server className="w-5 h-5 text-gray-600" />
+        <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3 sm:p-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row items-center sm:items-center gap-1.5 sm:gap-3">
+            <div className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+              <Server className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600" />
             </div>
-            <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total</p>
-              <p className="text-2xl font-black text-gray-900">{databases.length}</p>
+            <div className="text-center sm:text-left">
+              <p className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider">Total</p>
+              <p className="text-lg sm:text-2xl font-black text-gray-900">{databases.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border-2 border-gray-100 p-5 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-              <HardDrive className="w-5 h-5 text-blue-600" />
+        <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3 sm:p-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row items-center sm:items-center gap-1.5 sm:gap-3">
+            <div className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <HardDrive className="w-4 sm:w-5 h-4 sm:h-5 text-blue-600" />
             </div>
-            <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Storage</p>
-              <p className="text-2xl font-black text-gray-900">
+            <div className="text-center sm:text-left">
+              <p className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider">Storage</p>
+              <p className="text-lg sm:text-2xl font-black text-gray-900">
                 {(() => {
                   const totalBytes = databases.reduce((acc, db: any) => acc + (db.sizeBytes || 0), 0);
                   if (totalBytes === 0) return '0 B';
@@ -1208,10 +1213,10 @@ const DatabaseView: React.FC = () => {
                   className="bg-white rounded-2xl md:rounded-3xl border border-gray-100 overflow-hidden hover:shadow-2xl hover:shadow-[#5D5FEF]/8 hover:border-[#5D5FEF]/20 transition-all duration-300 cursor-pointer group"
                   onClick={() => setOpenDb(db)}
                 >
-                  <div className="p-5 md:p-6">
+                  <div className="p-3.5 sm:p-5 md:p-6">
                     {/* Top: Icon + Name + Status */}
-                    <div className="flex items-center gap-4 mb-5">
-                      <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${dbType?.color || 'from-gray-500 to-gray-600'} shadow-lg flex items-center justify-center p-3 flex-shrink-0 group-hover:scale-105 transition-transform duration-300`}>
+                    <div className="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-5">
+                      <div className={`w-11 sm:w-14 h-11 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br ${dbType?.color || 'from-gray-500 to-gray-600'} shadow-lg flex items-center justify-center p-2.5 sm:p-3 flex-shrink-0 group-hover:scale-105 transition-transform duration-300`}>
                         <img
                           src={dbType?.icon || '/assets/icons/storage_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg'}
                           alt={db.type}
@@ -1219,42 +1224,42 @@ const DatabaseView: React.FC = () => {
                         />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-lg font-black text-gray-900 group-hover:text-[#5D5FEF] transition-colors truncate">{db.name}</h4>
-                        <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">
+                        <h4 className="text-base sm:text-lg font-black text-gray-900 group-hover:text-[#5D5FEF] transition-colors truncate">{db.name}</h4>
+                        <p className="text-[9px] sm:text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">
                           {dbType?.name || db.type}
                         </p>
                       </div>
-                      <div className={`px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide flex items-center gap-1.5 flex-shrink-0 ${isRunning ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
+                      <div className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[9px] sm:text-[10px] font-black tracking-wide flex items-center gap-1 sm:gap-1.5 flex-shrink-0 ${isRunning ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
                         <div className={`w-2 h-2 rounded-full ${isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-300'}`} />
                         {isRunning ? 'Running' : 'Stopped'}
                       </div>
                     </div>
 
                     {/* Stats row */}
-                    <div className="flex items-center gap-3 mb-5">
-                      <div className="flex-1 bg-gray-50 rounded-xl px-3.5 py-2.5 text-center">
-                        <p className="text-[8px] font-black text-gray-300 uppercase tracking-widest mb-0.5">Storage</p>
-                        <p className="text-sm font-black text-gray-800">{db.size}</p>
+                    <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-5">
+                      <div className="flex-1 bg-gray-50 rounded-lg sm:rounded-xl px-2.5 sm:px-3.5 py-2 sm:py-2.5 text-center">
+                        <p className="text-[7px] sm:text-[8px] font-black text-gray-300 uppercase tracking-widest mb-0.5">Storage</p>
+                        <p className="text-xs sm:text-sm font-black text-gray-800">{db.size}</p>
                       </div>
-                      <div className="flex-1 bg-gray-50 rounded-xl px-3.5 py-2.5 text-center">
-                        <p className="text-[8px] font-black text-gray-300 uppercase tracking-widest mb-0.5">Created</p>
-                        <p className="text-sm font-black text-gray-800">{new Date(db.created).toLocaleDateString()}</p>
+                      <div className="flex-1 bg-gray-50 rounded-lg sm:rounded-xl px-2.5 sm:px-3.5 py-2 sm:py-2.5 text-center">
+                        <p className="text-[7px] sm:text-[8px] font-black text-gray-300 uppercase tracking-widest mb-0.5">Created</p>
+                        <p className="text-xs sm:text-sm font-black text-gray-800">{new Date(db.created).toLocaleDateString()}</p>
                       </div>
                     </div>
 
                     {/* PG Name tag */}
                     {(db as any).pgDatabaseName && (
-                      <div className="mb-5 px-3.5 py-2 bg-[#5D5FEF]/5 rounded-xl border border-[#5D5FEF]/10">
+                      <div className="mb-3 sm:mb-5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-[#5D5FEF]/5 rounded-lg sm:rounded-xl border border-[#5D5FEF]/10">
                         <p className="text-[8px] font-black text-[#5D5FEF]/40 uppercase tracking-widest mb-0.5">PG Name</p>
                         <p className="text-xs font-bold font-mono text-[#5D5FEF]/70">{(db as any).pgDatabaseName}</p>
                       </div>
                     )}
 
                     {/* Actions */}
-                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5 sm:gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => handleToggleDatabase(db.id, db.status)}
-                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black tracking-wide transition-all ${
+                        className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black tracking-wide transition-all ${
                           isRunning
                             ? 'bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-700'
                             : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
@@ -1268,13 +1273,13 @@ const DatabaseView: React.FC = () => {
                       </button>
                       <button
                         onClick={() => setOpenDb(db)}
-                        className="px-4 py-2.5 rounded-xl text-xs font-black tracking-wide bg-[#5D5FEF]/10 text-[#5D5FEF] border border-[#5D5FEF]/15 hover:bg-[#5D5FEF]/20 transition-all"
+                        className="px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black tracking-wide bg-[#5D5FEF]/10 text-[#5D5FEF] border border-[#5D5FEF]/15 hover:bg-[#5D5FEF]/20 transition-all"
                       >
                         View
                       </button>
                       <button
                         onClick={() => handleDeleteDatabase(db.id, db.name)}
-                        className="w-10 h-10 rounded-xl flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-all"
+                        className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-all flex-shrink-0"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
