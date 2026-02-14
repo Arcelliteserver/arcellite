@@ -12,14 +12,14 @@ const { Pool } = pg;
 
 // Database configuration from environment variables
 const DB_CONFIG = {
-  host: process.env.DB_HOST || 'localhost',
+  host: process.env.DB_HOST || '127.0.0.1',
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'arcellite',
   user: process.env.DB_USER || 'arcellite_user',
   password: process.env.DB_PASSWORD || 'changeme',
   max: 20, // Maximum number of clients in the pool
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000,
 };
 
 // Create connection pool
@@ -35,11 +35,61 @@ pool.on('error', (err) => {
 });
 
 /**
+ * Print helpful troubleshooting info when database connection fails
+ */
+function printDbTroubleshooting(error: any) {
+  const errMsg = error?.message || String(error);
+  console.error('\n' + '='.repeat(60));
+  console.error('[Database] CONNECTION FAILED');
+  console.error('='.repeat(60));
+  console.error(`Error: ${errMsg}`);
+  console.error(`\nConnection config:`);
+  console.error(`  Host:     ${DB_CONFIG.host}`);
+  console.error(`  Port:     ${DB_CONFIG.port}`);
+  console.error(`  Database: ${DB_CONFIG.database}`);
+  console.error(`  User:     ${DB_CONFIG.user}`);
+  console.error('');
+
+  if (errMsg.includes('ENOENT') || errMsg.includes('ECONNREFUSED')) {
+    console.error('Possible causes:');
+    console.error('  1. PostgreSQL is not running');
+    console.error('     → sudo systemctl start postgresql');
+    console.error('  2. PostgreSQL is on a different port');
+    console.error('     → Check with: sudo -u postgres psql -c "SHOW port"');
+    console.error('     → Update DB_PORT in your .env file');
+    console.error('  3. Socket path does not exist');
+    console.error('     → Use DB_HOST=127.0.0.1 in .env for TCP connection');
+  } else if (errMsg.includes('password authentication failed') || errMsg.includes('no pg_hba.conf entry')) {
+    console.error('Possible causes:');
+    console.error('  1. Wrong credentials in .env');
+    console.error('     → Re-run install.sh to regenerate credentials');
+    console.error('  2. pg_hba.conf not configured for password auth');
+    console.error('     → Add: host all arcellite_user 127.0.0.1/32 md5');
+    console.error('     → Then: sudo systemctl reload postgresql');
+  } else if (errMsg.includes('does not exist')) {
+    console.error('Possible causes:');
+    console.error('  1. Database or user not created');
+    console.error('     → Re-run install.sh or create manually:');
+    console.error('        sudo -u postgres createuser -P arcellite_user');
+    console.error('        sudo -u postgres createdb -O arcellite_user arcellite');
+  }
+
+  console.error('\nQuick fix: Run ./install.sh from the project directory');
+  console.error('='.repeat(60) + '\n');
+}
+
+/**
  * Initialize database schema
  * Reads and executes schema.sql file
  */
 export async function initializeDatabase() {
-  const client = await pool.connect();
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (error) {
+    printDbTroubleshooting(error);
+    return false;
+  }
   try {
     // Get current file directory for schema.sql path
     const __filename = fileURLToPath(import.meta.url);

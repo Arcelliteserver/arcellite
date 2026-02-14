@@ -135,6 +135,7 @@ if command -v psql &>/dev/null; then
 else
   info "PostgreSQL not found — installing..."
   if [[ "$PKG_MGR" == "apt" ]]; then
+    sudo apt-get update -qq >/dev/null 2>&1
     sudo apt-get install -y postgresql postgresql-contrib >/dev/null 2>&1
   elif [[ "$PKG_MGR" == "dnf" ]]; then
     sudo dnf install -y postgresql-server postgresql-contrib >/dev/null 2>&1
@@ -155,23 +156,52 @@ else
   info "Starting PostgreSQL service..."
   sudo systemctl enable postgresql >/dev/null 2>&1 || true
   sudo systemctl start postgresql >/dev/null 2>&1 || true
-  sleep 2
+  sleep 3
   if systemctl is-active --quiet postgresql 2>/dev/null; then
     success "PostgreSQL service started"
   else
-    warn "Could not start PostgreSQL via systemd. It may be managed differently on your system."
+    # Try starting individual clusters (Ubuntu/Debian can have multiple)
+    for cluster_dir in /etc/postgresql/*/main; do
+      if [[ -d "$cluster_dir" ]]; then
+        PG_CLUSTER_VER=$(echo "$cluster_dir" | grep -oP '\d+')
+        info "Trying to start PostgreSQL cluster version ${PG_CLUSTER_VER}..."
+        sudo pg_ctlcluster "$PG_CLUSTER_VER" main start 2>/dev/null || true
+      fi
+    done
+    sleep 2
+    if systemctl is-active --quiet postgresql 2>/dev/null; then
+      success "PostgreSQL service started"
+    else
+      warn "Could not start PostgreSQL via systemd. It may be managed differently on your system."
+    fi
   fi
 fi
 
-# Detect PostgreSQL port (default 5432, some setups use 5433+)
-PG_PORT=5432
+# Detect PostgreSQL port — try common ports and multiple methods
+PG_PORT=""
 for port in 5432 5433 5434; do
   if sudo -u postgres psql -p "$port" -c "SELECT 1" &>/dev/null 2>&1; then
     PG_PORT=$port
     break
   fi
 done
-info "PostgreSQL is listening on port ${PG_PORT}"
+
+# If we couldn't connect via peer auth, try checking listening ports
+if [[ -z "$PG_PORT" ]]; then
+  for port in 5432 5433 5434; do
+    if ss -tlnp 2>/dev/null | grep -q ":${port}\b" || netstat -tlnp 2>/dev/null | grep -q ":${port}\b"; then
+      PG_PORT=$port
+      break
+    fi
+  done
+fi
+
+if [[ -z "$PG_PORT" ]]; then
+  PG_PORT=5432
+  warn "Could not auto-detect PostgreSQL port, defaulting to ${PG_PORT}"
+else
+  success "PostgreSQL is listening on port ${PG_PORT}"
+fi
 
 # ── Generate secure credentials ──────────────────────────────────────
 DB_NAME="arcellite"
@@ -201,35 +231,94 @@ fi
 # Grant privileges
 sudo -u postgres psql -p "$PG_PORT" -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" >/dev/null 2>&1
 
-# Ensure password auth works (pg_hba.conf)
+# Ensure password auth works (pg_hba.conf) — configure for BOTH local and TCP
 PG_HBA=$(sudo -u postgres psql -p "$PG_PORT" -t -c "SHOW hba_file" 2>/dev/null | xargs)
 if [[ -n "$PG_HBA" ]] && [[ -f "$PG_HBA" ]]; then
-  # Check if there's already a line allowing md5/scram for the user
-  if ! sudo grep -q "arcellite_user" "$PG_HBA" 2>/dev/null; then
-    if ! sudo grep -qE "^local\s+all\s+all\s+(md5|scram-sha-256)" "$PG_HBA" 2>/dev/null; then
-      info "Configuring PostgreSQL authentication..."
-      # Add md5 auth line before any existing 'local all all peer' line
-      sudo sed -i "/^local\s\+all\s\+all\s\+peer/i local   all   ${DB_USER}   md5" "$PG_HBA" 2>/dev/null || true
-      sudo systemctl reload postgresql >/dev/null 2>&1 || true
-      success "PostgreSQL auth configured for password login"
+  HBA_CHANGED=false
+
+  # 1. Add TCP (host) entry for 127.0.0.1 with md5/scram auth
+  if ! sudo grep -qE "^host\s+all\s+${DB_USER}\s+127\.0\.0\.1" "$PG_HBA" 2>/dev/null; then
+    info "Adding TCP auth entry for ${DB_USER} in pg_hba.conf..."
+    # Add before any existing host entries, or at the end of the file
+    if sudo grep -qE "^host\s" "$PG_HBA" 2>/dev/null; then
+      # Insert before first host line
+      sudo sed -i "0,/^host\s/s//host    all    ${DB_USER}    127.0.0.1\/32    md5\n&/" "$PG_HBA" 2>/dev/null || true
+    else
+      # Append to end
+      echo "host    all    ${DB_USER}    127.0.0.1/32    md5" | sudo tee -a "$PG_HBA" >/dev/null 2>&1
     fi
+    HBA_CHANGED=true
+  fi
+
+  # 2. Add TCP (host) entry for ::1 (IPv6 localhost) with md5 auth
+  if ! sudo grep -qE "^host\s+all\s+${DB_USER}\s+::1" "$PG_HBA" 2>/dev/null; then
+    if sudo grep -qE "^host\s" "$PG_HBA" 2>/dev/null; then
+      sudo sed -i "0,/^host\s/s//host    all    ${DB_USER}    ::1\/128    md5\n&/" "$PG_HBA" 2>/dev/null || true
+    else
+      echo "host    all    ${DB_USER}    ::1/128    md5" | sudo tee -a "$PG_HBA" >/dev/null 2>&1
+    fi
+    HBA_CHANGED=true
+  fi
+
+  # 3. Add local (Unix socket) entry with md5 auth
+  if ! sudo grep -qE "^local\s+all\s+${DB_USER}\s+md5" "$PG_HBA" 2>/dev/null; then
+    if sudo grep -qE "^local\s+all\s+all\s+peer" "$PG_HBA" 2>/dev/null; then
+      sudo sed -i "/^local\s\+all\s\+all\s\+peer/i local   all   ${DB_USER}   md5" "$PG_HBA" 2>/dev/null || true
+    else
+      echo "local   all   ${DB_USER}   md5" | sudo tee -a "$PG_HBA" >/dev/null 2>&1
+    fi
+    HBA_CHANGED=true
+  fi
+
+  if [[ "$HBA_CHANGED" == true ]]; then
+    info "Reloading PostgreSQL configuration..."
+    sudo systemctl reload postgresql >/dev/null 2>&1 || \
+      sudo -u postgres pg_ctl reload -D "$(sudo -u postgres psql -p "$PG_PORT" -t -c "SHOW data_directory" 2>/dev/null | xargs)" 2>/dev/null || true
+    sleep 2
+    success "PostgreSQL auth configured for password login (TCP + socket)"
+  else
+    success "PostgreSQL auth already configured"
+  fi
+else
+  warn "Could not locate pg_hba.conf — you may need to configure auth manually"
+fi
+
+# Also ensure PostgreSQL is listening on 127.0.0.1 (not just Unix socket)
+PG_CONF=$(sudo -u postgres psql -p "$PG_PORT" -t -c "SHOW config_file" 2>/dev/null | xargs)
+if [[ -n "$PG_CONF" ]] && [[ -f "$PG_CONF" ]]; then
+  LISTEN_ADDR=$(sudo -u postgres psql -p "$PG_PORT" -t -c "SHOW listen_addresses" 2>/dev/null | xargs)
+  if [[ "$LISTEN_ADDR" == "" ]] || [[ "$LISTEN_ADDR" == "''" ]]; then
+    info "Enabling TCP listening on localhost..."
+    sudo sed -i "s/^#\?\s*listen_addresses\s*=.*/listen_addresses = 'localhost'/" "$PG_CONF" 2>/dev/null || true
+    sudo systemctl restart postgresql >/dev/null 2>&1 || true
+    sleep 3
+    success "PostgreSQL now listening on localhost"
   fi
 fi
 
-# Verify connection works
-if PGPASSWORD="${DB_PASSWORD}" psql -h localhost -p "$PG_PORT" -U "${DB_USER}" -d "${DB_NAME}" -c "SELECT 1" &>/dev/null 2>&1; then
-  success "Database connection verified (TCP)"
+# Verify connection — prefer TCP (127.0.0.1) which works everywhere
+DB_HOST="127.0.0.1"
+if PGPASSWORD="${DB_PASSWORD}" psql -h 127.0.0.1 -p "$PG_PORT" -U "${DB_USER}" -d "${DB_NAME}" -c "SELECT 1" &>/dev/null 2>&1; then
+  success "Database connection verified (TCP 127.0.0.1:${PG_PORT})"
+  DB_HOST="127.0.0.1"
+elif PGPASSWORD="${DB_PASSWORD}" psql -h localhost -p "$PG_PORT" -U "${DB_USER}" -d "${DB_NAME}" -c "SELECT 1" &>/dev/null 2>&1; then
+  success "Database connection verified (TCP localhost:${PG_PORT})"
   DB_HOST="localhost"
 elif PGPASSWORD="${DB_PASSWORD}" psql -h /var/run/postgresql -p "$PG_PORT" -U "${DB_USER}" -d "${DB_NAME}" -c "SELECT 1" &>/dev/null 2>&1; then
-  success "Database connection verified (Unix socket)"
+  success "Database connection verified (Unix socket /var/run/postgresql)"
   DB_HOST="/var/run/postgresql"
 elif PGPASSWORD="${DB_PASSWORD}" psql -h /tmp -p "$PG_PORT" -U "${DB_USER}" -d "${DB_NAME}" -c "SELECT 1" &>/dev/null 2>&1; then
   success "Database connection verified (Unix socket /tmp)"
   DB_HOST="/tmp"
 else
   warn "Could not verify database connection automatically."
-  warn "You may need to configure pg_hba.conf manually for password auth."
-  DB_HOST="localhost"
+  warn "Troubleshooting:"
+  warn "  1. Check PostgreSQL is running: sudo systemctl status postgresql"
+  warn "  2. Check port: sudo -u postgres psql -c 'SHOW port'"
+  warn "  3. Check pg_hba.conf: sudo -u postgres psql -c 'SHOW hba_file'"
+  warn "  4. Ensure 'host all ${DB_USER} 127.0.0.1/32 md5' is in pg_hba.conf"
+  warn "  5. Reload: sudo systemctl reload postgresql"
+  DB_HOST="127.0.0.1"
 fi
 
 

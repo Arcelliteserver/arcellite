@@ -19,7 +19,14 @@ export default defineConfig(({ mode }) => {
           async configureServer(server) {
             // Initialize database on server start
             const { initializeDatabase, isSetupNeeded, cleanupExpiredSessions } = await import('./server/db/connection.js');
-            const dbInitialized = await initializeDatabase();
+            let dbInitialized = false;
+            try {
+              dbInitialized = await initializeDatabase();
+            } catch (error: any) {
+              console.error('[Server] Database initialization failed:', error?.message || error);
+              console.error('[Server] The dev server will start, but API routes requiring the database will not work.');
+              console.error('[Server] Run ./install.sh to set up PostgreSQL, or check your .env configuration.');
+            }
 
             if (dbInitialized) {
               const setupNeeded = await isSetupNeeded();
