@@ -11,7 +11,7 @@ function sendVaultLockedError(res: ServerResponse): void {
 export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url: string) {
   // List trash items
   if (url === '/api/trash/list' && req.method === 'GET') {
-    import('../trash.ts').then(({ listTrash }) => {
+    import('../trash.js').then(({ listTrash }) => {
       try {
         const items = listTrash();
         res.setHeader('Content-Type', 'application/json');
@@ -34,7 +34,7 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
-      import('../trash.ts').then(({ restoreFromTrash }) => {
+      import('../trash.js').then(({ restoreFromTrash }) => {
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
           const trashId = (body.trashId as string) || '';
@@ -69,7 +69,7 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', async () => {
       if (await authService.isVaultLocked()) { sendVaultLockedError(res); return; }
-      import('../trash.ts').then(({ permanentlyDelete }) => {
+      import('../trash.js').then(({ permanentlyDelete }) => {
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
           const trashId = (body.trashId as string) || '';
@@ -102,7 +102,7 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
   if (url === '/api/trash/empty' && req.method === 'POST') {
     authService.isVaultLocked().then(locked => {
       if (locked) { sendVaultLockedError(res); return; }
-      import('../trash.ts').then(({ emptyTrash }) => {
+      import('../trash.js').then(({ emptyTrash }) => {
         try {
           const deletedCount = emptyTrash();
           res.setHeader('Content-Type', 'application/json');
@@ -127,7 +127,7 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', async () => {
       if (await authService.isVaultLocked()) { sendVaultLockedError(res); return; }
-      import('../trash.ts').then(({ moveToTrash }) => {
+      import('../trash.js').then(({ moveToTrash }) => {
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
           const category = (body.category as string) || 'general';
@@ -142,7 +142,7 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
 
           const trashId = moveToTrash(category, path.trim());
           // Clean up from recent files database
-          import('../services/auth.service.ts').then(({ removeRecentFile, removeRecentFilesUnderPath }) => {
+          import('../services/auth.service.js').then(({ removeRecentFile, removeRecentFilesUnderPath }) => {
             // Remove exact path and any children (if it's a folder)
             removeRecentFilesUnderPath(path.trim(), category);
           }).catch(err => console.error('[Trash] Failed to clean recent files:', err));

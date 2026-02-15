@@ -3,9 +3,9 @@ import type { IncomingMessage, ServerResponse } from 'http';
 export function handleAnalyticsRoutes(req: IncomingMessage, res: ServerResponse, url: string) {
   // Get analytics data
   if (url === '/api/analytics' && req.method === 'GET') {
-    import('../analytics.ts').then(({ getAnalyticsData }) => {
+    import('../analytics.js').then(({ getVaultAnalytics }) => {
       try {
-        const data = getAnalyticsData();
+        const data = getVaultAnalytics();
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(data));
       } catch (e) {

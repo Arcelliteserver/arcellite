@@ -426,7 +426,7 @@ export function detectTransferOnDevice(mountpoint: string): TransferManifest | n
 export async function importTransferData(
   mountpoint: string,
   newPassword: string
-): Promise<{ success: boolean; error?: string; user?: any }> {
+): Promise<{ success: boolean; error?: string; user?: any; sessionToken?: string }> {
   const transferDir = path.join(mountpoint, TRANSFER_DIR_NAME);
 
   try {

@@ -31,7 +31,7 @@ function sendError(res: ServerResponse, error: string, status = 500) {
 export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, url: string) {
   // List databases (includes system AI chat DB)
   if (url === '/api/databases/list' && req.method === 'GET') {
-    import('../databases.ts').then(async ({ listDatabases, refreshDatabaseSizes }) => {
+    import('../databases.js').then(async ({ listDatabases, refreshDatabaseSizes }) => {
       try {
         const databases = await refreshDatabaseSizes();
 
@@ -66,6 +66,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
               size: formatBytes(sizeBytes),
               sizeBytes,
               created: new Date().toISOString(),
+              createdTimestamp: Date.now(),
               pgDatabaseName: 'cloudnest_chat_history',
               isSystem: true,
               config: {
@@ -95,7 +96,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
     const id = params.get('id');
     if (!id) { sendError(res, 'Missing id', 400); return true; }
 
-    import('../databases.ts').then(async ({ getDatabase }) => {
+    import('../databases.js').then(async ({ getDatabase }) => {
       try {
         const db = await getDatabase(id);
         if (!db) { sendError(res, 'Database not found', 404); return; }
@@ -110,7 +111,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
   // Create database
   if (url === '/api/databases/create' && req.method === 'POST') {
     parseBody(req).then((body) => {
-      import('../databases.ts').then(async ({ createDatabase }) => {
+      import('../databases.js').then(async ({ createDatabase }) => {
         try {
           const { name, type } = body;
           if (!name || !type) { sendError(res, 'Missing name or type', 400); return; }
@@ -127,7 +128,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
   // Delete database
   if (url === '/api/databases/delete' && req.method === 'POST') {
     parseBody(req).then((body) => {
-      import('../databases.ts').then(async ({ deleteDatabase }) => {
+      import('../databases.js').then(async ({ deleteDatabase }) => {
         try {
           if (!body.id) { sendError(res, 'Missing id', 400); return; }
           await deleteDatabase(body.id);
@@ -143,7 +144,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
   // Start database
   if (url === '/api/databases/start' && req.method === 'POST') {
     parseBody(req).then((body) => {
-      import('../databases.ts').then(({ startDatabase }) => {
+      import('../databases.js').then(({ startDatabase }) => {
         try {
           if (!body.id) { sendError(res, 'Missing id', 400); return; }
           const database = startDatabase(body.id);
@@ -159,7 +160,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
   // Stop database
   if (url === '/api/databases/stop' && req.method === 'POST') {
     parseBody(req).then((body) => {
-      import('../databases.ts').then(({ stopDatabase }) => {
+      import('../databases.js').then(({ stopDatabase }) => {
         try {
           if (!body.id) { sendError(res, 'Missing id', 400); return; }
           const database = stopDatabase(body.id);
@@ -178,7 +179,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
     const id = params.get('id');
     if (!id) { sendError(res, 'Missing id', 400); return true; }
 
-    import('../databases.ts').then(async ({ listTables }) => {
+    import('../databases.js').then(async ({ listTables }) => {
       try {
         const tables = await listTables(id);
         sendJson(res, { ok: true, tables });
@@ -196,7 +197,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
     const table = params.get('table');
     if (!id || !table) { sendError(res, 'Missing id or table', 400); return true; }
 
-    import('../databases.ts').then(async ({ getTableColumns }) => {
+    import('../databases.js').then(async ({ getTableColumns }) => {
       try {
         const columns = await getTableColumns(id, table);
         sendJson(res, { ok: true, columns });
@@ -216,7 +217,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
     const offset = parseInt(params.get('offset') || '0', 10);
     if (!id || !table) { sendError(res, 'Missing id or table', 400); return true; }
 
-    import('../databases.ts').then(async ({ getTableData }) => {
+    import('../databases.js').then(async ({ getTableData }) => {
       try {
         const data = await getTableData(id, table, limit, offset);
         sendJson(res, { ok: true, ...data });
@@ -230,7 +231,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
   // Create table
   if (url === '/api/databases/create-table' && req.method === 'POST') {
     parseBody(req).then((body) => {
-      import('../databases.ts').then(async ({ createTable }) => {
+      import('../databases.js').then(async ({ createTable }) => {
         try {
           const { id, tableName, columns } = body;
           if (!id || !tableName || !columns) { sendError(res, 'Missing id, tableName, or columns', 400); return; }
@@ -247,7 +248,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
   // Drop table
   if (url === '/api/databases/drop-table' && req.method === 'POST') {
     parseBody(req).then((body) => {
-      import('../databases.ts').then(async ({ dropTable }) => {
+      import('../databases.js').then(async ({ dropTable }) => {
         try {
           const { id, tableName } = body;
           if (!id || !tableName) { sendError(res, 'Missing id or tableName', 400); return; }
@@ -264,7 +265,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
   // Execute SQL query
   if (url === '/api/databases/query' && req.method === 'POST') {
     parseBody(req).then((body) => {
-      import('../databases.ts').then(async ({ executeQuery }) => {
+      import('../databases.js').then(async ({ executeQuery }) => {
         try {
           const { id, sql } = body;
           if (!id || !sql) { sendError(res, 'Missing id or sql', 400); return; }
@@ -280,7 +281,7 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
 
   // Purge all databases (Danger Zone)
   if (url === '/api/databases/purge-all' && req.method === 'POST') {
-    import('../databases.ts').then(async ({ purgeAllDatabases }) => {
+    import('../databases.js').then(async ({ purgeAllDatabases }) => {
       try {
         const result = await purgeAllDatabases();
         sendJson(res, { ok: true, ...result });

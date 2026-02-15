@@ -184,20 +184,20 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
   };
 
   const getMenuActions = (isFolder: boolean) => {
-    const actions = [
+    const actions: { label: string; icon: React.ForwardRefExoticComponent<any>; color: string; divider?: boolean; hasSubmenu?: boolean }[] = [
       { label: 'Open', icon: ExternalLink, color: 'text-gray-700' },
       { label: 'Download', icon: Download, color: 'text-[#5D5FEF]' },
     ];
 
     // Add Rename option for both files and folders
-    actions.push({ label: 'Rename', icon: Pencil, color: 'text-gray-700' } as any);
+    actions.push({ label: 'Rename', icon: Pencil, color: 'text-gray-700' });
 
     // Add Move option for files (always, even if no folders available - can move to root)
     if (!isFolder) {
-      actions.push({ label: 'Move', icon: FolderInput, color: 'text-gray-700', hasSubmenu: true } as any);
+      actions.push({ label: 'Move', icon: FolderInput, color: 'text-gray-700', hasSubmenu: true });
     }
 
-    actions.push({ label: 'Delete', icon: Trash2, color: 'text-red-500', divider: true } as any);
+    actions.push({ label: 'Delete', icon: Trash2, color: 'text-red-500', divider: true });
 
     return actions;
   };

@@ -44,6 +44,7 @@ interface DatabaseMetadata {
   createdTimestamp: number;
   pgDatabaseName: string;   // Also used for MySQL database name
   sqliteFilePath?: string;  // File path for SQLite databases
+  isSystem?: boolean;       // Mark system databases (e.g. AI Chat History)
   config: {
     host: string;
     port: number;

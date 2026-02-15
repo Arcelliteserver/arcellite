@@ -46,12 +46,10 @@ export default defineConfig(({ mode }) => {
               const url = req.url?.split('?')[0];
               const fullUrl = req.url ?? '';
 
-              // ─── Security Middleware: Traffic Masking & Strict Isolation ───
+              // ─── Security Middleware: Traffic Masking ───
               if (fullUrl.startsWith('/api/')) {
                 try {
                   const secService = await import('./server/services/security.service.js');
-
-                  // Apply traffic masking headers if enabled
                   const maskingEnabled = await secService.isTrafficMaskingEnabled();
                   if (maskingEnabled) {
                     const headers = secService.getTrafficMaskingHeaders();
@@ -59,27 +57,52 @@ export default defineConfig(({ mode }) => {
                       res.setHeader(key, value);
                     }
                   }
+                } catch { /* traffic masking is optional */ }
+              }
 
-                  // Strict Isolation: block non-authorized IPs (skip login/register so user can still auth)
-                  if (url !== '/api/auth/login' && url !== '/api/auth/register') {
-                    const authHeader = req.headers.authorization;
-                    if (authHeader?.startsWith('Bearer ')) {
-                      const authSvc = await import('./server/services/auth.service.js');
-                      const user = await authSvc.validateSession(authHeader.substring(7));
-                      if (user) {
-                        const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-                          || req.socket?.remoteAddress || '';
-                        const allowed = await secService.isIpAllowed(user.id, clientIp);
-                        if (!allowed) {
-                          res.statusCode = 403;
-                          res.setHeader('Content-Type', 'application/json');
-                          res.end(JSON.stringify({ error: 'Access denied: IP not in allowlist (Strict Isolation)' }));
-                          return;
-                        }
-                      }
-                    }
+              // ─── Central Auth Guard: require auth for all API routes except public ones ───
+              if (fullUrl.startsWith('/api/')) {
+                const PUBLIC_ROUTES = ['/api/auth/login', '/api/auth/register', '/api/auth/setup-status'];
+                if (!PUBLIC_ROUTES.includes(url || '')) {
+                  const authHeader = req.headers.authorization;
+                  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                    res.statusCode = 401;
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({ error: 'Unauthorized' }));
+                    return;
                   }
-                } catch { /* security middleware should never break normal flow */ }
+                  try {
+                    const authSvc = await import('./server/services/auth.service.js');
+                    const user = await authSvc.validateSession(authHeader.substring(7));
+                    if (!user) {
+                      res.statusCode = 401;
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: 'Invalid or expired session' }));
+                      return;
+                    }
+                    // Attach user to request for downstream handlers
+                    (req as any).user = user;
+
+                    // Strict Isolation: block non-authorized IPs
+                    try {
+                      const secService = await import('./server/services/security.service.js');
+                      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+                        || req.socket?.remoteAddress || '';
+                      const allowed = await secService.isIpAllowed(user.id, clientIp);
+                      if (!allowed) {
+                        res.statusCode = 403;
+                        res.setHeader('Content-Type', 'application/json');
+                        res.end(JSON.stringify({ error: 'Access denied: IP not in allowlist (Strict Isolation)' }));
+                        return;
+                      }
+                    } catch { /* IP allowlist check is optional */ }
+                  } catch (authErr) {
+                    res.statusCode = 500;
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({ error: 'Auth service unavailable' }));
+                    return;
+                  }
+                }
               }
 
               // Auth routes
@@ -1361,7 +1384,7 @@ export default defineConfig(({ mode }) => {
                           password: password || undefined,
                           database: database || 'postgres',
                           connectionTimeoutMillis: 5000,
-                          command_timeout: 5000,
+                          statement_timeout: 5000,
                         });
 
                         client.connect()
@@ -1537,9 +1560,24 @@ export default defineConfig(({ mode }) => {
                   try {
                     const { webhookUrl } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
                     if (!webhookUrl) { res.statusCode = 400; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Missing webhookUrl' })); return; }
+                    const parsedUrl = new URL(webhookUrl);
+
+                    // SSRF protection: block internal/private network addresses
+                    const blockedHostnames = ['localhost', '127.0.0.1', '0.0.0.0', '[::1]', 'metadata.google.internal', '169.254.169.254'];
+                    const hostname = parsedUrl.hostname.toLowerCase();
+                    if (blockedHostnames.includes(hostname) || hostname.startsWith('10.') || hostname.startsWith('192.168.') || hostname.startsWith('172.') || hostname.endsWith('.local') || hostname.endsWith('.internal')) {
+                      res.statusCode = 403; res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: 'Webhook URL targeting internal networks is not allowed' }));
+                      return;
+                    }
+                    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+                      res.statusCode = 400; res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: 'Only http and https protocols are allowed' }));
+                      return;
+                    }
+
                     const https = await import('https');
                     const http = await import('http');
-                    const parsedUrl = new URL(webhookUrl);
                     const protocol = parsedUrl.protocol === 'https:' ? https : http;
                     const options = {
                       hostname: parsedUrl.hostname,

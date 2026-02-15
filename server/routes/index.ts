@@ -1,13 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { handleFileRoutes } from './files.routes';
-import { handleTrashRoutes } from './trash.routes';
-import { handleDatabaseRoutes } from './databases.routes';
-import { handleAnalyticsRoutes } from './analytics.routes';
-import { handleAIRoutes } from './ai.routes';
-import { handleExportRoutes } from './export.routes';
-import { handleSupportRoutes } from './support.routes';
-import { handleTransferRoutes } from './transfer.routes';
-import { handleChatRoutes } from './chat.routes';
+import { handleFileRoutes } from './files.routes.js';
+import { handleTrashRoutes } from './trash.routes.js';
+import { handleDatabaseRoutes } from './databases.routes.js';
+import { handleAnalyticsRoutes } from './analytics.routes.js';
+import { handleAIRoutes } from './ai.routes.js';
+import { handleExportRoutes } from './export.routes.js';
+import { handleSupportRoutes } from './support.routes.js';
+import { handleTransferRoutes } from './transfer.routes.js';
+import { handleChatRoutes } from './chat.routes.js';
 
 /**
  * Central router that handles all API routes

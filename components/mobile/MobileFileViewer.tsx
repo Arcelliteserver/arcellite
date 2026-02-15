@@ -76,7 +76,7 @@ const MobilePdfReader: React.FC<{ url: string; title: string }> = ({ url, title 
           container.appendChild(canvas);
           container.appendChild(label);
 
-          await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+          await page.render({ canvasContext: ctx, viewport: scaledViewport, canvas } as any).promise;
         }
       } catch (e) {
         if (!cancelled) {

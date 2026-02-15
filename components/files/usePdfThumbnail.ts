@@ -131,7 +131,7 @@ export function usePdfThumbnail(fileUrl: string | undefined, enabled: boolean): 
             canvas.width = scaledViewport.width;
             canvas.height = scaledViewport.height;
             const ctx = canvas.getContext('2d')!;
-            await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+            await page.render({ canvasContext: ctx, viewport: scaledViewport, canvas } as any).promise;
 
             const dataUrl = canvas.toDataURL('image/webp', 0.75);
             memSet(fileUrl, dataUrl);

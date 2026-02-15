@@ -317,7 +317,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         const pathParam = (body.path as string) || '';
         const name = (body.name as string) || '';
 
-        const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files' };
+        const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
         const targetPath = path.join(baseDir, categoryDir, pathParam, name);
 
@@ -345,7 +345,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         const category = (body.category as string) || 'general';
         const pathParam = (body.path as string) || '';
 
-        const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files' };
+        const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
         const targetPath = path.join(baseDir, categoryDir, pathParam);
 
@@ -354,7 +354,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         }
 
         // Clean up from recent files database
-        import('../services/auth.service.ts').then(({ removeRecentFilesUnderPath }) => {
+        import('../services/auth.service.js').then(({ removeRecentFilesUnderPath }) => {
           removeRecentFilesUnderPath(pathParam, category);
         }).catch(err => console.error('[Files] Failed to clean recent files:', err));
 
@@ -604,7 +604,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
   // Clear all files (Danger Zone)
   if (url === '/api/files/clear-all' && req.method === 'POST') {
-    import('../files.ts').then(({ clearAllFiles }) => {
+    import('../files.js').then(({ clearAllFiles }) => {
       try {
         const result = clearAllFiles();
         res.statusCode = 200;
