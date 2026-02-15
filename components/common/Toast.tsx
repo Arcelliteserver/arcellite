@@ -32,11 +32,6 @@ const Toast: React.FC<ToastProps> = ({ toast, onDismiss, position = 'bottom-righ
     setTimeout(onDismiss, 300);
   };
 
-  // Border color based on type — error gets red, rest use the app's purple
-  const borderColor = toast.type === 'error'
-    ? 'border-red-400'
-    : 'border-[#5D5FEF]';
-
   const positionClasses = position === 'bottom-center'
     ? 'fixed bottom-20 left-4 right-4 z-[1000] flex justify-center'
     : 'fixed bottom-6 right-6 z-[1000]';
@@ -45,26 +40,32 @@ const Toast: React.FC<ToastProps> = ({ toast, onDismiss, position = 'bottom-righ
     <div className={positionClasses}>
       <div
         className={`
-          bg-white backdrop-blur-sm
-          border ${borderColor}
+          bg-[#1f1f1f] 
           rounded-lg
-          shadow-md
-          px-4 py-2.5
+          shadow-2xl
+          flex items-center gap-4
+          pl-5 pr-2 py-3.5
+          min-w-[320px] max-w-[440px]
           transition-all duration-300 ease-out
-          cursor-pointer
           ${isVisible && !isExiting
             ? 'opacity-100 translate-y-0'
-            : 'opacity-0 translate-y-3'
+            : 'opacity-0 translate-y-4'
           }
         `}
-        onClick={handleDismiss}
         role="alert"
       >
-        <p className={`text-[13px] font-medium leading-snug ${
-          toast.type === 'error' ? 'text-red-600' : 'text-gray-700'
-        }`}>
+        {/* Message */}
+        <p className="text-white text-[14px] font-normal leading-snug flex-1">
           {toast.message}
         </p>
+
+        {/* Dismiss button */}
+        <button
+          onClick={handleDismiss}
+          className="text-white/70 hover:text-white text-[13px] font-medium px-3 py-1.5 rounded-md hover:bg-white/10 transition-colors flex-shrink-0"
+        >
+          OK
+        </button>
       </div>
     </div>
   );
