@@ -37,7 +37,15 @@ import {
   FileX,
   RotateCcw,
   Database,
-  ServerCrash
+  ServerCrash,
+  FolderOpen,
+  Image,
+  Video,
+  Music,
+  Share2,
+  FileText,
+  History,
+  Server,
 } from 'lucide-react';
 import { AI_MODELS } from '../../../constants';
 import { authApi, setSessionToken } from '../../../services/api.client';
@@ -99,6 +107,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   const [transferPhase, setTransferPhase] = useState<'idle' | 'preparing' | 'done' | 'error'>('idle');
   const [transferProgress, setTransferProgress] = useState(0);
   const [transferMessage, setTransferMessage] = useState('');
+  const [transferStatus, setTransferStatus] = useState<any>(null);
   const [showTransferConfirm, setShowTransferConfirm] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -349,6 +358,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
           const status = await res.json();
           setTransferProgress(status.percent || 0);
           setTransferMessage(status.message || '');
+          setTransferStatus(status);
 
           if (status.phase === 'done') {
             clearInterval(poll);
@@ -1038,37 +1048,245 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
               </>
             )}
 
-            {/* Preparing state — progress */}
+            {/* Preparing state — detailed progress */}
             {transferPhase === 'preparing' && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <Loader2 className="w-5 h-5 text-[#5D5FEF] animate-spin" />
-                  <h4 className="text-base font-black text-gray-900">Preparing Transfer...</h4>
+              <div className="space-y-3">
+                {/* Header with spinner + percent */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="relative">
+                      <Loader2 className="w-5 h-5 text-[#5D5FEF] animate-spin" />
+                    </div>
+                    <h4 className="text-sm font-black text-gray-900">Preparing Transfer</h4>
+                  </div>
+                  <span className="text-lg font-black text-[#5D5FEF] tabular-nums">{transferProgress}%</span>
                 </div>
-                <div className="w-full h-3 bg-[#F5F5F7] rounded-full overflow-hidden">
+
+                {/* Main progress bar */}
+                <div className="w-full h-2.5 bg-[#F5F5F7] rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-[#5D5FEF] to-[#7C6FF7] rounded-full transition-all duration-500"
+                    className="h-full bg-gradient-to-r from-[#5D5FEF] to-[#7C6FF7] rounded-full transition-all duration-300 ease-out"
                     style={{ width: `${transferProgress}%` }}
                   />
                 </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] text-gray-400 font-medium truncate max-w-[70%]">{transferMessage}</p>
-                  <span className="text-[11px] font-black text-[#5D5FEF]">{transferProgress}%</span>
+
+                {/* Phase steps */}
+                <div className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider">
+                  {[
+                    { id: 'db', label: 'Database', phases: ['exporting-db'] },
+                    { id: 'files', label: 'Files', phases: ['copying-files'] },
+                    { id: 'finalize', label: 'Finalize', phases: ['writing-manifest'] },
+                  ].map((step, i) => {
+                    const phase = transferStatus?.phase || '';
+                    const isActive = step.phases.includes(phase);
+                    const isDone = (() => {
+                      const phaseOrder = ['exporting-db', 'copying-files', 'writing-manifest', 'done'];
+                      const currentIdx = phaseOrder.indexOf(phase);
+                      const stepIdx = phaseOrder.indexOf(step.phases[0]);
+                      return currentIdx > stepIdx;
+                    })();
+                    return (
+                      <React.Fragment key={step.id}>
+                        {i > 0 && <div className={`flex-1 h-px ${isDone ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`} />}
+                        <div className={`flex items-center gap-1 px-2 py-1 rounded-full ${
+                          isActive ? 'bg-[#5D5FEF]/10 text-[#5D5FEF]' :
+                          isDone ? 'text-[#5D5FEF]' : 'text-gray-300'
+                        }`}>
+                          {isDone ? <Check className="w-3 h-3" /> : isActive ? <Loader2 className="w-3 h-3 animate-spin" /> : <span className="w-3 h-3 rounded-full border border-current inline-block" />}
+                          {step.label}
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
+
+                {/* Current activity */}
+                <div className="bg-[#F5F5F7] rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-gray-500 font-medium truncate max-w-[75%]">{transferMessage || 'Preparing...'}</p>
+                    {transferStatus?.speedBps > 0 && (
+                      <span className="text-[9px] font-bold text-[#5D5FEF] flex items-center gap-0.5">
+                        <Zap className="w-2.5 h-2.5" />
+                        {transferStatus.speedBps > 1024 * 1024
+                          ? `${(transferStatus.speedBps / (1024 * 1024)).toFixed(1)} MB/s`
+                          : `${(transferStatus.speedBps / 1024).toFixed(0)} KB/s`}
+                      </span>
+                    )}
+                  </div>
+                  {/* Current file name */}
+                  {transferStatus?.currentFile && transferStatus.phase === 'copying-files' && (
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                      <p className="text-[10px] text-gray-400 truncate">{transferStatus.currentFile}</p>
+                    </div>
+                  )}
+                  {/* Stats row */}
+                  <div className="flex items-center gap-3 text-[9px] text-gray-400 font-medium">
+                    {transferStatus?.filesCopied > 0 && (
+                      <span>{transferStatus.filesCopied.toLocaleString()}/{transferStatus.totalFiles.toLocaleString()} files</span>
+                    )}
+                    {transferStatus?.bytesWritten > 0 && (
+                      <span>
+                        {transferStatus.bytesWritten > 1024 * 1024 * 1024
+                          ? `${(transferStatus.bytesWritten / (1024 * 1024 * 1024)).toFixed(2)} GB`
+                          : transferStatus.bytesWritten > 1024 * 1024
+                          ? `${(transferStatus.bytesWritten / (1024 * 1024)).toFixed(1)} MB`
+                          : `${(transferStatus.bytesWritten / 1024).toFixed(0)} KB`}
+                        {' written'}
+                      </span>
+                    )}
+                    {transferStatus?.etaSeconds > 0 && transferStatus.etaSeconds < 86400 && (
+                      <span className="ml-auto">
+                        ~{transferStatus.etaSeconds > 60
+                          ? `${Math.floor(transferStatus.etaSeconds / 60)}m ${transferStatus.etaSeconds % 60}s`
+                          : `${transferStatus.etaSeconds}s`} remaining
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* DB Tables export status */}
+                {transferStatus?.dbRows && transferStatus.dbRows.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Database Tables</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {transferStatus.dbRows.map((row: any) => {
+                        const icon = row.table === 'Recent Files' ? History
+                          : row.table === 'Activity Log' ? FileText
+                          : row.table === 'Notifications' ? Bell
+                          : row.table === 'Settings' ? Server
+                          : row.table === 'Connected Apps' ? Zap
+                          : Database;
+                        const Icon = icon;
+                        const isDone = row.imported >= row.total && row.total > 0;
+                        const isEmpty = row.total === 0;
+                        return (
+                          <div key={row.table} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg ${
+                            isDone ? 'bg-green-50' : isEmpty ? 'bg-gray-50' : 'bg-[#5D5FEF]/5'
+                          }`}>
+                            <Icon className={`w-3 h-3 flex-shrink-0 ${
+                              isDone ? 'text-green-500' : isEmpty ? 'text-gray-300' : 'text-[#5D5FEF]'
+                            }`} />
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-[9px] font-bold truncate ${
+                                isDone ? 'text-green-700' : isEmpty ? 'text-gray-400' : 'text-gray-600'
+                              }`}>{row.table}</p>
+                            </div>
+                            <span className={`text-[8px] font-bold tabular-nums ${
+                              isDone ? 'text-green-500' : isEmpty ? 'text-gray-300' : 'text-[#5D5FEF]'
+                            }`}>
+                              {isEmpty ? '—' : isDone ? <Check className="w-3 h-3" /> : `${row.imported}/${row.total}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Per-category file progress */}
+                {transferStatus?.categories && transferStatus.categories.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest">File Categories</p>
+                    <div className="space-y-1.5">
+                      {transferStatus.categories.filter((c: any) => c.totalFiles > 0).map((cat: any) => {
+                        const catIcons: Record<string, any> = {
+                          files: FolderOpen, photos: Image, videos: Video, music: Music, shared: Share2, databases: Database,
+                        };
+                        const CatIcon = catIcons[cat.name] || FolderOpen;
+                        const pct = cat.totalFiles > 0 ? Math.round((cat.filesCopied / cat.totalFiles) * 100) : 0;
+                        const isActive = transferStatus.currentCategory === cat.name && !cat.done;
+                        return (
+                          <div key={cat.name} className={`rounded-lg p-2 ${isActive ? 'bg-[#5D5FEF]/5 ring-1 ring-[#5D5FEF]/20' : cat.done ? 'bg-green-50/60' : 'bg-gray-50'}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <CatIcon className={`w-3.5 h-3.5 flex-shrink-0 ${cat.done ? 'text-green-500' : isActive ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
+                              <span className={`text-[10px] font-bold flex-1 ${cat.done ? 'text-green-700' : 'text-gray-700'}`}>{cat.label}</span>
+                              <span className={`text-[9px] font-bold tabular-nums ${cat.done ? 'text-green-500' : 'text-gray-400'}`}>
+                                {cat.done ? <Check className="w-3 h-3" /> : `${cat.filesCopied}/${cat.totalFiles}`}
+                              </span>
+                            </div>
+                            <div className="w-full h-1 bg-gray-200/60 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full transition-all duration-300 ${
+                                cat.done ? 'bg-green-400' : 'bg-[#5D5FEF]'
+                              }`} style={{ width: `${cat.done ? 100 : pct}%` }} />
+                            </div>
+                            {cat.bytesCopied > 0 && (
+                              <p className="text-[8px] text-gray-400 mt-0.5">
+                                {cat.bytesCopied > 1024 * 1024 * 1024
+                                  ? `${(cat.bytesCopied / (1024 * 1024 * 1024)).toFixed(2)} GB`
+                                  : cat.bytesCopied > 1024 * 1024
+                                  ? `${(cat.bytesCopied / (1024 * 1024)).toFixed(1)} MB`
+                                  : `${(cat.bytesCopied / 1024).toFixed(0)} KB`}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Done state */}
             {transferPhase === 'done' && (
-              <div className="text-center py-4 space-y-3">
-                <CheckCircle className="w-12 h-12 text-green-500 mx-auto" />
-                <h4 className="text-lg font-black text-gray-900">Transfer Package Ready</h4>
-                <p className="text-xs text-gray-400 font-medium max-w-sm mx-auto">
-                  Your data has been written to the USB drive. Safely eject it, plug it into your new device, and run Arcellite — the setup wizard will detect it automatically.
-                </p>
+              <div className="space-y-4">
+                <div className="text-center py-2">
+                  <CheckCircle className="w-10 h-10 text-green-500 mx-auto mb-2" />
+                  <h4 className="text-base font-black text-gray-900">Transfer Package Ready</h4>
+                  <p className="text-[11px] text-gray-400 font-medium max-w-xs mx-auto mt-1">
+                    Safely eject the USB drive, plug it into your new device, and run Arcellite — the setup wizard will detect it automatically.
+                  </p>
+                </div>
+
+                {/* Transfer summary */}
+                {transferStatus && (
+                  <div className="bg-[#F5F5F7] rounded-xl p-3 space-y-2">
+                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Transfer Summary</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="text-center">
+                        <p className="text-sm font-black text-gray-900">{(transferStatus.totalFiles || 0).toLocaleString()}</p>
+                        <p className="text-[8px] text-gray-400 font-bold uppercase">Files</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-black text-gray-900">
+                          {(transferStatus.bytesWritten || 0) > 1024 * 1024 * 1024
+                            ? `${((transferStatus.bytesWritten || 0) / (1024 * 1024 * 1024)).toFixed(1)} GB`
+                            : `${((transferStatus.bytesWritten || 0) / (1024 * 1024)).toFixed(0)} MB`}
+                        </p>
+                        <p className="text-[8px] text-gray-400 font-bold uppercase">Data</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-black text-gray-900">
+                          {transferStatus.dbRows ? transferStatus.dbRows.reduce((s: number, r: any) => s + (r.imported || r.total || 0), 0).toLocaleString() : '—'}
+                        </p>
+                        <p className="text-[8px] text-gray-400 font-bold uppercase">Records</p>
+                      </div>
+                    </div>
+
+                    {/* Category breakdown */}
+                    {transferStatus.categories && transferStatus.categories.filter((c: any) => c.totalFiles > 0).length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1 border-t border-gray-200/60">
+                        {transferStatus.categories.filter((c: any) => c.totalFiles > 0).map((cat: any) => {
+                          const catIcons: Record<string, any> = {
+                            files: FolderOpen, photos: Image, videos: Video, music: Music, shared: Share2, databases: Database,
+                          };
+                          const CatIcon = catIcons[cat.name] || FolderOpen;
+                          return (
+                            <span key={cat.name} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white rounded-full text-[8px] font-bold text-gray-500">
+                              <CatIcon className="w-2.5 h-2.5" />
+                              {cat.label}: {cat.totalFiles}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <button
-                  onClick={() => { setTransferPhase('idle'); setTransferDrives([]); setSelectedTransferDrive(null); }}
-                  className="px-6 py-3 bg-[#F5F5F7] text-gray-700 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all mt-2"
+                  onClick={() => { setTransferPhase('idle'); setTransferDrives([]); setSelectedTransferDrive(null); setTransferStatus(null); }}
+                  className="w-full px-6 py-3 bg-[#F5F5F7] text-gray-700 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
                 >
                   Done
                 </button>
@@ -1078,11 +1296,11 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
             {/* Error state */}
             {transferPhase === 'error' && (
               <div className="text-center py-4 space-y-3">
-                <AlertTriangle className="w-12 h-12 text-red-400 mx-auto" />
-                <h4 className="text-lg font-black text-gray-900">Transfer Failed</h4>
+                <AlertTriangle className="w-10 h-10 text-red-400 mx-auto" />
+                <h4 className="text-base font-black text-gray-900">Transfer Failed</h4>
                 <p className="text-xs text-red-400 font-medium max-w-sm mx-auto">{transferMessage}</p>
                 <button
-                  onClick={() => { setTransferPhase('idle'); }}
+                  onClick={() => { setTransferPhase('idle'); setTransferStatus(null); }}
                   className="px-6 py-3 bg-[#F5F5F7] text-gray-700 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all mt-2"
                 >
                   Try Again

@@ -29,6 +29,15 @@ const DATA_SUBDIRS = ['files', 'photos', 'videos', 'music', 'shared', 'databases
 
 // ── Progress Tracking ──────────────────────────────────────────────────────────
 
+export interface CategoryProgress {
+  name: string;
+  label: string;
+  filesCopied: number;
+  totalFiles: number;
+  bytesCopied: number;
+  done: boolean;
+}
+
 export interface TransferProgress {
   phase: 'idle' | 'exporting-db' | 'copying-files' | 'writing-manifest' | 'done' | 'error' | 'importing-db' | 'importing-files' | 'importing-account';
   percent: number;
@@ -41,6 +50,13 @@ export interface TransferProgress {
   error?: string;
   sessionToken?: string;
   user?: { id: number; email: string; firstName: string; lastName: string; avatarUrl: string; isSetupComplete: boolean; emailVerified: boolean };
+  // Detailed tracking
+  currentFile?: string;
+  currentCategory?: string;
+  categories?: CategoryProgress[];
+  dbRows?: { table: string; imported: number; total: number }[];
+  speedBps?: number;
+  etaSeconds?: number;
 }
 
 let currentProgress: TransferProgress = {
@@ -51,6 +67,8 @@ let currentProgress: TransferProgress = {
   totalFiles: 0,
   bytesWritten: 0,
 };
+
+let lastSpeedCheck = { time: Date.now(), bytes: 0 };
 
 export function getTransferProgress(): TransferProgress {
   return { ...currentProgress };
@@ -65,6 +83,7 @@ function resetProgress() {
     totalFiles: 0,
     bytesWritten: 0,
   };
+  lastSpeedCheck = { time: Date.now(), bytes: 0 };
 }
 
 function updateProgress(update: Partial<TransferProgress>) {
@@ -87,8 +106,20 @@ function countFiles(dir: string): number {
   return count;
 }
 
-/** Recursively copy a directory, updating progress */
-function copyDirRecursive(src: string, dest: string): void {
+const CATEGORY_LABELS: Record<string, string> = {
+  files: 'Documents & Files',
+  photos: 'Photos & Images',
+  videos: 'Videos',
+  music: 'Music & Audio',
+  shared: 'Shared Files',
+  databases: 'Databases',
+};
+
+let copyPercentBase = 20;
+let copyPercentRange = 70;
+
+/** Recursively copy a directory, updating progress with per-category tracking */
+function copyDirRecursive(src: string, dest: string, categoryName?: string): void {
   if (!fs.existsSync(src)) return;
   fs.mkdirSync(dest, { recursive: true });
 
@@ -99,17 +130,47 @@ function copyDirRecursive(src: string, dest: string): void {
 
     try {
       if (entry.isDirectory()) {
-        copyDirRecursive(srcPath, destPath);
+        copyDirRecursive(srcPath, destPath, categoryName);
       } else {
         fs.copyFileSync(srcPath, destPath);
         const stat = fs.statSync(destPath);
         currentProgress.filesCopied++;
         currentProgress.bytesWritten += stat.size;
+        currentProgress.currentFile = entry.name;
+        currentProgress.currentCategory = categoryName;
+
+        // Update per-category progress
+        if (currentProgress.categories && categoryName) {
+          const cat = currentProgress.categories.find(c => c.name === categoryName);
+          if (cat) {
+            cat.filesCopied++;
+            cat.bytesCopied += stat.size;
+            cat.done = cat.filesCopied >= cat.totalFiles;
+          }
+        }
+
+        // Calculate speed (update every 500ms)
+        const now = Date.now();
+        const elapsed = now - lastSpeedCheck.time;
+        if (elapsed > 500) {
+          const bytesDelta = currentProgress.bytesWritten - lastSpeedCheck.bytes;
+          currentProgress.speedBps = Math.round((bytesDelta / elapsed) * 1000);
+          lastSpeedCheck = { time: now, bytes: currentProgress.bytesWritten };
+
+          // Calculate ETA
+          if (currentProgress.speedBps > 0 && currentProgress.totalFiles > 0) {
+            const remainingFiles = currentProgress.totalFiles - currentProgress.filesCopied;
+            const avgFileSize = currentProgress.bytesWritten / currentProgress.filesCopied;
+            const remainingBytes = remainingFiles * avgFileSize;
+            currentProgress.etaSeconds = Math.round(remainingBytes / currentProgress.speedBps);
+          }
+        }
+
         currentProgress.message = `Copying: ${entry.name}`;
 
-        // Update percent: DB export = 20%, file copy = 70%, manifest = 10%
+        // Update percent using configurable base/range
         if (currentProgress.totalFiles > 0) {
-          currentProgress.percent = 20 + Math.round((currentProgress.filesCopied / currentProgress.totalFiles) * 70);
+          currentProgress.percent = copyPercentBase + Math.round((currentProgress.filesCopied / currentProgress.totalFiles) * copyPercentRange);
         }
       }
     } catch (e) {
@@ -190,11 +251,22 @@ export async function prepareTransferPackage(mountpoint: string): Promise<{ succ
     }
 
     resetProgress();
+
+    const exportDbRows: { table: string; imported: number; total: number }[] = [
+      { table: 'Settings', imported: 0, total: 0 },
+      { table: 'File Metadata', imported: 0, total: 0 },
+      { table: 'Recent Files', imported: 0, total: 0 },
+      { table: 'Connected Apps', imported: 0, total: 0 },
+      { table: 'Activity Log', imported: 0, total: 0 },
+      { table: 'Notifications', imported: 0, total: 0 },
+    ];
+
     updateProgress({
       phase: 'exporting-db',
       percent: 5,
       message: 'Exporting database...',
       startedAt: new Date().toISOString(),
+      dbRows: [...exportDbRows],
     });
 
     // Clean up any old transfer data
@@ -203,13 +275,28 @@ export async function prepareTransferPackage(mountpoint: string): Promise<{ succ
     }
     fs.mkdirSync(transferDir, { recursive: true });
 
-    // 1. Export database
+    // 1. Export database with per-table tracking
     const dbData = await exportDatabaseJSON();
+
+    // Update row counts from exported data
+    exportDbRows[0].total = dbData.user_settings?.length || 0;
+    exportDbRows[0].imported = exportDbRows[0].total;
+    exportDbRows[1].total = dbData.file_metadata?.length || 0;
+    exportDbRows[1].imported = exportDbRows[1].total;
+    exportDbRows[2].total = dbData.recent_files?.length || 0;
+    exportDbRows[2].imported = exportDbRows[2].total;
+    exportDbRows[3].total = dbData.connected_apps?.length || 0;
+    exportDbRows[3].imported = exportDbRows[3].total;
+    exportDbRows[4].total = dbData.activity_log?.length || 0;
+    exportDbRows[4].imported = exportDbRows[4].total;
+    exportDbRows[5].total = dbData.notifications?.length || 0;
+    exportDbRows[5].imported = exportDbRows[5].total;
+
     fs.writeFileSync(
       path.join(transferDir, 'database.json'),
       JSON.stringify(dbData, null, 2)
     );
-    updateProgress({ percent: 15, message: 'Database exported' });
+    updateProgress({ percent: 15, message: 'Database exported', dbRows: [...exportDbRows] });
 
     // 2. Export account info separately for quick detection
     const accountInfo = {
@@ -222,14 +309,31 @@ export async function prepareTransferPackage(mountpoint: string): Promise<{ succ
     );
     updateProgress({ percent: 20, message: 'Account info saved' });
 
-    // 3. Copy all files
+    // 3. Copy all files with per-category tracking
     updateProgress({ phase: 'copying-files', message: 'Counting files...' });
+    copyPercentBase = 20;
+    copyPercentRange = 70;
 
+    // Count files per category
+    const exportCategories: CategoryProgress[] = [];
     let totalFiles = 0;
     for (const subdir of DATA_SUBDIRS) {
-      totalFiles += countFiles(path.join(baseDir, subdir));
+      const catCount = countFiles(path.join(baseDir, subdir));
+      totalFiles += catCount;
+      exportCategories.push({
+        name: subdir,
+        label: CATEGORY_LABELS[subdir] || subdir,
+        filesCopied: 0,
+        totalFiles: catCount,
+        bytesCopied: 0,
+        done: false,
+      });
     }
-    updateProgress({ totalFiles, message: `Copying ${totalFiles} files...` });
+    updateProgress({
+      totalFiles,
+      message: `Copying ${totalFiles} files...`,
+      categories: exportCategories,
+    });
 
     const filesDestDir = path.join(transferDir, 'files');
     fs.mkdirSync(filesDestDir, { recursive: true });
@@ -238,7 +342,11 @@ export async function prepareTransferPackage(mountpoint: string): Promise<{ succ
       const src = path.join(baseDir, subdir);
       const dest = path.join(filesDestDir, subdir);
       if (fs.existsSync(src)) {
-        copyDirRecursive(src, dest);
+        copyDirRecursive(src, dest, subdir);
+      } else {
+        // Mark empty categories as done
+        const cat = currentProgress.categories?.find(c => c.name === subdir);
+        if (cat) cat.done = true;
       }
     }
 
@@ -349,7 +457,7 @@ export async function importTransferData(
       return { success: false, error: 'No user account found in transfer data' };
     }
 
-    updateProgress({ percent: 10, message: 'Creating user account...' });
+updateProgress({ percent: 8, message: 'Creating user account...' });
 
     // Hash the new password
     const passwordHash = await bcrypt.hash(newPassword, 12);
@@ -382,12 +490,26 @@ export async function importTransferData(
       const newUser = userResult.rows[0];
       const userId = newUser.id;
 
-      updateProgress({ phase: 'importing-db', percent: 15, message: 'Restoring metadata...' });
+      // Build DB row count tracking
+      const dbRowCounts: { table: string; imported: number; total: number }[] = [
+        { table: 'Settings', imported: 0, total: dbData.user_settings?.length || 0 },
+        { table: 'File Metadata', imported: 0, total: dbData.file_metadata?.length || 0 },
+        { table: 'Recent Files', imported: 0, total: dbData.recent_files?.length || 0 },
+        { table: 'Connected Apps', imported: 0, total: dbData.connected_apps?.length || 0 },
+        { table: 'Activity Log', imported: 0, total: dbData.activity_log?.length || 0 },
+        { table: 'Notifications', imported: 0, total: dbData.notifications?.length || 0 },
+      ];
+
+      updateProgress({
+        phase: 'importing-db',
+        percent: 10,
+        message: 'Restoring user settings...',
+        dbRows: dbRowCounts,
+      });
 
       // Import user settings
       if (dbData.user_settings?.length) {
         const s = dbData.user_settings[0];
-        // Ensure preferences is properly serialized for JSONB column
         const prefs = typeof s.preferences === 'string' ? s.preferences : JSON.stringify(s.preferences || {});
         await client.query(
           `INSERT INTO user_settings (user_id, theme, language, notifications_enabled, preferences)
@@ -398,11 +520,14 @@ export async function importTransferData(
              preferences = EXCLUDED.preferences`,
           [userId, s.theme || 'system', s.language || 'en', s.notifications_enabled ?? true, prefs]
         );
+        dbRowCounts[0].imported = 1;
+        updateProgress({ percent: 12, message: 'Settings restored', dbRows: [...dbRowCounts] });
       }
 
       // Import file metadata
       if (dbData.file_metadata?.length) {
-        for (const m of dbData.file_metadata) {
+        for (let i = 0; i < dbData.file_metadata.length; i++) {
+          const m = dbData.file_metadata[i];
           try {
             await client.query(
               `INSERT INTO file_metadata (user_id, file_path, is_favorite, tags, custom_properties, created_at)
@@ -411,13 +536,17 @@ export async function importTransferData(
                  is_favorite = EXCLUDED.is_favorite, tags = EXCLUDED.tags, custom_properties = EXCLUDED.custom_properties`,
               [userId, m.file_path, m.is_favorite || false, m.tags || '{}', m.custom_properties || '{}', m.created_at || new Date().toISOString()]
             );
+            dbRowCounts[1].imported = i + 1;
           } catch { /* skip duplicates */ }
         }
+        updateProgress({ percent: 14, message: `${dbRowCounts[1].imported} file metadata entries restored`, dbRows: [...dbRowCounts] });
       }
 
-      // Import recent files (all of them, not just 100)
+      // Import recent files (all of them)
       if (dbData.recent_files?.length) {
-        for (const r of dbData.recent_files) {
+        const totalRecent = dbData.recent_files.length;
+        for (let i = 0; i < totalRecent; i++) {
+          const r = dbData.recent_files[i];
           try {
             await client.query(
               `INSERT INTO recent_files (user_id, file_path, file_name, file_type, category, size_bytes, accessed_at)
@@ -425,13 +554,20 @@ export async function importTransferData(
                ON CONFLICT (user_id, file_path) DO UPDATE SET accessed_at = EXCLUDED.accessed_at`,
               [userId, r.file_path, r.file_name, r.file_type || 'file', r.category || 'general', r.size_bytes || 0, r.accessed_at || new Date().toISOString()]
             );
+            dbRowCounts[2].imported = i + 1;
+            // Update progress every 20 rows
+            if ((i + 1) % 20 === 0 || i === totalRecent - 1) {
+              const dbPercent = 14 + Math.round(((i + 1) / totalRecent) * 8); // 14-22%
+              updateProgress({ percent: dbPercent, message: `Restoring recent files... ${i + 1}/${totalRecent}`, dbRows: [...dbRowCounts] });
+            }
           } catch { /* skip */ }
         }
       }
 
       // Import connected apps
       if (dbData.connected_apps?.length) {
-        for (const app of dbData.connected_apps) {
+        for (let i = 0; i < dbData.connected_apps.length; i++) {
+          const app = dbData.connected_apps[i];
           try {
             await client.query(
               `INSERT INTO connected_apps (user_id, app_type, app_name, config, is_active)
@@ -439,13 +575,17 @@ export async function importTransferData(
                ON CONFLICT DO NOTHING`,
               [userId, app.app_type, app.app_name, app.config || '{}', app.is_active ?? true]
             );
+            dbRowCounts[3].imported = i + 1;
           } catch { /* skip */ }
         }
+        updateProgress({ percent: 23, message: `Connected apps restored`, dbRows: [...dbRowCounts] });
       }
 
       // Import activity log
       if (dbData.activity_log?.length) {
-        for (const a of dbData.activity_log) {
+        const totalActivity = dbData.activity_log.length;
+        for (let i = 0; i < totalActivity; i++) {
+          const a = dbData.activity_log[i];
           try {
             const metadata = typeof a.metadata === 'string' ? a.metadata : JSON.stringify(a.metadata || {});
             await client.query(
@@ -453,42 +593,75 @@ export async function importTransferData(
                VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
               [userId, a.action, a.details || null, a.resource_type || null, a.resource_path || null, metadata, a.ip_address || null, a.user_agent || null, a.created_at || new Date().toISOString()]
             );
+            dbRowCounts[4].imported = i + 1;
           } catch { /* skip duplicates */ }
         }
+        updateProgress({ percent: 26, message: `${totalActivity} activity log entries restored`, dbRows: [...dbRowCounts] });
       }
 
       // Import notifications
       if (dbData.notifications?.length) {
-        for (const n of dbData.notifications) {
+        const totalNotif = dbData.notifications.length;
+        for (let i = 0; i < totalNotif; i++) {
+          const n = dbData.notifications[i];
           try {
             await client.query(
               `INSERT INTO notifications (user_id, title, message, type, category, is_read, created_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
               [userId, n.title, n.message || null, n.type || 'info', n.category || 'system', n.is_read ?? false, n.created_at || new Date().toISOString()]
             );
+            dbRowCounts[5].imported = i + 1;
           } catch { /* skip */ }
         }
+        updateProgress({ percent: 28, message: `${totalNotif} notifications restored`, dbRows: [...dbRowCounts] });
       }
 
       await client.query('COMMIT');
+      updateProgress({ percent: 30, message: 'Database import complete', dbRows: [...dbRowCounts] });
 
-      // 3. Copy files
-      updateProgress({ phase: 'importing-files', percent: 30, message: 'Copying files...' });
+      // 3. Copy files — build per-category tracking
+      copyPercentBase = 30;
+      copyPercentRange = 65;
+      updateProgress({ phase: 'importing-files', percent: 30, message: 'Scanning file categories...' });
 
       const srcFilesDir = path.join(transferDir, 'files');
       if (fs.existsSync(srcFilesDir)) {
+        // Count files per category
+        const categoryProgress: CategoryProgress[] = [];
         let totalFiles = 0;
         for (const subdir of DATA_SUBDIRS) {
-          totalFiles += countFiles(path.join(srcFilesDir, subdir));
+          const catDir = path.join(srcFilesDir, subdir);
+          const catCount = countFiles(catDir);
+          if (catCount > 0 || fs.existsSync(catDir)) {
+            categoryProgress.push({
+              name: subdir,
+              label: CATEGORY_LABELS[subdir] || subdir,
+              filesCopied: 0,
+              totalFiles: catCount,
+              bytesCopied: 0,
+              done: catCount === 0,
+            });
+            totalFiles += catCount;
+          }
         }
-        updateProgress({ totalFiles });
+        updateProgress({
+          totalFiles,
+          categories: categoryProgress,
+          message: `Found ${totalFiles.toLocaleString()} files across ${categoryProgress.filter(c => c.totalFiles > 0).length} categories`,
+        });
 
         for (const subdir of DATA_SUBDIRS) {
           const src = path.join(srcFilesDir, subdir);
           const dest = path.join(baseDir, subdir);
           if (fs.existsSync(src)) {
+            const catLabel = CATEGORY_LABELS[subdir] || subdir;
+            updateProgress({ currentCategory: subdir, message: `Copying ${catLabel}...` });
             fs.mkdirSync(dest, { recursive: true });
-            copyDirRecursive(src, dest);
+            copyDirRecursive(src, dest, subdir);
+            // Mark category done
+            const cat = currentProgress.categories?.find(c => c.name === subdir);
+            if (cat) cat.done = true;
+            updateProgress({ categories: currentProgress.categories ? [...currentProgress.categories] : undefined });
           }
         }
       }
