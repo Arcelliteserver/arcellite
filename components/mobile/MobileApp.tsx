@@ -69,7 +69,7 @@ export interface MobileAppProps {
   aiRenamedSet: Set<string>;
 
   // Callbacks
-  showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
+  showToast: (msg: string, type: 'success' | 'error' | 'info' | 'warning') => void;
   onRefreshFiles: () => void;
   onNavigateToFile: (category: string, itemPath: string, isFolder: boolean) => void;
 

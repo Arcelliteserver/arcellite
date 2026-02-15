@@ -39,6 +39,8 @@ import { AI_MODELS } from './constants';
 import AuthView from './components/auth/AuthView';
 import ConfirmModal from './components/common/ConfirmModal';
 import UploadProgress from './components/common/UploadProgress';
+import Toast from './components/common/Toast';
+import type { ToastData } from './components/common/Toast';
 import type { UploadFileProgress } from './components/common/UploadProgress';
 import SetupWizard from './components/onboarding/SetupWizard';
 import { authApi, setSessionToken, getSessionToken } from './services/api.client';
@@ -201,7 +203,7 @@ const App: React.FC = () => {
   const [isResizing, setIsResizing] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; icon?: 'usb' } | null>(null);
+  const [toast, setToast] = useState<ToastData | null>(null);
 
   // Upload progress state
   const [uploadProgress, setUploadProgress] = useState<UploadFileProgress[]>([]);
@@ -574,7 +576,7 @@ const App: React.FC = () => {
       if (!res.ok) throw new Error('Create failed');
       await loadServerFolders(cat, currentPath);
       setNewFolderModal({ isOpen: false, folderName: '', error: null });
-      setToast({ message: `Folder "${name}" created successfully`, type: 'success' });
+      setToast({ message: `Folder "${name}" created successfully`, type: 'success', icon: 'folder' });
     } catch {
       setNewFolderModal(prev => ({ ...prev, error: 'Could not create folder. Please try again.' }));
     }
@@ -614,13 +616,13 @@ const App: React.FC = () => {
       await loadServerFolders(cat, currentPath);
       loadRecentFiles();
       setRenameModal({ isOpen: false, file: null, newName: '', error: null });
-      showToast(`Renamed to "${newName}"`, 'success');
+      showToast(`Renamed to "${newName}"`, 'success', 'rename');
     } catch (e) {
       setRenameModal(prev => ({ ...prev, error: (e as Error).message || 'Rename failed. Please try again.' }));
     }
   };
 
-  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success', icon?: 'usb') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success', icon?: ToastData['icon']) => {
     setToast({ message, type, icon });
     setTimeout(() => setToast(null), 4000);
   }, []);
@@ -685,7 +687,7 @@ const App: React.FC = () => {
     // AI Auto-Rename: if enabled and the file is an image, analyze and rename
     const imageExtsForRename = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'tif', 'avif', 'heic', 'heif'];
     if (aiAutoRename && imageExtsForRename.includes(ext)) {
-      showToast(`Analyzing "${file.name}" with AI...`, 'info');
+      showToast(`Analyzing "${file.name}" with AI...`, 'info', 'ai');
       try {
         const response = await fetch('/api/ai/analyze-image', {
           method: 'POST',
@@ -694,7 +696,7 @@ const App: React.FC = () => {
         });
         const result = await response.json();
         if (result.ok && result.renamed) {
-          showToast(`AI renamed: "${file.name}" → "${result.newFileName}"`, 'success');
+          showToast(`AI renamed: "${file.name}" → "${result.newFileName}"`, 'success', 'ai');
           // Refresh file list to show the new name
           const cat = uploadCategory;
           const currentPath = currentFolderId ? currentFolderId.replace(/^server-[^-]+-/, '') : '';
@@ -904,7 +906,7 @@ const App: React.FC = () => {
       await loadServerFolders(cat, currentPath);
       // Refresh recent files so Overview stays in sync
       loadRecentFiles();
-      showToast(`${file.name} moved to trash`, 'success');
+      showToast(`${file.name} moved to trash`, 'success', 'trash');
     } catch (error) {
       showToast(`Delete failed: ${(error as Error).message}`, 'error');
     }
@@ -978,7 +980,7 @@ const App: React.FC = () => {
 
             await loadServerFolders(cat, currentPath);
             loadRecentFiles();
-            showToast(`${file.name} moved to root folder!`, 'success');
+            showToast(`${file.name} moved to root folder!`, 'success', 'move');
           }
           break;
 
@@ -1012,7 +1014,7 @@ const App: React.FC = () => {
 
           await loadServerFolders(cat, currentPath);
           loadRecentFiles();
-          showToast(`${file.name} moved to ${targetFolder.name}!`, 'success');
+          showToast(`${file.name} moved to ${targetFolder.name}!`, 'success', 'move');
           break;
 
         default:
@@ -1076,7 +1078,7 @@ const App: React.FC = () => {
             await loadServerFolders(fileCategory, '');
             await loadServerFolders(folderCategory, '');
             loadRecentFiles();
-            showToast(`${droppedFile.name} moved to ${targetFolder.name}!`, 'success');
+            showToast(`${droppedFile.name} moved to ${targetFolder.name}!`, 'success', 'move');
           } catch (error) {
             showToast(`Move failed: ${(error as Error).message}`, 'error');
           }
@@ -1135,7 +1137,7 @@ const App: React.FC = () => {
           await loadServerFolders(sourceCategory, '');
           await loadServerFolders(targetCategory, '');
           loadRecentFiles();
-          showToast(`${droppedFile.name} moved to ${targetLabel}!`, 'success');
+          showToast(`${droppedFile.name} moved to ${targetLabel}!`, 'success', 'move');
         } catch (error) {
           showToast(`Move failed: ${(error as Error).message}`, 'error');
         }
@@ -1341,30 +1343,7 @@ const App: React.FC = () => {
 
         {/* Toast Notification */}
         {toast && (
-          <div className="fixed bottom-20 left-4 right-4 z-[1000] animate-in slide-in-from-bottom-4 fade-in duration-300">
-            <div className={`px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 ${
-              toast.type === 'success'
-                ? 'bg-green-500 text-white'
-                : toast.type === 'info'
-                ? 'bg-[#5D5FEF] text-white'
-                : 'bg-red-500 text-white'
-            }`}>
-              {toast.type === 'success' ? (
-                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : toast.type === 'info' ? (
-                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              )}
-              <span className="font-bold text-sm">{toast.message}</span>
-            </div>
-          </div>
+          <Toast toast={toast} onDismiss={() => setToast(null)} position="bottom-center" />
         )}
 
         {/* Confirmation Modal */}
@@ -1708,34 +1687,7 @@ const App: React.FC = () => {
 
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-[1000] animate-in slide-in-from-bottom-4 fade-in duration-300">
-          <div className={`px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 ${
-            toast.type === 'success'
-              ? 'bg-green-500 text-white'
-              : toast.type === 'info'
-              ? 'bg-[#5D5FEF] text-white'
-              : 'bg-red-500 text-white'
-          }`}>
-            {toast.icon === 'usb' ? (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 2v10m0 0l3-3m-3 3l-3-3M7 21h10a2 2 0 002-2v-3a2 2 0 00-2-2H7a2 2 0 00-2 2v3a2 2 0 002 2z" />
-              </svg>
-            ) : toast.type === 'success' ? (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            ) : toast.type === 'info' ? (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            ) : (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            )}
-            <span className="font-bold text-sm">{toast.message}</span>
-          </div>
-        </div>
+        <Toast toast={toast} onDismiss={() => setToast(null)} position="bottom-right" />
       )}
 
       {/* Confirmation Modal */}
