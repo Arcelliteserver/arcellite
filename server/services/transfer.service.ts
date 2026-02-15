@@ -14,6 +14,7 @@ import path from 'path';
 import os from 'os';
 import bcrypt from 'bcrypt';
 import { pool } from '../db/connection.js';
+import { createSession } from './auth.service.js';
 
 const homeDir = os.homedir();
 let baseDir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
@@ -38,6 +39,8 @@ export interface TransferProgress {
   startedAt?: string;
   completedAt?: string;
   error?: string;
+  sessionToken?: string;
+  user?: { id: number; email: string; firstName: string; lastName: string; avatarUrl: string; isSetupComplete: boolean; emailVerified: boolean };
 }
 
 let currentProgress: TransferProgress = {
@@ -360,6 +363,7 @@ export async function importTransferData(
         `INSERT INTO users (email, password_hash, first_name, last_name, avatar_url, storage_path, is_setup_complete, email_verified, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, TRUE, TRUE, NOW())
          ON CONFLICT (email) DO UPDATE SET
+           password_hash = EXCLUDED.password_hash,
            first_name = EXCLUDED.first_name,
            last_name = EXCLUDED.last_name,
            avatar_url = EXCLUDED.avatar_url,
@@ -383,14 +387,16 @@ export async function importTransferData(
       // Import user settings
       if (dbData.user_settings?.length) {
         const s = dbData.user_settings[0];
+        // Ensure preferences is properly serialized for JSONB column
+        const prefs = typeof s.preferences === 'string' ? s.preferences : JSON.stringify(s.preferences || {});
         await client.query(
           `INSERT INTO user_settings (user_id, theme, language, notifications_enabled, preferences)
-           VALUES ($1, $2, $3, $4, $5)
+           VALUES ($1, $2, $3, $4, $5::jsonb)
            ON CONFLICT (user_id) DO UPDATE SET
              theme = EXCLUDED.theme, language = EXCLUDED.language,
              notifications_enabled = EXCLUDED.notifications_enabled,
              preferences = EXCLUDED.preferences`,
-          [userId, s.theme || 'system', s.language || 'en', s.notifications_enabled ?? true, s.preferences || '{}']
+          [userId, s.theme || 'system', s.language || 'en', s.notifications_enabled ?? true, prefs]
         );
       }
 
@@ -409,9 +415,9 @@ export async function importTransferData(
         }
       }
 
-      // Import recent files
+      // Import recent files (all of them, not just 100)
       if (dbData.recent_files?.length) {
-        for (const r of dbData.recent_files.slice(0, 100)) {
+        for (const r of dbData.recent_files) {
           try {
             await client.query(
               `INSERT INTO recent_files (user_id, file_path, file_name, file_type, category, size_bytes, accessed_at)
@@ -432,6 +438,33 @@ export async function importTransferData(
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT DO NOTHING`,
               [userId, app.app_type, app.app_name, app.config || '{}', app.is_active ?? true]
+            );
+          } catch { /* skip */ }
+        }
+      }
+
+      // Import activity log
+      if (dbData.activity_log?.length) {
+        for (const a of dbData.activity_log) {
+          try {
+            const metadata = typeof a.metadata === 'string' ? a.metadata : JSON.stringify(a.metadata || {});
+            await client.query(
+              `INSERT INTO activity_log (user_id, action, details, resource_type, resource_path, metadata, ip_address, user_agent, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
+              [userId, a.action, a.details || null, a.resource_type || null, a.resource_path || null, metadata, a.ip_address || null, a.user_agent || null, a.created_at || new Date().toISOString()]
+            );
+          } catch { /* skip duplicates */ }
+        }
+      }
+
+      // Import notifications
+      if (dbData.notifications?.length) {
+        for (const n of dbData.notifications) {
+          try {
+            await client.query(
+              `INSERT INTO notifications (user_id, title, message, type, category, is_read, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [userId, n.title, n.message || null, n.type || 'info', n.category || 'system', n.is_read ?? false, n.created_at || new Date().toISOString()]
             );
           } catch { /* skip */ }
         }
@@ -460,15 +493,38 @@ export async function importTransferData(
         }
       }
 
+      // Create a session so the user is automatically logged in (before setting phase to 'done')
+      let sessionToken: string | undefined;
+      try {
+        const session = await createSession(newUser.id, {
+          userAgent: 'Arcellite Transfer Import',
+          isCurrentHost: true,
+        });
+        sessionToken = session.sessionToken;
+      } catch (e) {
+        console.error('[Transfer] Failed to create session after import:', (e as Error).message);
+      }
+
       updateProgress({
         phase: 'done',
         percent: 100,
         message: 'Transfer complete!',
         completedAt: new Date().toISOString(),
+        sessionToken,
+        user: {
+          id: newUser.id,
+          email: newUser.email,
+          firstName: newUser.first_name,
+          lastName: newUser.last_name,
+          avatarUrl: newUser.avatar_url,
+          isSetupComplete: true,
+          emailVerified: true,
+        },
       });
 
       return {
         success: true,
+        sessionToken,
         user: {
           id: newUser.id,
           email: newUser.email,

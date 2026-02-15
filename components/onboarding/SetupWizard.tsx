@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { HardDrive, FolderPlus, CheckCircle, Mail, Lock, User, Cloud, ArrowRight, ArrowLeft, AlertCircle, Loader2, Check, X, Eye, EyeOff, Usb, Server, ArrowRightLeft, Monitor, RefreshCw } from 'lucide-react';
-import { authApi } from '../../services/api.client';
+import { authApi, setSessionToken } from '../../services/api.client';
 import type { RemovableDeviceInfo } from '../../types';
 
 interface TransferDevice {
@@ -56,6 +56,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   const [transferMessage, setTransferMessage] = useState('');
   const [transferComplete, setTransferComplete] = useState(false);
   const [transferScanError, setTransferScanError] = useState('');
+  const [transferSessionToken, setTransferSessionToken] = useState<string | null>(null);
 
   // ── Detect transfer data on connected USBs when wizard loads ──────────────
   const detectTransferDevices = async () => {
@@ -299,6 +300,11 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
 
           if (status.phase === 'done') {
             clearInterval(poll);
+            // Capture session token from import result
+            if (status.sessionToken) {
+              setTransferSessionToken(status.sessionToken);
+              setSessionToken(status.sessionToken);
+            }
             setTransferComplete(true);
             setTransferImporting(false);
           } else if (status.phase === 'error') {
@@ -319,14 +325,17 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   };
 
   const handleTransferComplete = async () => {
-    // Log into the imported account
-    try {
-      const manifest = selectedTransfer?.manifest;
-      if (manifest?.userEmail && transferPassword) {
-        await authApi.login(manifest.userEmail, transferPassword);
+    // Session was already created during import and token was stored
+    // If for some reason the token wasn't captured, try logging in as fallback
+    if (!transferSessionToken) {
+      try {
+        const manifest = selectedTransfer?.manifest;
+        if (manifest?.userEmail && transferPassword) {
+          await authApi.login(manifest.userEmail, transferPassword);
+        }
+      } catch {
+        // Will redirect to login if auto-login fails
       }
-    } catch {
-      // Will redirect to login if auto-login fails
     }
     onComplete();
   };

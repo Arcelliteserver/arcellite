@@ -1239,6 +1239,13 @@ const App: React.FC = () => {
           } catch (err) {}
           setSetupNeeded(false);
           setIsAuthenticated(true);
+          loadRecentFiles();
+          loadAiRenamedFiles();
+          // Load smart feature settings
+          authApi.getSettings().then(({ settings }) => {
+            if (settings.pdfThumbnails !== undefined) setPdfThumbnails(settings.pdfThumbnails);
+            if (settings.aiAutoRename !== undefined) setAiAutoRename(settings.aiAutoRename);
+          }).catch(() => {});
         }}
       />
     );
