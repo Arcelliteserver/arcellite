@@ -26,6 +26,7 @@ interface FileGridProps {
   pdfThumbnails?: boolean; // Enable/disable PDF thumbnail rendering
   aiRenamedSet?: Set<string>; // Set of "category/relPath" keys for AI-renamed files
   mobileColumns?: 2 | 3; // Number of columns on mobile (default: 2)
+  onFileDrop?: (file: FileItem, targetFolder: FileItem) => void; // Drag-and-drop into folder
 }
 
 const CustomFolderIcon = ({ className }: { className?: string }) => (
@@ -104,11 +105,56 @@ const PdfBookThumbnail: React.FC<{ file: FileItem; isPdf?: boolean; enabled?: bo
   );
 };
 
-const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [], pdfThumbnails = true, aiRenamedSet, mobileColumns = 2 }) => {
+const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [], pdfThumbnails = true, aiRenamedSet, mobileColumns = 2, onFileDrop }) => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState<string | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
+
+  const handleDragStart = (e: React.DragEvent, file: FileItem) => {
+    if (file.isFolder) return; // Don't drag folders
+    e.dataTransfer.setData('application/json', JSON.stringify(file));
+    e.dataTransfer.effectAllowed = 'move';
+    // Set a ghost image
+    const ghost = document.createElement('div');
+    ghost.className = 'bg-white shadow-2xl rounded-xl px-4 py-2 text-sm font-bold text-gray-800 border border-[#5D5FEF]/30';
+    ghost.textContent = file.name;
+    ghost.style.position = 'absolute';
+    ghost.style.top = '-1000px';
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 0, 0);
+    setTimeout(() => document.body.removeChild(ghost), 0);
+  };
+
+  const handleFolderDragOver = (e: React.DragEvent, folderId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverFolderId(folderId);
+  };
+
+  const handleFolderDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverFolderId(null);
+  };
+
+  const handleFolderDrop = (e: React.DragEvent, targetFolder: FileItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverFolderId(null);
+    try {
+      const data = e.dataTransfer.getData('application/json');
+      if (!data) return;
+      const file: FileItem = JSON.parse(data);
+      if (file.id === targetFolder.id) return;
+      if (onFileDrop) {
+        onFileDrop(file, targetFolder);
+      } else if (onAction) {
+        onAction('Move', file, targetFolder);
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -177,7 +223,10 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
             <div 
               key={file.id}
               onClick={() => onFileClick(file)}
-              className={`group relative flex flex-col cursor-pointer select-none transition-all duration-300 hover:-translate-y-1 ${isMenuOpen ? 'z-50' : 'z-0'}`}
+              onDragOver={(e) => handleFolderDragOver(e, file.id)}
+              onDragLeave={handleFolderDragLeave}
+              onDrop={(e) => handleFolderDrop(e, file)}
+              className={`group relative flex flex-col cursor-pointer select-none transition-all duration-300 hover:-translate-y-1 ${isMenuOpen ? 'z-50' : 'z-0'} ${dragOverFolderId === file.id ? 'ring-4 ring-[#5D5FEF] ring-offset-2 scale-[1.03]' : ''}`}
             >
               <div className="absolute -top-1.5 left-5 w-14 h-5 bg-[#5D5FEF] rounded-t-2xl transition-opacity group-hover:opacity-100 opacity-100 shadow-md" />
               
@@ -248,6 +297,8 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
         return (
           <div 
             key={file.id}
+            draggable={!file.isFolder}
+            onDragStart={(e) => handleDragStart(e, file)}
             onClick={() => onFileClick(file)}
             className={`group relative flex flex-col p-3 sm:p-4 rounded-2xl sm:rounded-3xl border transition-all duration-300 cursor-pointer select-none bg-white aspect-[3/4] ${
               isSelected 

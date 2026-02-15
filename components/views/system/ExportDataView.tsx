@@ -106,9 +106,9 @@ const ExportDataView: React.FC = () => {
               key={option.id}
               className="bg-white rounded-[2rem] border border-gray-100 p-6 shadow-sm hover:shadow-md transition-all"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center flex-shrink-0">
                     <Icon className="w-6 h-6 text-[#5D5FEF]" />
                   </div>
                   <div>
@@ -120,7 +120,7 @@ const ExportDataView: React.FC = () => {
                 <button
                   onClick={() => handleExport(option)}
                   disabled={isExporting || exporting !== null}
-                  className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm transition-all ${
+                  className={`flex items-center justify-center gap-2 w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm transition-all ${
                     isExporting
                       ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                       : isComplete

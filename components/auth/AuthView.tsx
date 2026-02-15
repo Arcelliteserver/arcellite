@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Mail, Lock, Eye, EyeOff, Cloud, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Mail, Lock, Eye, EyeOff, Cloud, AlertCircle, Loader2, ShieldCheck } from 'lucide-react';
 import { authApi } from '../../services/api.client';
 
 interface AuthViewProps {
@@ -13,6 +13,46 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // 2FA state
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [totpCode, setTotpCode] = useState(['', '', '', '', '', '']);
+  const totpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Auto-focus first TOTP input when 2FA challenge appears
+  useEffect(() => {
+    if (needs2FA && totpRefs.current[0]) {
+      totpRefs.current[0].focus();
+    }
+  }, [needs2FA]);
+
+  const handleTotpChange = (index: number, value: string) => {
+    if (!/^\d*$/.test(value)) return;
+    const newCode = [...totpCode];
+    newCode[index] = value.slice(-1);
+    setTotpCode(newCode);
+    // Auto-advance to next input
+    if (value && index < 5) {
+      totpRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleTotpKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !totpCode[index] && index > 0) {
+      totpRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleTotpPaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted.length === 6) {
+      setTotpCode(pasted.split(''));
+      totpRefs.current[5]?.focus();
+    }
+  };
+
+  const fullTotpCode = totpCode.join('');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -22,16 +62,36 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
       return;
     }
 
+    if (needs2FA && fullTotpCode.length !== 6) {
+      setError('Please enter the full 6-digit code');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await authApi.login(email, password);
+      const result = await authApi.login(email, password, needs2FA ? fullTotpCode : undefined);
+      if (result.requires2FA) {
+        setNeeds2FA(true);
+        setLoading(false);
+        return;
+      }
       onLogin();
     } catch (err: any) {
+      if (needs2FA) {
+        setTotpCode(['', '', '', '', '', '']);
+        totpRefs.current[0]?.focus();
+      }
       setError(err.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleBack = () => {
+    setNeeds2FA(false);
+    setTotpCode(['', '', '', '', '', '']);
+    setError('');
   };
 
   return (
@@ -51,8 +111,20 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
         <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] border border-gray-100 shadow-2xl shadow-gray-200/50 p-6 sm:p-8 md:p-10">
           {/* Header */}
           <div className="text-center mb-6 sm:mb-8">
-            <h2 className="text-lg sm:text-xl font-black text-[#111111] mb-1">Welcome Back</h2>
-            <p className="text-gray-400 text-xs sm:text-sm font-medium">Sign in to your account</p>
+            {needs2FA ? (
+              <>
+                <div className="w-12 h-12 bg-[#5D5FEF]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <ShieldCheck className="w-6 h-6 text-[#5D5FEF]" />
+                </div>
+                <h2 className="text-lg sm:text-xl font-black text-[#111111] mb-1">Two-Factor Verification</h2>
+                <p className="text-gray-400 text-xs sm:text-sm font-medium">Enter the 6-digit code from your authenticator app</p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg sm:text-xl font-black text-[#111111] mb-1">Welcome Back</h2>
+                <p className="text-gray-400 text-xs sm:text-sm font-medium">Sign in to your account</p>
+              </>
+            )}
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5 md:space-y-6">
@@ -64,64 +136,117 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
               </div>
             )}
 
-            {/* Email Input */}
-            <div>
-              <label className="text-[10px] sm:text-[11px] font-black text-gray-300 uppercase tracking-widest mb-2 block">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
-                  className="w-full pl-10 sm:pl-12 pr-4 py-3 sm:py-4 bg-[#F5F5F7] rounded-xl sm:rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[14px] sm:text-[15px] outline-none placeholder:text-gray-400 font-medium"
-                  required
-                />
-              </div>
-            </div>
+            {needs2FA ? (
+              <>
+                {/* TOTP Code Input — 6 digit boxes */}
+                <div>
+                  <label className="text-[10px] sm:text-[11px] font-black text-gray-300 uppercase tracking-widest mb-3 block text-center">
+                    Authentication Code
+                  </label>
+                  <div className="flex items-center justify-center gap-2 sm:gap-3" onPaste={handleTotpPaste}>
+                    {totpCode.map((digit, i) => (
+                      <input
+                        key={i}
+                        ref={(el) => { totpRefs.current[i] = el; }}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleTotpChange(i, e.target.value)}
+                        onKeyDown={(e) => handleTotpKeyDown(i, e)}
+                        className="w-11 h-14 sm:w-12 sm:h-16 text-center text-xl sm:text-2xl font-black bg-[#F5F5F7] rounded-xl sm:rounded-2xl border border-transparent focus:border-[#5D5FEF]/40 focus:bg-white transition-all outline-none"
+                      />
+                    ))}
+                  </div>
+                </div>
 
-            {/* Password Input */}
-            <div>
-              <label className="text-[10px] sm:text-[11px] font-black text-gray-300 uppercase tracking-widest mb-2 block">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  className="w-full pl-10 sm:pl-12 pr-10 sm:pr-12 py-3 sm:py-4 bg-[#F5F5F7] rounded-xl sm:rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[14px] sm:text-[15px] outline-none placeholder:text-gray-400 font-medium"
-                  required
-                />
+                {/* Verify Button */}
+                <button
+                  type="submit"
+                  disabled={loading || fullTotpCode.length !== 6}
+                  className="w-full px-5 sm:px-6 py-3 sm:py-4 bg-[#5D5FEF] text-white rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm uppercase tracking-widest hover:bg-[#4D4FCF] transition-all shadow-lg shadow-[#5D5FEF]/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                      Verifying...
+                    </>
+                  ) : (
+                    'Verify & Sign In'
+                  )}
+                </button>
+
+                {/* Back button */}
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                  onClick={handleBack}
+                  className="w-full py-2 text-gray-400 text-xs font-bold hover:text-gray-600 transition-colors"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
+                  ← Back to sign in
                 </button>
-              </div>
-            </div>
+              </>
+            ) : (
+              <>
+                {/* Email Input */}
+                <div>
+                  <label className="text-[10px] sm:text-[11px] font-black text-gray-300 uppercase tracking-widest mb-2 block">
+                    Email Address
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="Enter your email"
+                      className="w-full pl-10 sm:pl-12 pr-4 py-3 sm:py-4 bg-[#F5F5F7] rounded-xl sm:rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[14px] sm:text-[15px] outline-none placeholder:text-gray-400 font-medium"
+                      required
+                    />
+                  </div>
+                </div>
 
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full px-5 sm:px-6 py-3 sm:py-4 bg-[#5D5FEF] text-white rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm uppercase tracking-widest hover:bg-[#4D4FCF] transition-all shadow-lg shadow-[#5D5FEF]/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                  Signing In...
-                </>
-              ) : (
-                'Sign In'
-              )}
-            </button>
+                {/* Password Input */}
+                <div>
+                  <label className="text-[10px] sm:text-[11px] font-black text-gray-300 uppercase tracking-widest mb-2 block">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      className="w-full pl-10 sm:pl-12 pr-10 sm:pr-12 py-3 sm:py-4 bg-[#F5F5F7] rounded-xl sm:rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[14px] sm:text-[15px] outline-none placeholder:text-gray-400 font-medium"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full px-5 sm:px-6 py-3 sm:py-4 bg-[#5D5FEF] text-white rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm uppercase tracking-widest hover:bg-[#4D4FCF] transition-all shadow-lg shadow-[#5D5FEF]/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                      Signing In...
+                    </>
+                  ) : (
+                    'Sign In'
+                  )}
+                </button>
+              </>
+            )}
           </form>
         </div>
 

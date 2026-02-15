@@ -46,6 +46,42 @@ export default defineConfig(({ mode }) => {
               const url = req.url?.split('?')[0];
               const fullUrl = req.url ?? '';
 
+              // ─── Security Middleware: Traffic Masking & Strict Isolation ───
+              if (fullUrl.startsWith('/api/')) {
+                try {
+                  const secService = await import('./server/services/security.service.js');
+
+                  // Apply traffic masking headers if enabled
+                  const maskingEnabled = await secService.isTrafficMaskingEnabled();
+                  if (maskingEnabled) {
+                    const headers = secService.getTrafficMaskingHeaders();
+                    for (const [key, value] of Object.entries(headers)) {
+                      res.setHeader(key, value);
+                    }
+                  }
+
+                  // Strict Isolation: block non-authorized IPs (skip login/register so user can still auth)
+                  if (url !== '/api/auth/login' && url !== '/api/auth/register') {
+                    const authHeader = req.headers.authorization;
+                    if (authHeader?.startsWith('Bearer ')) {
+                      const authSvc = await import('./server/services/auth.service.js');
+                      const user = await authSvc.validateSession(authHeader.substring(7));
+                      if (user) {
+                        const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+                          || req.socket?.remoteAddress || '';
+                        const allowed = await secService.isIpAllowed(user.id, clientIp);
+                        if (!allowed) {
+                          res.statusCode = 403;
+                          res.setHeader('Content-Type', 'application/json');
+                          res.end(JSON.stringify({ error: 'Access denied: IP not in allowlist (Strict Isolation)' }));
+                          return;
+                        }
+                      }
+                    }
+                  }
+                } catch { /* security middleware should never break normal flow */ }
+              }
+
               // Auth routes
               if (url === '/api/auth/register' && req.method === 'POST') {
                 const authRoutes = await import('./server/routes/auth.routes.js');
@@ -112,14 +148,145 @@ export default defineConfig(({ mode }) => {
                 authRoutes.handleUpdateSettings(req, res);
                 return;
               }
+              if (url === '/api/auth/reset-settings' && req.method === 'POST') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleResetSettings(req, res);
+                return;
+              }
               if (url === '/api/auth/activity' && req.method === 'GET') {
                 const authRoutes = await import('./server/routes/auth.routes.js');
                 authRoutes.handleGetActivityLog(req, res);
                 return;
               }
+
+              // Security Vault routes
+              if (url === '/api/security/2fa/setup' && req.method === 'POST') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handle2FASetup(req, res);
+                return;
+              }
+              if (url === '/api/security/2fa/verify' && req.method === 'POST') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handle2FAVerify(req, res);
+                return;
+              }
+              if (url === '/api/security/2fa/disable' && req.method === 'POST') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handle2FADisable(req, res);
+                return;
+              }
+              if (url === '/api/security/protocol-action' && req.method === 'POST') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleProtocolAction(req, res);
+                return;
+              }
+              if (url === '/api/security/status' && req.method === 'GET') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleSecurityStatus(req, res);
+                return;
+              }
+              if (url === '/api/security/ghost-folders' && req.method === 'POST') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleAddGhostFolder(req, res);
+                return;
+              }
+              if (url === '/api/security/ghost-folders' && req.method === 'DELETE') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleRemoveGhostFolder(req, res);
+                return;
+              }
+              if (url === '/api/security/ip-allowlist' && req.method === 'PUT') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleUpdateIpAllowlist(req, res);
+                return;
+              }
+
               if (url?.startsWith('/api/files/recent') && req.method === 'GET') {
                 const authRoutes = await import('./server/routes/auth.routes.js');
                 authRoutes.handleGetRecentFiles(req, res);
+                return;
+              }
+              if (url?.startsWith('/api/files/search') && req.method === 'GET') {
+                try {
+                  const { getBaseDir } = await import('./server/files.js');
+                  const fsNode = await import('fs');
+                  const pathNode = await import('path');
+                  const searchParams = new URL(fullUrl, 'http://localhost').searchParams;
+                  const q = (searchParams.get('q') || '').toLowerCase().trim();
+                  if (!q) { res.setHeader('Content-Type', 'application/json'); res.end('[]'); return; }
+                  const base = getBaseDir();
+                  const CATEGORY_MAP: Record<string, string> = { files: 'general', photos: 'media', videos: 'video_vault', music: 'music' };
+                  const results: any[] = [];
+                  const searchRecursive = (dir: string, catFolder: string, relPath: string) => {
+                    if (!fsNode.existsSync(dir)) return;
+                    for (const entry of fsNode.readdirSync(dir, { withFileTypes: true })) {
+                      const entryRelPath = relPath ? `${relPath}/${entry.name}` : entry.name;
+                      if (entry.name.toLowerCase().includes(q)) {
+                        const full = pathNode.join(dir, entry.name);
+                        const stat = fsNode.statSync(full);
+                        const category = CATEGORY_MAP[catFolder] || 'general';
+                        results.push({
+                          name: entry.name,
+                          isFolder: entry.isDirectory(),
+                          sizeBytes: entry.isFile() ? stat.size : undefined,
+                          mtimeMs: stat.mtimeMs,
+                          category,
+                          path: entryRelPath,
+                        });
+                      }
+                      if (entry.isDirectory()) {
+                        searchRecursive(pathNode.join(dir, entry.name), catFolder, entryRelPath);
+                      }
+                    }
+                  };
+                  for (const catFolder of ['files', 'photos', 'videos', 'music']) {
+                    searchRecursive(pathNode.join(base, catFolder), catFolder, '');
+                  }
+                  // Sort: starts-with first, then folders first, then alphabetical; limit 30
+                  results.sort((a, b) => {
+                    const aS = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+                    const bS = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+                    if (aS !== bS) return aS - bS;
+                    if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+                    return a.name.localeCompare(b.name);
+                  });
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify(results.slice(0, 30)));
+                } catch (err) {
+                  res.statusCode = 500;
+                  res.end(JSON.stringify({ error: 'Search failed' }));
+                }
+                return;
+              }
+              if (url === '/api/files/total-count' && req.method === 'GET') {
+                try {
+                  const { getBaseDir } = await import('./server/files.js');
+                  const fsNode = await import('fs');
+                  const pathNode = await import('path');
+                  const base = getBaseDir();
+                  const categories = ['files', 'photos', 'videos', 'music'];
+                  let totalFiles = 0;
+                  let totalFolders = 0;
+                  const countRecursive = (dir: string) => {
+                    if (!fsNode.existsSync(dir)) return;
+                    for (const entry of fsNode.readdirSync(dir, { withFileTypes: true })) {
+                      if (entry.isDirectory()) {
+                        totalFolders++;
+                        countRecursive(pathNode.join(dir, entry.name));
+                      } else if (entry.isFile()) {
+                        totalFiles++;
+                      }
+                    }
+                  };
+                  for (const cat of categories) {
+                    countRecursive(pathNode.join(base, cat));
+                  }
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ totalFiles, totalFolders, total: totalFiles + totalFolders }));
+                } catch (err) {
+                  res.statusCode = 500;
+                  res.end(JSON.stringify({ error: 'Failed to count files' }));
+                }
                 return;
               }
               if (url === '/api/files/track-recent' && req.method === 'POST') {
@@ -1216,6 +1383,101 @@ export default defineConfig(({ mode }) => {
                     res.setHeader('Content-Type', 'application/json');
                     res.end(JSON.stringify({ error: String((e as Error).message) }));
                   }
+                });
+                return;
+              }
+
+              // ─── Connected Apps: GET (load from DB) ───
+              if (url === '/api/apps/connections' && req.method === 'GET') {
+                const authHeader = req.headers.authorization;
+                if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                  res.statusCode = 401;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ error: 'Unauthorized' }));
+                  return;
+                }
+                const sessionToken = authHeader.substring(7);
+                import('./server/services/auth.service.js').then(async (authService) => {
+                  const user = await authService.validateSession(sessionToken);
+                  if (!user) { res.statusCode = 401; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Invalid session' })); return; }
+                  const { pool } = await import('./server/db/connection.js');
+                  const result = await pool.query(
+                    `SELECT config FROM connected_apps WHERE user_id = $1 AND app_type = 'myapps_state' AND is_active = true ORDER BY updated_at DESC LIMIT 1`,
+                    [user.id]
+                  );
+                  if (result.rows.length > 0 && result.rows[0].config) {
+                    res.statusCode = 200; res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify(result.rows[0].config));
+                  } else {
+                    res.statusCode = 200; res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({ apps: null, connectedAppIds: null }));
+                  }
+                }).catch(e => { res.statusCode = 500; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: String(e) })); });
+                return;
+              }
+
+              // ─── Connected Apps: PUT (save to DB) ───
+              if (url === '/api/apps/connections' && req.method === 'PUT') {
+                const authHeader = req.headers.authorization;
+                if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                  res.statusCode = 401; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Unauthorized' })); return;
+                }
+                const sessionToken = authHeader.substring(7);
+                const chunks: Buffer[] = [];
+                req.on('data', (c: Buffer) => chunks.push(c));
+                req.on('end', async () => {
+                  try {
+                    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                    const authService = await import('./server/services/auth.service.js');
+                    const user = await authService.validateSession(sessionToken);
+                    if (!user) { res.statusCode = 401; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Invalid session' })); return; }
+                    const { pool } = await import('./server/db/connection.js');
+                    // Upsert — one row per user for the full myapps state
+                    const existing = await pool.query(`SELECT id FROM connected_apps WHERE user_id = $1 AND app_type = 'myapps_state'`, [user.id]);
+                    if (existing.rows.length > 0) {
+                      await pool.query(`UPDATE connected_apps SET config = $1, updated_at = NOW() WHERE user_id = $2 AND app_type = 'myapps_state'`, [JSON.stringify(body), user.id]);
+                    } else {
+                      await pool.query(`INSERT INTO connected_apps (user_id, app_type, app_name, config) VALUES ($1, 'myapps_state', 'My Apps State', $2)`, [user.id, JSON.stringify(body)]);
+                    }
+                    res.statusCode = 200; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ success: true }));
+                  } catch (e) { res.statusCode = 500; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: String(e) })); }
+                });
+                return;
+              }
+
+              // ─── Webhook Proxy: POST (connects to external webhooks server-side for CORS/phone) ───
+              if (url === '/api/apps/webhook-proxy' && req.method === 'POST') {
+                const chunks: Buffer[] = [];
+                req.on('data', (c: Buffer) => chunks.push(c));
+                req.on('end', async () => {
+                  try {
+                    const { webhookUrl } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                    if (!webhookUrl) { res.statusCode = 400; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Missing webhookUrl' })); return; }
+                    const https = await import('https');
+                    const http = await import('http');
+                    const parsedUrl = new URL(webhookUrl);
+                    const protocol = parsedUrl.protocol === 'https:' ? https : http;
+                    const options = {
+                      hostname: parsedUrl.hostname,
+                      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+                      path: parsedUrl.pathname + parsedUrl.search,
+                      method: 'GET',
+                      headers: { 'Content-Type': 'application/json' },
+                      timeout: 15000,
+                    };
+                    const proxyReq = protocol.request(options, (proxyRes) => {
+                      let data = '';
+                      proxyRes.on('data', (chunk: string) => { data += chunk; });
+                      proxyRes.on('end', () => {
+                        res.statusCode = proxyRes.statusCode || 200;
+                        res.setHeader('Content-Type', 'application/json');
+                        res.end(data);
+                      });
+                    });
+                    proxyReq.on('error', (err: Error) => { res.statusCode = 502; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: `Webhook unreachable: ${err.message}` })); });
+                    proxyReq.on('timeout', () => { proxyReq.destroy(); res.statusCode = 504; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Webhook timeout' })); });
+                    proxyReq.end();
+                  } catch (e) { res.statusCode = 500; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: String(e) })); }
                 });
                 return;
               }

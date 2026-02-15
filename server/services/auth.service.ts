@@ -584,6 +584,11 @@ export async function getUserSettings(userId: number): Promise<{
   aiFileRead: boolean;
   aiAutoRename: boolean;
   pdfThumbnails: boolean;
+  secTwoFactor: boolean;
+  secFileObfuscation: boolean;
+  secGhostFolders: boolean;
+  secTrafficMasking: boolean;
+  secStrictIsolation: boolean;
 }> {
   // Ensure a settings row exists
   await pool.query(
@@ -622,6 +627,12 @@ export async function getUserSettings(userId: number): Promise<{
     // Smart features
     aiAutoRename: prefs.aiAutoRename ?? false,
     pdfThumbnails: prefs.pdfThumbnails ?? true,
+    // Security vault features
+    secTwoFactor: prefs.secTwoFactor ?? false,
+    secFileObfuscation: prefs.secFileObfuscation ?? false,
+    secGhostFolders: prefs.secGhostFolders ?? false,
+    secTrafficMasking: prefs.secTrafficMasking ?? false,
+    secStrictIsolation: prefs.secStrictIsolation ?? false,
   };
 }
 
@@ -700,6 +711,11 @@ export async function updateUserSettings(
     aiFileRead?: boolean;
     aiAutoRename?: boolean;
     pdfThumbnails?: boolean;
+    secTwoFactor?: boolean;
+    secFileObfuscation?: boolean;
+    secGhostFolders?: boolean;
+    secTrafficMasking?: boolean;
+    secStrictIsolation?: boolean;
   }
 ): Promise<void> {
   // Ensure row exists
@@ -727,6 +743,7 @@ export async function updateUserSettings(
     'aiDatabaseCreate', 'aiDatabaseDelete', 'aiDatabaseQuery',
     'aiSendEmail', 'aiCastMedia', 'aiFileRead',
     'aiAutoRename', 'pdfThumbnails',
+    'secTwoFactor', 'secFileObfuscation', 'secGhostFolders', 'secTrafficMasking', 'secStrictIsolation',
   ] as const;
   for (const key of aiKeys) {
     if (settings[key] !== undefined) updatedPrefs[key] = settings[key];
@@ -832,6 +849,47 @@ function formatTimeAgo(dateStr: string | Date): string {
   const diffDays = Math.floor(diffHrs / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Reset all user settings/preferences back to factory defaults.
+ */
+export async function resetUserSettings(userId: number): Promise<void> {
+  // Default preferences — matches the defaults in getUserSettings
+  const defaultPrefs = {
+    autoMirroring: true,
+    vaultLockdown: true,
+    storageDevice: 'builtin',
+    aiFileCreate: true,
+    aiFileModify: true,
+    aiFileDelete: true,
+    aiFolderCreate: true,
+    aiFileOrganize: true,
+    aiTrashAccess: true,
+    aiTrashRestore: true,
+    aiTrashEmpty: false,
+    aiDatabaseCreate: true,
+    aiDatabaseDelete: false,
+    aiDatabaseQuery: true,
+    aiSendEmail: true,
+    aiCastMedia: true,
+    aiFileRead: true,
+    aiAutoRename: false,
+    pdfThumbnails: true,
+    secTwoFactor: false,
+    secFileObfuscation: false,
+    secGhostFolders: false,
+    secTrafficMasking: false,
+    secStrictIsolation: false,
+  };
+
+  await pool.query(
+    `INSERT INTO user_settings (user_id, notifications_enabled, preferences)
+     VALUES ($1, true, $2)
+     ON CONFLICT (user_id) DO UPDATE
+     SET notifications_enabled = true, preferences = $2, updated_at = NOW()`,
+    [userId, JSON.stringify(defaultPrefs)]
+  );
 }
 
 /**

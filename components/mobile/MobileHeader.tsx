@@ -38,23 +38,23 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
   }, []);
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-[200] bg-white safe-area-top">
-      <div className="flex items-center gap-3 px-5 h-16">
-        {/* Search Bar */}
+    <header className="fixed top-0 left-0 right-0 z-[200] safe-area-top">
+      <div className="flex items-center gap-3 px-5 h-[72px] pt-1">
+        {/* Search input — individual container with border */}
         <div className="flex-1 relative">
-          <div className="flex items-center bg-white border border-gray-200 rounded-2xl px-4 h-[46px] shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+          <div className="flex items-center h-[48px] bg-white border border-gray-200/80 rounded-[14px] px-3.5 shadow-sm">
             <Search className="w-[18px] h-[18px] text-gray-400 flex-shrink-0" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange?.(e.target.value)}
               placeholder="Search files..."
-              className="flex-1 ml-3 text-[15px] font-medium text-gray-900 placeholder-gray-400 bg-transparent focus:outline-none"
+              className="flex-1 ml-3 text-[15px] font-medium text-gray-900 placeholder:text-gray-400 bg-transparent focus:outline-none"
             />
             {searchQuery && (
               <button
                 onClick={() => onSearchChange?.('')}
-                className="p-1 -mr-1 text-gray-400 active:scale-90 transition-all"
+                className="p-1 text-gray-400 active:scale-90 transition-all"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -62,15 +62,15 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
           </div>
         </div>
 
-        {/* Notification Bell */}
+        {/* Notification Bell — individual container with border */}
         <button
           onClick={onNotificationsClick}
-          className="w-[46px] h-[46px] flex items-center justify-center bg-white border border-gray-200 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] active:scale-95 transition-all relative flex-shrink-0"
+          className="w-[48px] h-[48px] flex items-center justify-center active:scale-95 transition-all relative flex-shrink-0 bg-white border border-gray-200/80 rounded-[14px] shadow-sm"
           aria-label="Notifications"
         >
-          <Bell className="w-[20px] h-[20px] text-gray-700" />
+          <Bell className="w-[21px] h-[21px] text-gray-700" />
           {unreadCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-[#5D5FEF] text-white text-[10px] font-bold rounded-full border-2 border-white">
+            <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-[#5D5FEF] text-white text-[10px] font-bold rounded-full border-[1.5px] border-[#F7F7F7]">
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}

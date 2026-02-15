@@ -10,12 +10,58 @@ interface FileListViewProps {
   selectedFileId?: string;
   onAction?: (action: string, file: FileItem, targetFolder?: FileItem) => void;
   availableFolders?: FileItem[];
+  onFileDrop?: (file: FileItem, targetFolder: FileItem) => void;
 }
 
-const FileListView: React.FC<FileListViewProps> = ({ files, onFileClick, selectedFileId, onAction, availableFolders }) => {
+const FileListView: React.FC<FileListViewProps> = ({ files, onFileClick, selectedFileId, onAction, availableFolders, onFileDrop }) => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const handleDragStart = (e: React.DragEvent, file: FileItem) => {
+    if (file.isFolder) return;
+    e.dataTransfer.setData('application/json', JSON.stringify(file));
+    e.dataTransfer.effectAllowed = 'move';
+    const ghost = document.createElement('div');
+    ghost.className = 'bg-white shadow-2xl rounded-xl px-4 py-2 text-sm font-bold text-gray-800 border border-[#5D5FEF]/30';
+    ghost.textContent = file.name;
+    ghost.style.position = 'absolute';
+    ghost.style.top = '-1000px';
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 0, 0);
+    setTimeout(() => document.body.removeChild(ghost), 0);
+  };
+
+  const handleRowDragOver = (e: React.DragEvent, file: FileItem) => {
+    if (!file.isFolder) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverId(file.id);
+  };
+
+  const handleRowDragLeave = () => {
+    setDragOverId(null);
+  };
+
+  const handleRowDrop = (e: React.DragEvent, targetFolder: FileItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverId(null);
+    if (!targetFolder.isFolder) return;
+    try {
+      const data = e.dataTransfer.getData('application/json');
+      if (!data) return;
+      const file: FileItem = JSON.parse(data);
+      if (file.id === targetFolder.id) return;
+      if (onFileDrop) {
+        onFileDrop(file, targetFolder);
+      } else if (onAction) {
+        onAction('Move', file, targetFolder);
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -66,9 +112,16 @@ const FileListView: React.FC<FileListViewProps> = ({ files, onFileClick, selecte
           return (
             <div
               key={file.id}
+              draggable={!file.isFolder}
+              onDragStart={(e) => handleDragStart(e, file)}
+              onDragOver={(e) => handleRowDragOver(e, file)}
+              onDragLeave={handleRowDragLeave}
+              onDrop={(e) => handleRowDrop(e, file)}
               onClick={() => onFileClick(file)}
               className={`flex items-center justify-between px-6 py-3.5 rounded-2xl transition-all cursor-pointer group border relative ${
-                selectedFileId === file.id
+                dragOverId === file.id
+                  ? 'bg-[#5D5FEF]/10 border-[#5D5FEF] ring-2 ring-[#5D5FEF]/30 shadow-lg'
+                  : selectedFileId === file.id
                   ? 'bg-[#5D5FEF]/5 border-[#5D5FEF]/10 shadow-sm'
                   : 'bg-white border-transparent hover:bg-gray-50/80 hover:border-gray-100'
               }`}

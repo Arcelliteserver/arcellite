@@ -56,11 +56,15 @@ export const authApi = {
       return data;
     }),
 
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, totpCode?: string) =>
     apiRequest('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, totpCode }),
     }).then((data) => {
+      if (data.requires2FA) {
+        // Return 2FA challenge — no session token yet
+        return data;
+      }
       if (data.sessionToken) {
         setSessionToken(data.sessionToken);
       }
@@ -124,6 +128,8 @@ export const authApi = {
     aiDatabaseCreate?: boolean; aiDatabaseDelete?: boolean; aiDatabaseQuery?: boolean;
     aiSendEmail?: boolean; aiCastMedia?: boolean; aiFileRead?: boolean;
     aiAutoRename?: boolean; pdfThumbnails?: boolean;
+    secTwoFactor?: boolean; secFileObfuscation?: boolean; secGhostFolders?: boolean;
+    secTrafficMasking?: boolean; secStrictIsolation?: boolean;
   }) =>
     apiRequest('/api/auth/settings', {
       method: 'PUT',
@@ -141,4 +147,47 @@ export const authApi = {
 
   clearAllNotifications: () =>
     apiRequest('/api/notifications/clear-all', { method: 'DELETE' }),
+
+  // Security Vault API
+  setup2FA: () =>
+    apiRequest('/api/security/2fa/setup', { method: 'POST' }),
+
+  verify2FA: (code: string) =>
+    apiRequest('/api/security/2fa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  disable2FA: (code?: string) =>
+    apiRequest('/api/security/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  runProtocolAction: (action: string) =>
+    apiRequest('/api/security/protocol-action', {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
+  getSecurityStatus: () =>
+    apiRequest('/api/security/status'),
+
+  addGhostFolder: (folderPath: string) =>
+    apiRequest('/api/security/ghost-folders', {
+      method: 'POST',
+      body: JSON.stringify({ folderPath }),
+    }),
+
+  removeGhostFolder: (folderPath: string) =>
+    apiRequest('/api/security/ghost-folders', {
+      method: 'DELETE',
+      body: JSON.stringify({ folderPath }),
+    }),
+
+  updateIpAllowlist: (ips: string[]) =>
+    apiRequest('/api/security/ip-allowlist', {
+      method: 'PUT',
+      body: JSON.stringify({ ips }),
+    }),
 };

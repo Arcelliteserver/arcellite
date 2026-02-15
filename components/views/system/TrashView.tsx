@@ -227,36 +227,36 @@ const TrashView: React.FC = () => {
   return (
     <div className="w-full animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-10 gap-4">
-        <div className="relative">
-          <div className="absolute -left-2 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-red-500 to-red-500/20 rounded-full opacity-60" />
-          <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-4 md:pl-6 relative flex items-center gap-3">
-            <Trash2 className="w-8 h-8 text-red-500" />
+      <div className="flex items-center justify-between mb-5 md:mb-10">
+        <div className="flex items-center gap-3">
+          <div className="w-1 h-8 bg-gradient-to-b from-red-500 to-red-500/20 rounded-full" />
+          <Trash2 className="w-6 h-6 md:w-8 md:h-8 text-red-500" />
+          <h2 className="text-[22px] md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900">
             Trash
             {items.length > 0 && (
-              <span className="text-lg md:text-xl text-gray-400">({items.length})</span>
+              <span className="text-base md:text-xl text-gray-400 ml-2">({items.length})</span>
             )}
           </h2>
         </div>
 
         {/* View Mode Toggle */}
-        <div className="flex items-center gap-2 bg-white rounded-xl border border-gray-200 p-1">
+        <div className="flex items-center gap-1 bg-white rounded-xl border border-gray-200 p-1">
           <button
             onClick={() => setViewMode('grid')}
-            className={`px-3 py-2 rounded-lg transition-all ${
+            className={`p-2 rounded-lg transition-all ${
               viewMode === 'grid'
                 ? 'bg-[#5D5FEF] text-white shadow-sm'
-                : 'text-gray-600 hover:bg-gray-50'
+                : 'text-gray-600 active:bg-gray-50'
             }`}
           >
             <GridIcon className="w-4 h-4" />
           </button>
           <button
             onClick={() => setViewMode('list')}
-            className={`px-3 py-2 rounded-lg transition-all ${
+            className={`p-2 rounded-lg transition-all ${
               viewMode === 'list'
                 ? 'bg-[#5D5FEF] text-white shadow-sm'
-                : 'text-gray-600 hover:bg-gray-50'
+                : 'text-gray-600 active:bg-gray-50'
             }`}
           >
             <ListIcon className="w-4 h-4" />
@@ -264,88 +264,72 @@ const TrashView: React.FC = () => {
         </div>
       </div>
 
-      {/* Info Banner */}
-      <div className="mb-6 relative overflow-hidden rounded-2xl shadow-sm">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-orange-50 to-red-50" />
-        <div className="absolute -right-20 -top-20 w-48 h-48 bg-red-200/20 rounded-full blur-3xl" />
-        <div className="absolute -left-20 -bottom-20 w-48 h-48 bg-amber-200/20 rounded-full blur-3xl" />
-
-        {/* Content */}
-        <div className="relative border-2 border-red-100/50 p-5 sm:p-6 flex items-start gap-4">
-          {/* Icon */}
-          <div className="flex-shrink-0">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 shadow-lg shadow-red-500/25 flex items-center justify-center">
-              <AlertCircle className="w-5 h-5 text-white" />
-            </div>
-          </div>
-
-          {/* Text */}
-          <div className="flex-1 min-w-0">
-            <p className="text-base font-black text-gray-900 mb-1.5 tracking-tight">
-              Automatic Cleanup After 30 Days
-            </p>
-            <p className="text-sm text-gray-700 font-medium leading-relaxed">
-              Items in trash are automatically deleted after 30 days. You can restore or permanently delete them at any time before then.
-            </p>
-          </div>
+      {/* Info Banner — compact on mobile */}
+      <div className="mb-5 md:mb-6 rounded-2xl border border-red-100/50 bg-gradient-to-br from-amber-50 via-orange-50 to-red-50 p-4 md:p-6 flex items-start gap-3">
+        <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 shadow-lg shadow-red-500/25 flex items-center justify-center flex-shrink-0">
+          <AlertCircle className="w-4 h-4 md:w-5 md:h-5 text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] md:text-base font-black text-gray-900 mb-0.5 md:mb-1.5 tracking-tight">
+            Auto-cleanup after 30 days
+          </p>
+          <p className="text-[11px] md:text-sm text-gray-600 font-medium leading-relaxed">
+            Trash items are permanently deleted after 30 days.
+          </p>
         </div>
       </div>
 
-      {/* Action Bar */}
+      {/* Action Bar — all buttons side by side */}
       {items.length > 0 && (
-        <div className="mb-6 bg-white rounded-2xl border-2 border-gray-100 shadow-sm p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handleSelectAll}
-              className="flex items-center gap-2 text-sm font-bold text-gray-700 hover:text-[#5D5FEF] transition-colors group"
-            >
-              {allSelected ? (
-                <CheckSquare className="w-5 h-5 text-[#5D5FEF]" />
-              ) : (
-                <Square className="w-5 h-5 group-hover:text-[#5D5FEF]" />
-              )}
-              Select All
-            </button>
+        <div className="mb-5 md:mb-6 bg-white rounded-2xl border border-gray-100 shadow-sm p-3 md:p-4 flex items-center justify-between gap-2">
+          {/* Left: Select All */}
+          <button
+            onClick={handleSelectAll}
+            className="flex items-center gap-2 text-[12px] md:text-sm font-bold text-gray-700 active:text-[#5D5FEF] transition-colors touch-manipulation"
+          >
+            {allSelected ? (
+              <CheckSquare className="w-5 h-5 text-[#5D5FEF]" />
+            ) : (
+              <Square className="w-5 h-5 text-gray-300" />
+            )}
+            <span className="hidden sm:inline">Select All</span>
+            <span className="sm:hidden">All</span>
             {selectedIds.size > 0 && (
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#5D5FEF]/10 text-[#5D5FEF]">
-                {selectedIds.size} selected
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#5D5FEF]/10 text-[#5D5FEF]">
+                {selectedIds.size}
               </span>
             )}
-          </div>
+          </button>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          {/* Right: Action buttons — side by side */}
+          <div className="flex items-center gap-2">
             {selectedIds.size > 0 && (
               <>
                 <button
                   onClick={() => handleRestore(Array.from(selectedIds))}
                   disabled={actionLoading}
-                  className="px-4 py-2.5 rounded-xl text-sm font-bold bg-[#5D5FEF] text-white hover:bg-[#4D4FCF] transition-all flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-[#5D5FEF]/25"
+                  className="px-3 py-2 rounded-xl text-[11px] md:text-sm font-bold bg-[#5D5FEF] text-white active:bg-[#4D4FCF] transition-all flex items-center gap-1.5 disabled:opacity-50 shadow-md shadow-[#5D5FEF]/25 touch-manipulation"
                 >
-                  {actionLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <RotateCcw className="w-4 h-4" />
-                  )}
-                  Restore Selected
+                  {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">Restore</span>
                 </button>
                 <button
                   onClick={() => handlePermanentDelete(Array.from(selectedIds))}
                   disabled={actionLoading}
-                  className="px-4 py-2.5 rounded-xl text-sm font-bold bg-red-500 text-white hover:bg-red-600 transition-all flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-red-500/25"
+                  className="px-3 py-2 rounded-xl text-[11px] md:text-sm font-bold bg-red-500 text-white active:bg-red-600 transition-all flex items-center gap-1.5 disabled:opacity-50 shadow-md shadow-red-500/25 touch-manipulation"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  Delete Selected
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Delete</span>
                 </button>
               </>
             )}
             <button
               onClick={handleEmptyTrash}
               disabled={actionLoading || items.length === 0}
-              className="px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all flex items-center gap-2 disabled:opacity-50"
+              className="px-3 py-2 rounded-xl text-[11px] md:text-sm font-bold bg-gray-100 text-gray-700 active:bg-gray-200 transition-all flex items-center gap-1.5 disabled:opacity-50 touch-manipulation"
             >
-              <Trash2 className="w-4 h-4" />
-              Empty Trash
+              <Trash2 className="w-3.5 h-3.5" />
+              Empty
             </button>
           </div>
         </div>
@@ -372,7 +356,7 @@ const TrashView: React.FC = () => {
 
       {/* Item Grid View */}
       {!loading && items.length > 0 && viewMode === 'grid' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {items.map((item) => {
             const isSelected = selectedIds.has(item.id);
             const daysInTrash = Math.floor((Date.now() - item.trashedAt) / (24 * 60 * 60 * 1000));
@@ -381,73 +365,63 @@ const TrashView: React.FC = () => {
             return (
               <div
                 key={item.id}
-                className={`bg-white rounded-2xl border-2 p-4 transition-all cursor-pointer ${
+                className={`bg-white rounded-2xl border p-3 md:p-4 transition-all cursor-pointer touch-manipulation active:scale-[0.98] ${
                   isSelected
-                    ? 'border-[#5D5FEF] ring-4 ring-[#5D5FEF]/10 shadow-lg'
-                    : 'border-gray-100 hover:border-gray-200 hover:shadow-md'
+                    ? 'border-[#5D5FEF] ring-2 ring-[#5D5FEF]/10 shadow-lg'
+                    : 'border-gray-100 active:border-gray-200'
                 }`}
                 onClick={() => handleSelectItem(item.id)}
               >
                 {/* File Icon & Checkbox */}
-                <div className="flex items-start justify-between mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
-                    <FileText className="w-6 h-6 text-gray-400" />
+                <div className="flex items-start justify-between mb-2 md:mb-3">
+                  <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
+                    <FileText className="w-5 h-5 md:w-6 md:h-6 text-gray-400" />
                   </div>
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSelectItem(item.id);
-                    }}
-                    className="flex-shrink-0"
+                    onClick={(e) => { e.stopPropagation(); handleSelectItem(item.id); }}
+                    className="flex-shrink-0 touch-manipulation"
                   >
                     {isSelected ? (
-                      <CheckSquare className="w-6 h-6 text-[#5D5FEF]" />
+                      <CheckSquare className="w-5 h-5 text-[#5D5FEF]" />
                     ) : (
-                      <Square className="w-6 h-6 text-gray-300 hover:text-[#5D5FEF]" />
+                      <Square className="w-5 h-5 text-gray-300" />
                     )}
                   </button>
                 </div>
 
                 {/* File Info */}
-                <div className="mb-4">
-                  <h4 className="font-bold text-gray-900 truncate mb-2">{item.name}</h4>
-                  <div className="space-y-1 text-xs text-gray-500 font-medium">
-                    <div className="truncate">📁 {item.originalPath || '/'}</div>
-                    <div className="flex items-center gap-2">
+                <div className="mb-3">
+                  <h4 className="text-[13px] md:text-sm font-bold text-gray-900 truncate mb-1">{item.name}</h4>
+                  <div className="space-y-0.5 text-[10px] md:text-xs text-gray-500 font-medium">
+                    <div className="flex items-center gap-1.5">
                       <span>{item.sizeHuman}</span>
-                      <span>•</span>
+                      <span>·</span>
                       <span>{formatDate(item.trashedAt)}</span>
                     </div>
                     {daysRemaining > 0 && daysRemaining <= 7 && (
-                      <div className="text-red-600 font-bold">
-                        ⏰ {daysRemaining} day{daysRemaining !== 1 ? 's' : ''} left
+                      <div className="text-red-600 font-bold text-[10px]">
+                        ⏰ {daysRemaining}d left
                       </div>
                     )}
                   </div>
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
+                <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRestore([item.id]);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); handleRestore([item.id]); }}
                     disabled={actionLoading}
-                    className="flex-1 px-3 py-2 rounded-xl text-xs font-bold bg-[#5D5FEF]/10 text-[#5D5FEF] hover:bg-[#5D5FEF]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="flex-1 px-2 py-1.5 rounded-lg text-[10px] md:text-xs font-bold bg-[#5D5FEF]/10 text-[#5D5FEF] active:bg-[#5D5FEF]/20 transition-all flex items-center justify-center gap-1 disabled:opacity-50 touch-manipulation"
                   >
-                    <RotateCcw className="w-3.5 h-3.5" />
+                    <RotateCcw className="w-3 h-3" />
                     Restore
                   </button>
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handlePermanentDelete([item.id]);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); handlePermanentDelete([item.id]); }}
                     disabled={actionLoading}
-                    className="flex-1 px-3 py-2 rounded-xl text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="flex-1 px-2 py-1.5 rounded-lg text-[10px] md:text-xs font-bold bg-red-50 text-red-600 active:bg-red-100 transition-all flex items-center justify-center gap-1 disabled:opacity-50 touch-manipulation"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3 h-3" />
                     Delete
                   </button>
                 </div>
@@ -459,7 +433,7 @@ const TrashView: React.FC = () => {
 
       {/* Item List View */}
       {!loading && items.length > 0 && viewMode === 'list' && (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {items.map((item) => {
             const isSelected = selectedIds.has(item.id);
             const daysInTrash = Math.floor((Date.now() - item.trashedAt) / (24 * 60 * 60 * 1000));
@@ -468,67 +442,62 @@ const TrashView: React.FC = () => {
             return (
               <div
                 key={item.id}
-                className={`bg-white rounded-2xl border-2 p-4 transition-all ${
+                className={`bg-white rounded-2xl border p-3 md:p-4 transition-all touch-manipulation active:scale-[0.99] ${
                   isSelected
-                    ? 'border-[#5D5FEF] ring-4 ring-[#5D5FEF]/10 shadow-lg'
-                    : 'border-gray-100 hover:border-gray-200 hover:shadow-md'
+                    ? 'border-[#5D5FEF] ring-2 ring-[#5D5FEF]/10 shadow-lg'
+                    : 'border-gray-100 active:border-gray-200'
                 }`}
+                onClick={() => handleSelectItem(item.id)}
               >
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   {/* Checkbox */}
                   <button
-                    onClick={() => handleSelectItem(item.id)}
-                    className="flex-shrink-0"
+                    onClick={(e) => { e.stopPropagation(); handleSelectItem(item.id); }}
+                    className="flex-shrink-0 touch-manipulation"
                   >
                     {isSelected ? (
-                      <CheckSquare className="w-6 h-6 text-[#5D5FEF]" />
+                      <CheckSquare className="w-5 h-5 text-[#5D5FEF]" />
                     ) : (
-                      <Square className="w-6 h-6 text-gray-300 hover:text-[#5D5FEF]" />
+                      <Square className="w-5 h-5 text-gray-300" />
                     )}
                   </button>
 
                   {/* File Icon */}
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center flex-shrink-0">
-                    <FileText className="w-6 h-6 text-gray-400" />
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-5 h-5 text-gray-400" />
                   </div>
 
                   {/* File Info */}
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-bold text-gray-900 truncate mb-1">{item.name}</h4>
-                    <div className="flex items-center gap-3 text-xs text-gray-500 font-medium flex-wrap">
-                      <span className="truncate max-w-xs">Original: {item.originalPath || '/'}</span>
-                      <span>•</span>
+                    <h4 className="text-[13px] md:text-sm font-bold text-gray-900 truncate">{item.name}</h4>
+                    <div className="flex items-center gap-1.5 text-[10px] md:text-xs text-gray-400 font-medium mt-0.5">
                       <span>{item.sizeHuman}</span>
-                      <span>•</span>
-                      <span>Deleted: {formatDate(item.trashedAt)}</span>
+                      <span>·</span>
+                      <span>{formatDate(item.trashedAt)}</span>
                       {daysRemaining > 0 && daysRemaining <= 7 && (
                         <>
-                          <span>•</span>
-                          <span className="text-red-600 font-bold">
-                            {daysRemaining} day{daysRemaining !== 1 ? 's' : ''} remaining
-                          </span>
+                          <span>·</span>
+                          <span className="text-red-500 font-bold">{daysRemaining}d left</span>
                         </>
                       )}
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Actions — side by side, compact */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button
-                      onClick={() => handleRestore([item.id])}
+                      onClick={(e) => { e.stopPropagation(); handleRestore([item.id]); }}
                       disabled={actionLoading}
-                      className="px-4 py-2 rounded-xl text-sm font-bold bg-[#5D5FEF]/10 text-[#5D5FEF] hover:bg-[#5D5FEF]/20 transition-all flex items-center gap-2 disabled:opacity-50"
+                      className="p-2 rounded-xl bg-[#5D5FEF]/10 text-[#5D5FEF] active:bg-[#5D5FEF]/20 transition-all disabled:opacity-50 touch-manipulation"
                     >
                       <RotateCcw className="w-4 h-4" />
-                      Restore
                     </button>
                     <button
-                      onClick={() => handlePermanentDelete([item.id])}
+                      onClick={(e) => { e.stopPropagation(); handlePermanentDelete([item.id]); }}
                       disabled={actionLoading}
-                      className="px-4 py-2 rounded-xl text-sm font-bold bg-red-50 text-red-600 hover:bg-red-100 transition-all flex items-center gap-2 disabled:opacity-50"
+                      className="p-2 rounded-xl bg-red-50 text-red-500 active:bg-red-100 transition-all disabled:opacity-50 touch-manipulation"
                     >
                       <Trash2 className="w-4 h-4" />
-                      Delete
                     </button>
                   </div>
                 </div>

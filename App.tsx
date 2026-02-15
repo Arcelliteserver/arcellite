@@ -397,6 +397,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!category) return;
     loadServerFolders(category, currentPath);
+    // Gallery needs both photos (media) and videos (video_vault)
+    if (category === 'media') {
+      loadServerFolders('video_vault', '');
+    }
   }, [activeTab, category, currentPath, loadServerFolders]);
 
   // Persist mounted device to localStorage
@@ -1019,10 +1023,134 @@ const App: React.FC = () => {
     }
   }, [activeTab, currentPath, handleDelete, handleFileClick, loadServerFolders, loadRecentFiles, showToast]);
 
+  // --- Drag-and-drop handlers ---
+  const tabToCategoryLabel: Record<string, string> = {
+    all: 'Files',
+    photos: 'Photos',
+    videos: 'Videos',
+    music: 'Music',
+  };
+
+  const handleFileDrop = useCallback((droppedFile: FileItem, targetFolder: FileItem) => {
+    // File dropped onto a folder in the same view
+    const fileCategory = droppedFile.category || getCategoryFromTab(activeTab);
+    const folderCategory = targetFolder.category || getCategoryFromTab(activeTab);
+
+    if (!fileCategory || !folderCategory) return;
+
+    if (fileCategory !== folderCategory) {
+      // Cross-category drop: show confirmation
+      const sourceName = tabToCategoryLabel[Object.entries({ all: 'general', photos: 'media', videos: 'video_vault', music: 'music' }).find(([, v]) => v === fileCategory)?.[0] || ''] || fileCategory;
+      const targetName = tabToCategoryLabel[Object.entries({ all: 'general', photos: 'media', videos: 'video_vault', music: 'music' }).find(([, v]) => v === folderCategory)?.[0] || ''] || folderCategory;
+
+      setConfirmModal({
+        isOpen: true,
+        title: 'Move to Different Section',
+        message: `"${droppedFile.name}" is from ${sourceName}. Do you want to move it into "${targetFolder.name}" in ${targetName}?`,
+        confirmText: 'Move File',
+        variant: 'info',
+        onConfirm: async () => {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          try {
+            const sourcePrefix = `server-${fileCategory}-`;
+            const sourcePath = droppedFile.id.startsWith(sourcePrefix) ? droppedFile.id.slice(sourcePrefix.length) : droppedFile.name;
+            const targetPrefix = `server-${folderCategory}-`;
+            const folderPath = targetFolder.id.startsWith(targetPrefix) ? targetFolder.id.slice(targetPrefix.length) : targetFolder.name;
+            const targetPath = `${folderPath}/${droppedFile.name}`;
+
+            const res = await fetch(FILES_API + '/move-cross', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sourceCategory: fileCategory,
+                sourcePath,
+                targetCategory: folderCategory,
+                targetPath,
+              }),
+            });
+            if (!res.ok) {
+              const error = await res.json();
+              throw new Error(error.error || 'Move failed');
+            }
+            // Reload both categories
+            await loadServerFolders(fileCategory, '');
+            await loadServerFolders(folderCategory, '');
+            loadRecentFiles();
+            showToast(`${droppedFile.name} moved to ${targetFolder.name}!`, 'success');
+          } catch (error) {
+            showToast(`Move failed: ${(error as Error).message}`, 'error');
+          }
+        },
+      });
+    } else {
+      // Same category: just use the regular Move action
+      handleFileAction('Move', droppedFile, targetFolder);
+    }
+  }, [activeTab, handleFileAction, loadServerFolders, loadRecentFiles, showToast]);
+
+  const handleSidebarDrop = useCallback((tabId: string, droppedFile: FileItem) => {
+    const targetCategory = getCategoryFromTab(tabId);
+    const sourceCategory = droppedFile.category || getCategoryFromTab(activeTab);
+
+    if (!targetCategory || !sourceCategory) return;
+
+    if (sourceCategory === targetCategory) {
+      showToast(`${droppedFile.name} is already in ${tabToCategoryLabel[tabId] || tabId}`, 'info');
+      return;
+    }
+
+    const targetLabel = tabToCategoryLabel[tabId] || tabId;
+    const sourceLabel = tabToCategoryLabel[
+      Object.entries({ all: 'general', photos: 'media', videos: 'video_vault', music: 'music' })
+        .find(([, v]) => v === sourceCategory)?.[0] || ''
+    ] || String(sourceCategory);
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Move to Different Section',
+      message: `Do you want to move "${droppedFile.name}" from ${sourceLabel} to ${targetLabel}? The file will be placed in the root of ${targetLabel}.`,
+      confirmText: `Move to ${targetLabel}`,
+      variant: 'info',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        try {
+          const sourcePrefix = `server-${sourceCategory}-`;
+          const sourcePath = droppedFile.id.startsWith(sourcePrefix) ? droppedFile.id.slice(sourcePrefix.length) : droppedFile.name;
+
+          const res = await fetch(FILES_API + '/move-cross', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sourceCategory,
+              sourcePath,
+              targetCategory,
+              targetPath: droppedFile.name, // root of target
+            }),
+          });
+          if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.error || 'Move failed');
+          }
+          // Reload both categories
+          await loadServerFolders(sourceCategory, '');
+          await loadServerFolders(targetCategory, '');
+          loadRecentFiles();
+          showToast(`${droppedFile.name} moved to ${targetLabel}!`, 'success');
+        } catch (error) {
+          showToast(`Move failed: ${(error as Error).message}`, 'error');
+        }
+      },
+    });
+  }, [activeTab, loadServerFolders, loadRecentFiles, showToast]);
+
   const filteredFolders = useMemo(() => {
     if (activeTab === 'overview') {
       // Show recent folders from recentItems
-      return recentItems.filter(f => f.isFolder).sort((a, b) => b.modifiedTimestamp - a.modifiedTimestamp).slice(0, 12);
+      let list = recentItems.filter(f => f.isFolder).sort((a, b) => b.modifiedTimestamp - a.modifiedTimestamp).slice(0, 12);
+      if (searchQuery) {
+        list = list.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+      }
+      return list;
     }
     
     let list = files.filter(f => f.isFolder);
@@ -1038,13 +1166,22 @@ const App: React.FC = () => {
     } else if (!['trash', 'shared', 'overview'].includes(activeTab)) {
       list = list.filter(file => file.parentId === null);
     }
+
+    if (searchQuery) {
+      list = list.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+
     return list.sort((a, b) => a.name.localeCompare(b.name));
-  }, [files, activeTab, currentFolderId, recentItems]);
+  }, [files, activeTab, currentFolderId, recentItems, searchQuery]);
 
   const filteredFilesOnly = useMemo(() => {
     if (activeTab === 'overview') {
       // Show latest 12 recent files from recentItems
-      return recentItems.filter(f => !f.isFolder).sort((a, b) => b.modifiedTimestamp - a.modifiedTimestamp).slice(0, 18);
+      let list = recentItems.filter(f => !f.isFolder).sort((a, b) => b.modifiedTimestamp - a.modifiedTimestamp).slice(0, 18);
+      if (searchQuery) {
+        list = list.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+      }
+      return list;
     }
     
     let list = files.filter(f => !f.isFolder);
@@ -1388,6 +1525,7 @@ const App: React.FC = () => {
               setIsMobileMenuOpen(false); // Close mobile menu on navigation
             }}
             onUpload={handleUpload}
+            onSidebarDrop={handleSidebarDrop}
           />
         </div>
       </div>
@@ -1534,6 +1672,7 @@ const App: React.FC = () => {
                   onGoBack={handleGoBack}
                   pdfThumbnails={pdfThumbnails}
                   aiRenamedSet={aiRenamedSet}
+                  onFileDrop={handleFileDrop}
                 />
               )}
             </div>

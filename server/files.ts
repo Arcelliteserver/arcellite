@@ -132,6 +132,98 @@ export function moveFile(category: string, sourcePath: string, targetPath: strin
   fs.renameSync(source, target);
 }
 
+export function moveFileCrossCategory(
+  sourceCategory: string,
+  sourcePath: string,
+  targetCategory: string,
+  targetPath: string
+): void {
+  const source = resolvePath(sourceCategory, sourcePath);
+  const target = resolvePath(targetCategory, targetPath);
+
+  if (!fs.existsSync(source)) {
+    throw new Error('Source file does not exist');
+  }
+
+  if (fs.existsSync(target)) {
+    throw new Error('A file with the same name already exists in the target location');
+  }
+
+  // Ensure target directory exists
+  const targetDir = path.dirname(target);
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  // Use fs.copyFileSync + unlinkSync for cross-device moves (different mount points)
+  try {
+    fs.renameSync(source, target);
+  } catch (err: any) {
+    if (err.code === 'EXDEV') {
+      // Cross-device: copy then delete
+      fs.copyFileSync(source, target);
+      fs.unlinkSync(source);
+    } else {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Clear ALL user files across every category folder.
+ * Empties files/, photos/, videos/, music/, shared/ but keeps the directories.
+ */
+export function clearAllFiles(): { deletedCount: number; categories: string[] } {
+  const base = getBaseDir();
+  const allFolders = [...new Set([...Object.values(CATEGORY_DIR), 'music', 'shared'])];
+  let deletedCount = 0;
+  const clearedCategories: string[] = [];
+
+  for (const sub of allFolders) {
+    const dir = path.join(base, sub);
+    if (!fs.existsSync(dir)) continue;
+
+    const entries = fs.readdirSync(dir);
+    for (const entry of entries) {
+      const full = path.join(dir, entry);
+      try {
+        const stat = fs.statSync(full);
+        if (stat.isDirectory()) {
+          fs.rmSync(full, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(full);
+        }
+        deletedCount++;
+      } catch (err) {
+        console.error(`[clearAllFiles] Failed to delete ${full}:`, err);
+      }
+    }
+    clearedCategories.push(sub);
+  }
+
+  // Also clear the trash folder
+  const trashDir = path.join(base, '.trash');
+  if (fs.existsSync(trashDir)) {
+    const trashEntries = fs.readdirSync(trashDir);
+    for (const entry of trashEntries) {
+      const full = path.join(trashDir, entry);
+      try {
+        const stat = fs.statSync(full);
+        if (stat.isDirectory()) {
+          fs.rmSync(full, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(full);
+        }
+        deletedCount++;
+      } catch (err) {
+        console.error(`[clearAllFiles] Failed to delete trash item ${full}:`, err);
+      }
+    }
+  }
+
+  return { deletedCount, categories: clearedCategories };
+}
+
 /** Allowed prefixes for external (USB/removable) browsing. */
 const EXTERNAL_ALLOWED_PREFIXES = ['/media/', '/run/media/', '/mnt/'];
 

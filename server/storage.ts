@@ -143,7 +143,7 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
         sizeBytes = parseSizeHuman(sizeStr) || parseInt(sizeStr, 10) || 0;
       }
       const model = (disk.model && String(disk.model).trim()) || name;
-      
+
       // Get volume label and UUID from disk or first partition
       let label = disk.label ? String(disk.label).trim() : '';
       let uuid = disk.uuid ? String(disk.uuid).trim() : '';
@@ -151,9 +151,11 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
       let fsUsed = disk.fsused || null;
       let fsAvail = disk.fsavail || null;
       let fsSize = disk.fssize || null;
-      
+
+      let partitionName = null;
       if (disk.children?.length) {
         const firstChild = disk.children[0];
+        partitionName = firstChild?.name ? String(firstChild.name).trim() : null;
         if (!label && firstChild?.label) {
           label = String(firstChild.label).trim();
         }
@@ -168,7 +170,7 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
         if (!fsAvail && firstChild?.fsavail) fsAvail = firstChild.fsavail;
         if (!fsSize && firstChild?.fssize) fsSize = firstChild.fssize;
       }
-      
+
       // Check if disk itself has a mountpoint, or check first partition's mountpoint
       let mountpoint = (disk.mountpoint && String(disk.mountpoint)) || '';
       if (!mountpoint && disk.children?.length) {
@@ -178,12 +180,23 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
         }
       }
 
+      // Auto-mount if not mounted and partition exists
+      if (!mountpoint && partitionName) {
+        const mountDir = `/media/arcellite/${partitionName}`;
+        try {
+          execSync(`mkdir -p '${mountDir}' && mount '/dev/${partitionName}' '${mountDir}'`, { stdio: 'ignore' });
+          mountpoint = mountDir;
+        } catch (e) {
+          // Ignore mount errors
+        }
+      }
+
       // Calculate usage percentage
       const usedBytes = parseSizeHuman(fsUsed as string);
       const sizeTotal = parseSizeHuman(fsSize as string);
       const availBytes = parseSizeHuman(fsAvail as string);
       const fsUsedPercent = sizeTotal > 0 ? Math.round((usedBytes / sizeTotal) * 100) : 0;
-      
+
       list.push({
         name,
         size: String(sizeRaw ?? '0'),

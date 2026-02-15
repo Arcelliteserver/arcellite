@@ -118,22 +118,19 @@ const NotificationsView: React.FC = () => {
 
   return (
     <div className="w-full">
-      <div className="mb-8">
-        <div className="relative">
-          <div className="absolute -left-2 sm:-left-3 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative mb-2">
-            Notifications
-            <span className="absolute -top-1 sm:-top-2 -right-4 sm:-right-6 md:-right-8 lg:-right-12 w-8 h-8 sm:w-12 sm:h-12 md:w-16 md:h-16 lg:w-20 lg:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
-          </h1>
-        </div>
-        <p className="text-gray-500 font-medium text-sm pl-3 sm:pl-4 md:pl-6">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-[24px] sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tight text-gray-900 mb-1">
+          Notifications
+        </h1>
+        <p className="text-gray-400 font-medium text-[14px]">
           {loading ? 'Loading...' : `${notifications.length} notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
         </p>
       </div>
 
-      {/* Filter tabs + Mark all read */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex gap-2">
+      {/* Filter chips — horizontally scrollable on mobile */}
+      <div className="flex items-center justify-between gap-3 mb-5 flex-wrap sm:flex-nowrap">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar w-full sm:w-auto">
           {[
             { key: 'all', label: 'All' },
             { key: 'unread', label: `Unread${unreadCount > 0 ? ` (${unreadCount})` : ''}` },
@@ -143,10 +140,10 @@ const NotificationsView: React.FC = () => {
             <button
               key={key}
               onClick={() => setFilter(key as any)}
-              className={`px-4 py-2 rounded-xl text-[13px] font-bold transition-all ${
+              className={`px-3.5 py-2 rounded-full text-[13px] font-bold whitespace-nowrap transition-all active:scale-95 touch-manipulation ${
                 filter === key
-                  ? 'bg-[#5D5FEF] text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ? 'bg-[#5D5FEF] text-white shadow-md shadow-[#5D5FEF]/20'
+                  : 'bg-white text-gray-600 border border-gray-200/80'
               }`}
             >
               {label}
@@ -157,70 +154,79 @@ const NotificationsView: React.FC = () => {
         {unreadCount > 0 && (
           <button
             onClick={handleMarkAllRead}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold text-[#5D5FEF] hover:bg-[#5D5FEF]/5 transition-all"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-bold text-[#5D5FEF] bg-[#5D5FEF]/5 active:bg-[#5D5FEF]/10 transition-all whitespace-nowrap touch-manipulation flex-shrink-0"
           >
-            <CheckCheck className="w-4 h-4" />
+            <CheckCheck className="w-3.5 h-3.5" />
             Mark all read
           </button>
         )}
       </div>
 
       {/* Notification list */}
-      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+      <div className="space-y-3">
         {loading ? (
-          <div className="px-8 py-16 text-center">
-            <Bell className="w-12 h-12 text-gray-300 mx-auto mb-4 animate-pulse" />
-            <p className="text-[14px] font-bold text-gray-400">Loading notifications...</p>
+          <div className="bg-white rounded-2xl border border-gray-200/60 px-6 py-16 text-center shadow-sm">
+            <div className="w-16 h-16 rounded-full bg-[#5D5FEF]/5 flex items-center justify-center mx-auto mb-4">
+              <Bell className="w-8 h-8 text-[#5D5FEF]/40 animate-pulse" />
+            </div>
+            <p className="text-[15px] font-bold text-gray-400">Loading notifications...</p>
           </div>
         ) : filteredNotifications.length > 0 ? (
-          <div className="divide-y divide-gray-50">
-            {filteredNotifications.map((notification) => {
-              const catInfo = getCategoryLabel(notification.category);
-              return (
-                <div
-                  key={notification.id}
-                  onClick={() => !notification.read && handleMarkRead(notification.id)}
-                  className={`px-6 py-5 transition-all cursor-pointer flex items-start gap-4 ${getStatusColor(notification.type, notification.read)}`}
-                >
-                  <div className="flex-shrink-0 mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center bg-white shadow-sm border border-gray-100">
+          filteredNotifications.map((notification) => {
+            const catInfo = getCategoryLabel(notification.category);
+            return (
+              <div
+                key={notification.id}
+                onClick={() => !notification.read && handleMarkRead(notification.id)}
+                className={`rounded-2xl border transition-all active:scale-[0.98] touch-manipulation ${
+                  !notification.read
+                    ? 'bg-white border-[#5D5FEF]/15 shadow-md shadow-[#5D5FEF]/5'
+                    : 'bg-white border-gray-200/60 shadow-sm'
+                }`}
+              >
+                <div className="px-4 py-4 flex items-start gap-3">
+                  {/* Icon */}
+                  <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${
+                    !notification.read ? 'bg-[#5D5FEF]/5' : 'bg-gray-50'
+                  }`}>
                     {getIcon(notification.type)}
                   </div>
+
+                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <p className={`text-[15px] font-black ${
+                      <p className={`text-[14px] font-bold truncate ${
                         !notification.read ? 'text-gray-900' : 'text-gray-600'
                       }`}>
                         {notification.title}
                       </p>
+                      {!notification.read && (
+                        <div className="w-2 h-2 rounded-full bg-[#5D5FEF] flex-shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[13px] text-gray-500 leading-relaxed line-clamp-2">
+                      {notification.message}
+                    </p>
+                    <div className="flex items-center gap-2 mt-2">
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${catInfo.color}`}>
                         {catInfo.label}
                       </span>
-                    </div>
-                    <p className="text-[13px] text-gray-500 mb-2">
-                      {notification.message}
-                    </p>
-                    <div className="flex items-center gap-3">
-                      <p className="text-[11px] text-gray-400 font-medium">{notification.time}</p>
-                      <span className="text-gray-300">·</span>
-                      <p className="text-[11px] text-gray-400">{formatFullTime(notification.createdAt)}</p>
+                      <span className="text-[11px] text-gray-400 font-medium">{notification.time}</span>
                     </div>
                   </div>
-                  {!notification.read && (
-                    <div className="flex-shrink-0 mt-2">
-                      <div className="w-2.5 h-2.5 rounded-full bg-[#5D5FEF]" />
-                    </div>
-                  )}
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })
         ) : (
-          <div className="px-8 py-16 text-center">
-            <Bell className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-[15px] font-black text-gray-400 mb-1">
+          <div className="bg-white rounded-2xl border border-gray-200/60 px-6 py-16 text-center shadow-sm">
+            <div className="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mx-auto mb-4">
+              <Bell className="w-8 h-8 text-gray-300" />
+            </div>
+            <p className="text-[16px] font-bold text-gray-400 mb-1">
               {filter === 'all' ? 'No notifications yet' : `No ${filter} notifications`}
             </p>
-            <p className="text-[13px] text-gray-400">
+            <p className="text-[13px] text-gray-400 max-w-[260px] mx-auto">
               {filter === 'all'
                 ? 'Notifications will appear here when events occur on your server.'
                 : 'Try switching to a different filter.'}

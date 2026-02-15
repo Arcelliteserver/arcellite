@@ -332,6 +332,45 @@ export async function refreshDatabaseSizes(): Promise<DatabaseMetadata[]> {
   return Object.values(metadata);
 }
 
+/**
+ * Purge ALL user-created databases — drops every PG database and clears metadata.
+ */
+export async function purgeAllDatabases(): Promise<{ purgedCount: number; names: string[] }> {
+  const metadata = loadMetadata();
+  const ids = Object.keys(metadata);
+  const purgedNames: string[] = [];
+
+  for (const id of ids) {
+    const db = metadata[id];
+    const pgDatabaseName = db.pgDatabaseName;
+    purgedNames.push(db.displayName || db.name);
+
+    if (pgDatabaseName) {
+      const mainPool = getMainPool();
+      try {
+        // Terminate existing connections
+        await mainPool.query(
+          `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+          [pgDatabaseName]
+        );
+        await mainPool.query(`DROP DATABASE IF EXISTS "${pgDatabaseName}"`);
+      } catch (err) {
+        console.error(`[purgeAllDatabases] Failed to drop ${pgDatabaseName}:`, err);
+      } finally {
+        await mainPool.end();
+      }
+    }
+
+    // Remove local metadata directory if exists
+    const dbPath = path.join(dbDir, id);
+    if (fs.existsSync(dbPath)) fs.rmSync(dbPath, { recursive: true, force: true });
+  }
+
+  // Clear all metadata
+  saveMetadata({});
+  return { purgedCount: ids.length, names: purgedNames };
+}
+
 export function startDatabase(id: string): DatabaseMetadata {
   const metadata = loadMetadata();
   if (!metadata[id]) throw new Error('Database not found');

@@ -149,12 +149,45 @@ const MyAppsView: React.FC = () => {
     return new Set();
   });
 
-  // State is now lazy-initialized from localStorage.
-  // No auto-reconnect on mount - saved data persists as-is.
-  // User can click "Refresh" to re-fetch from webhooks.
+  // Helper: save state to server (PostgreSQL) so all devices stay in sync
+  const saveToServer = async (appsData: AppConnection[], idsData: Set<string>) => {
+    try {
+      const token = localStorage.getItem('sessionToken');
+      if (!token) return;
+      await fetch('/api/apps/connections', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ apps: appsData, connectedAppIds: Array.from(idsData) }),
+      });
+    } catch {}
+  };
+
+  // On mount: load state from server (works across devices), fall back to localStorage
   useEffect(() => {
-    // Sync apps state with connectedAppIds on mount
-    // Ensure any app in connectedAppIds has status='connected'
+    const loadFromServer = async () => {
+      try {
+        const token = localStorage.getItem('sessionToken');
+        if (!token) return;
+        const resp = await fetch('/api/apps/connections', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.apps && Array.isArray(data.apps) && data.apps.length > 0) {
+          setApps(data.apps);
+          localStorage.setItem('connectedApps', JSON.stringify(data.apps));
+        }
+        if (data.connectedAppIds && Array.isArray(data.connectedAppIds)) {
+          const ids = new Set<string>(data.connectedAppIds);
+          setConnectedAppIds(ids);
+          localStorage.setItem('connectedAppIds', JSON.stringify(data.connectedAppIds));
+          setCollapsedConnectedApps(ids);
+        }
+      } catch {}
+    };
+    loadFromServer();
+
+    // Also sync apps state with connectedAppIds on mount
     setApps(prev => prev.map(app => {
       if (connectedAppIds.has(app.id) && app.status !== 'connected') {
         return { ...app, status: 'connected' };
@@ -164,18 +197,22 @@ const MyAppsView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save apps to localStorage whenever they change
+  // Save apps to localStorage + server whenever they change
   useEffect(() => {
     localStorage.setItem('connectedApps', JSON.stringify(apps));
     // Notify SharedView of updates
     window.dispatchEvent(new Event('apps-updated'));
+    // Persist to server for cross-device sync
+    saveToServer(apps, connectedAppIds);
   }, [apps]);
 
-  // Save connected app IDs to localStorage
+  // Save connected app IDs to localStorage + server
   useEffect(() => {
     localStorage.setItem('connectedAppIds', JSON.stringify(Array.from(connectedAppIds)));
     // Notify SharedView of updates
     window.dispatchEvent(new Event('apps-updated'));
+    // Persist to server for cross-device sync
+    saveToServer(apps, connectedAppIds);
   }, [connectedAppIds]);
 
   const fetchN8nWorkflows = async (apiUrl: string, apiKey: string, appId?: string) => {
@@ -310,15 +347,16 @@ const MyAppsView: React.FC = () => {
         throw new Error(`${app.name} webhook not configured`);
       }
 
-      // Try to connect to the n8n webhook
+      // Try to connect via server-side proxy (avoids CORS on phones)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
-      const response = await fetch(app.webhookUrl, {
-        method: 'GET',
+      const response = await fetch('/api/apps/webhook-proxy', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ webhookUrl: app.webhookUrl }),
         signal: controller.signal,
       });
 
@@ -419,9 +457,10 @@ const MyAppsView: React.FC = () => {
       if (!app || !app.webhookUrl) return;
 
       try {
-        const response = await fetch(app.webhookUrl, {
-          method: 'GET',
+        const response = await fetch('/api/apps/webhook-proxy', {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhookUrl: app.webhookUrl }),
         });
 
         if (response.ok) {

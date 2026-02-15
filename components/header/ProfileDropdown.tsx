@@ -8,7 +8,8 @@ import {
   Download,
   Settings,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  Lock
 } from 'lucide-react';
 import type { UserData } from '../../App';
 
@@ -183,6 +184,13 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
                   className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 [filter:brightness(0)_saturate(100%)_invert(60%)_sepia(0%)_saturate(0%)_hue-rotate(0deg)_brightness(90%)_contrast(90%)]"
                 />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">My Apps</span>
+              </button>
+              <button 
+                onClick={() => handleMenuItemClick(onSecurityVault)}
+                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+              >
+                <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Security Vault</span>
               </button>
             </div>
           </div>

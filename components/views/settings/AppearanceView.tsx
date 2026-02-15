@@ -180,7 +180,7 @@ const AppearanceView: React.FC<AppearanceViewProps> = ({ showToast, onSettingsCh
               Theme
             </h2>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {themes.map((themeOption) => {
               const Icon = themeOption.icon;
               const isSelected = theme === themeOption.id;
@@ -188,15 +188,21 @@ const AppearanceView: React.FC<AppearanceViewProps> = ({ showToast, onSettingsCh
                 <button
                   key={themeOption.id}
                   onClick={() => setTheme(themeOption.id as 'light' | 'dark' | 'auto')}
-                  className={`p-6 rounded-2xl border-2 transition-all text-left ${
+                  className={`p-5 sm:p-6 rounded-2xl border-2 transition-all text-left ${
                     isSelected
                       ? 'border-[#5D5FEF] bg-[#5D5FEF]/5'
                       : 'border-gray-100 hover:border-gray-200 bg-gray-50'
                   }`}
                 >
-                  <Icon className={`w-6 h-6 mb-3 ${isSelected ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
-                  <h3 className="text-[14px] font-black text-gray-900 mb-1">{themeOption.label}</h3>
-                  <p className="text-[11px] text-gray-500">{themeOption.description}</p>
+                  <div className="flex items-center gap-3 sm:block">
+                    <div className={`w-10 h-10 sm:w-auto sm:h-auto rounded-xl sm:rounded-none flex items-center justify-center sm:block flex-shrink-0 ${isSelected ? 'bg-[#5D5FEF]/10 sm:bg-transparent' : 'bg-gray-100 sm:bg-transparent'}`}>
+                      <Icon className={`w-5 h-5 sm:w-6 sm:h-6 sm:mb-3 ${isSelected ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
+                    </div>
+                    <div>
+                      <h3 className="text-[14px] font-black text-gray-900 mb-0.5 sm:mb-1">{themeOption.label}</h3>
+                      <p className="text-[11px] text-gray-500">{themeOption.description}</p>
+                    </div>
+                  </div>
                 </button>
               );
             })}
@@ -252,15 +258,18 @@ const AppearanceView: React.FC<AppearanceViewProps> = ({ showToast, onSettingsCh
           <div className="space-y-4">
             {/* AI Auto-Rename */}
             <div className={`p-5 rounded-2xl border-2 transition-all ${aiAutoRename ? 'border-[#5D5FEF]/30 bg-[#5D5FEF]/5' : 'border-gray-100 bg-gray-50'}`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${aiAutoRename ? 'bg-[#5D5FEF]/10' : 'bg-gray-100'}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${aiAutoRename ? 'bg-[#5D5FEF]/10' : 'bg-gray-100'}`}>
                     <FileImage className={`w-5 h-5 ${aiAutoRename ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
                   </div>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <h3 className="text-[14px] font-black text-gray-900">AI Auto-Rename Images</h3>
-                    <p className="text-[11px] text-gray-500 mt-0.5">
+                    <p className="text-[11px] text-gray-500 mt-0.5 hidden sm:block">
                       Automatically analyzes uploaded images with Google Gemini Vision and renames them with descriptive titles. Use the button below to rename existing photos too
+                    </p>
+                    <p className="text-[11px] text-gray-500 mt-0.5 sm:hidden">
+                      Auto-rename images with AI
                     </p>
                   </div>
                 </div>
@@ -347,15 +356,18 @@ const AppearanceView: React.FC<AppearanceViewProps> = ({ showToast, onSettingsCh
 
             {/* PDF Thumbnails */}
             <div className={`p-5 rounded-2xl border-2 transition-all ${pdfThumbnails ? 'border-[#5D5FEF]/30 bg-[#5D5FEF]/5' : 'border-gray-100 bg-gray-50'}`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${pdfThumbnails ? 'bg-[#5D5FEF]/10' : 'bg-gray-100'}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${pdfThumbnails ? 'bg-[#5D5FEF]/10' : 'bg-gray-100'}`}>
                     <BookOpen className={`w-5 h-5 ${pdfThumbnails ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
                   </div>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <h3 className="text-[14px] font-black text-gray-900">PDF & Book Thumbnails</h3>
-                    <p className="text-[11px] text-gray-500 mt-0.5">
+                    <p className="text-[11px] text-gray-500 mt-0.5 hidden sm:block">
                       Show first-page preview thumbnails for PDF and book files. Disable to use placeholder icons instead
+                    </p>
+                    <p className="text-[11px] text-gray-500 mt-0.5 sm:hidden">
+                      Show PDF page previews
                     </p>
                   </div>
                 </div>

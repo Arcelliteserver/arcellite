@@ -3,6 +3,8 @@ import Busboy from 'busboy';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import * as authService from '../services/auth.service.js';
+import * as securityService from '../services/security.service.js';
 
 const homeDir = os.homedir();
 let baseDir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
@@ -63,51 +65,87 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
   // File listing (but NOT list-external — that's handled separately in vite.config.ts middleware)
   if (url?.startsWith('/api/files/list') && !url?.startsWith('/api/files/list-external') && req.method === 'GET') {
-    try {
-      const urlObj = new URL(url, `http://${req.headers.host || 'localhost'}`);
-      const category = urlObj.searchParams.get('category') || 'general';
-      const pathParam = urlObj.searchParams.get('path') || '';
+    (async () => {
+      try {
+        const urlObj = new URL(url, `http://${req.headers.host || 'localhost'}`);
+        const category = urlObj.searchParams.get('category') || 'general';
+        const pathParam = urlObj.searchParams.get('path') || '';
+        const searchQuery = urlObj.searchParams.get('q') || '';
 
-      const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
-      const categoryDir = catMap[category] || 'files';
-      const targetDir = path.join(baseDir, categoryDir, pathParam);
+        const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
+        const categoryDir = catMap[category] || 'files';
+        const targetDir = path.join(baseDir, categoryDir, pathParam);
 
-      if (!fs.existsSync(targetDir)) {
-        // Return empty result instead of auto-creating missing directories
+        if (!fs.existsSync(targetDir)) {
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ folders: [], files: [] }));
+          return;
+        }
+
+        // Get user for security settings
+        let ghostFolders: string[] = [];
+        let obfuscateFiles = false;
+        try {
+          const authHeader = req.headers.authorization;
+          if (authHeader?.startsWith('Bearer ')) {
+            const user = await authService.validateSession(authHeader.substring(7));
+            if (user) {
+              const settings = await authService.getUserSettings(user.id);
+              if (settings.secGhostFolders) {
+                ghostFolders = await securityService.getGhostFolders(user.id);
+              }
+              obfuscateFiles = settings.secFileObfuscation;
+            }
+          }
+        } catch { /* continue without security features */ }
+
+        const entries = fs.readdirSync(targetDir, { withFileTypes: true });
+        let folders = entries
+          .filter((e) => e.isDirectory())
+          .map((e) => {
+            const fullPath = path.join(targetDir, e.name);
+            const stat = fs.statSync(fullPath);
+            let itemCount = 0;
+            try {
+              itemCount = fs.readdirSync(fullPath).length;
+            } catch {}
+            return { name: e.name, mtimeMs: stat.mtimeMs, itemCount };
+          });
+
+        // Apply ghost folders filter (hide unless explicitly searched)
+        if (ghostFolders.length > 0 && !searchQuery) {
+          const currentPath = path.join(categoryDir, pathParam);
+          folders = folders.filter(f => {
+            const folderFullPath = path.join(currentPath, f.name);
+            return !ghostFolders.some(gf => folderFullPath === gf || folderFullPath.startsWith(gf + '/'));
+          });
+        }
+
+        let files = entries
+          .filter((e) => e.isFile())
+          .map((e) => {
+            const fullPath = path.join(targetDir, e.name);
+            const stat = fs.statSync(fullPath);
+            return { name: e.name, mtimeMs: stat.mtimeMs, sizeBytes: stat.size };
+          });
+
+        // Apply file obfuscation (randomize timestamps and fuzz sizes)
+        if (obfuscateFiles) {
+          files = files.map(f => securityService.obfuscateFileEntry(f) as typeof f);
+          folders = folders.map(f => ({
+            ...securityService.obfuscateFileEntry({ name: f.name, mtimeMs: f.mtimeMs, isFolder: true }),
+            itemCount: f.itemCount,
+          }));
+        }
+
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ folders: [], files: [] }));
-        return true;
+        res.end(JSON.stringify({ folders, files }));
+      } catch (e) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: String((e as Error).message) }));
       }
-
-      const entries = fs.readdirSync(targetDir, { withFileTypes: true });
-      const folders = entries
-        .filter((e) => e.isDirectory())
-        .map((e) => {
-          const fullPath = path.join(targetDir, e.name);
-          const stat = fs.statSync(fullPath);
-          // Count children (files + subfolders) inside this folder
-          let itemCount = 0;
-          try {
-            itemCount = fs.readdirSync(fullPath).length;
-          } catch {}
-          return { name: e.name, mtimeMs: stat.mtimeMs, itemCount };
-        });
-
-      const files = entries
-        .filter((e) => e.isFile())
-        .map((e) => {
-          const fullPath = path.join(targetDir, e.name);
-          const stat = fs.statSync(fullPath);
-          return { name: e.name, mtimeMs: stat.mtimeMs, sizeBytes: stat.size };
-        });
-
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ folders, files }));
-    } catch (e) {
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ error: String((e as Error).message) }));
-    }
+    })();
     return true;
   }
 
@@ -125,6 +163,14 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
       if (!fs.existsSync(filePath)) {
         res.statusCode = 404;
         res.end('File not found');
+        return true;
+      }
+
+      // Guard against trying to read a directory
+      const fileStat = fs.statSync(filePath);
+      if (fileStat.isDirectory()) {
+        res.statusCode = 400;
+        res.end('Cannot serve a directory');
         return true;
       }
 
@@ -152,8 +198,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
       };
 
       const contentType = contentTypes[ext] || 'application/octet-stream';
-      const stat = fs.statSync(filePath);
-      const fileSize = stat.size;
+      const fileSize = fileStat.size;
 
       // Support HTTP Range requests (required for mobile video/audio playback)
       const rangeHeader = req.headers.range;
@@ -344,6 +389,65 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
     return true;
   }
 
+  // Cross-category file move (e.g., move a PDF from Videos to Files)
+  if (url === '/api/files/move-cross' && req.method === 'POST') {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        const sourceCategory = (body.sourceCategory as string) || 'general';
+        const sourcePath = (body.sourcePath as string) || '';
+        const targetCategory = (body.targetCategory as string) || 'general';
+        const targetPath = (body.targetPath as string) || '';
+
+        const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
+        const srcDir = catMap[sourceCategory] || 'files';
+        const tgtDir = catMap[targetCategory] || 'files';
+        const sourceFullPath = path.join(baseDir, srcDir, sourcePath);
+        const targetFullPath = path.join(baseDir, tgtDir, targetPath);
+
+        if (!fs.existsSync(sourceFullPath)) {
+          res.statusCode = 404;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Source file does not exist' }));
+          return;
+        }
+
+        if (fs.existsSync(targetFullPath)) {
+          res.statusCode = 409;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'A file with the same name already exists in the target location' }));
+          return;
+        }
+
+        const targetDir = path.dirname(targetFullPath);
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        try {
+          fs.renameSync(sourceFullPath, targetFullPath);
+        } catch (err: any) {
+          if (err.code === 'EXDEV') {
+            fs.copyFileSync(sourceFullPath, targetFullPath);
+            fs.unlinkSync(sourceFullPath);
+          } else {
+            throw err;
+          }
+        }
+
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: String((e as Error).message) }));
+      }
+    });
+    return true;
+  }
+
   // Save shared file from external service (Google Drive, etc.) to vault
   if ((url === '/api/files/save-shared' || url?.startsWith('/api/files/save-shared?')) && req.method === 'POST') {
     let body = '';
@@ -478,6 +582,27 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ error: String((e as Error).message) }));
       }
+    });
+    return true;
+  }
+
+  // Clear all files (Danger Zone)
+  if (url === '/api/files/clear-all' && req.method === 'POST') {
+    import('../files.ts').then(({ clearAllFiles }) => {
+      try {
+        const result = clearAllFiles();
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: true, ...result }));
+      } catch (e) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: String((e as Error).message) }));
+      }
+    }).catch((e) => {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: String((e as Error).message) }));
     });
     return true;
   }

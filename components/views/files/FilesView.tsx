@@ -48,6 +48,7 @@ interface FilesViewProps {
   onGoBack?: () => void;
   pdfThumbnails?: boolean;
   aiRenamedSet?: Set<string>;
+  onFileDrop?: (file: FileItem, targetFolder: FileItem) => void;
 }
 
 const FilesView: React.FC<FilesViewProps> = ({
@@ -72,6 +73,7 @@ const FilesView: React.FC<FilesViewProps> = ({
   onGoBack,
   pdfThumbnails = true,
   aiRenamedSet,
+  onFileDrop,
 }) => {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -349,7 +351,7 @@ const FilesView: React.FC<FilesViewProps> = ({
             {isOverview ? 'Recent Collections' : 'Collections'}
           </p>
           <FileGrid
-            files={filteredFolders}
+            files={isOverview ? filteredFolders.slice(0, 6) : filteredFolders}
             onFileClick={handleFileClick}
             selectedFileId={selectedFile?.id}
             allFiles={files}
@@ -357,6 +359,7 @@ const FilesView: React.FC<FilesViewProps> = ({
             availableFolders={filteredFolders}
             pdfThumbnails={pdfThumbnails}
             aiRenamedSet={aiRenamedSet}
+            onFileDrop={onFileDrop}
           />
         </div>
       )}
@@ -377,6 +380,7 @@ const FilesView: React.FC<FilesViewProps> = ({
               availableFolders={filteredFolders}
               pdfThumbnails={pdfThumbnails}
               aiRenamedSet={aiRenamedSet}
+              onFileDrop={onFileDrop}
             />
           ) : (
             <FileListView
@@ -385,6 +389,7 @@ const FilesView: React.FC<FilesViewProps> = ({
               selectedFileId={selectedFile?.id}
               onAction={handleFileAction}
               availableFolders={filteredFolders}
+              onFileDrop={onFileDrop}
             />
           )
         ) : (

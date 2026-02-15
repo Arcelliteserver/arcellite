@@ -1,0 +1,109 @@
+# ───────────────────────────────────────────────────────────
+# CloudNest (Arcellite) — Docker Compose
+# ───────────────────────────────────────────────────────────
+# Deploy to /srv/cloudnest/ on your server.
+# Domain: cloud.arcelliteserver.com (port 3000)
+#
+# Uses your existing postgres-arcellite container.
+# If you want a separate Postgres instance, see the
+# commented-out service at the bottom.
+#
+# Quick start:
+#   cd /srv/cloudnest
+#   docker compose up -d --build
+# ───────────────────────────────────────────────────────────
+
+services:
+  cloudnest:
+    build: .
+    container_name: cloudnest
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - ARCELLITE_DATA=/data/arcellite-data
+
+      # PostgreSQL — connects to existing postgres-arcellite container
+      - DB_HOST=postgres-arcellite
+      - DB_PORT=5432
+      - DB_NAME=arcellite
+      - DB_USER=arcellite_user
+      - DB_PASSWORD=${DB_PASSWORD:-arcellite2024}
+
+      # Session
+      - SESSION_SECRET=${SESSION_SECRET:-7f9c8b2a4d3e1f0a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a}
+
+      # Email (optional — set in .env)
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-465}
+      - SMTP_SECURE=${SMTP_SECURE:-true}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+
+      # AI Email (optional — set in .env)
+      - AI_SMTP_HOST=${AI_SMTP_HOST:-}
+      - AI_SMTP_PORT=${AI_SMTP_PORT:-465}
+      - AI_SMTP_SECURE=${AI_SMTP_SECURE:-true}
+      - AI_SMTP_USER=${AI_SMTP_USER:-}
+      - AI_SMTP_PASSWORD=${AI_SMTP_PASSWORD:-}
+      - AI_SMTP_FROM=${AI_SMTP_FROM:-}
+      - AI_NOREPLY_FROM=${AI_NOREPLY_FROM:-}
+
+      # Timezone
+      - TZ=America/New_York
+
+    volumes:
+      # Persistent storage: files, photos, videos, music, security keys
+      - cloudnest_data:/data/arcellite-data
+      # Host USB/removable media access (for transfer & external storage)
+      - /media:/media:rw
+      - /run/media:/run/media:rw
+      - /mnt:/mnt:rw
+      - /dev:/dev:ro
+
+    networks:
+      - cloudnest
+      - postgres-net
+
+volumes:
+  cloudnest_data:
+    driver: local
+
+networks:
+  cloudnest:
+    driver: bridge
+  postgres-net:
+    external: true
+    name: postgres_default
+
+# ───────────────────────────────────────────────────────────
+# If your existing postgres-arcellite is NOT on a shared
+# Docker network, you have two options:
+#
+# Option A: Add postgres-arcellite to the postgres-net network
+#   docker network create postgres-net
+#   docker network connect postgres-net postgres-arcellite
+#
+# Option B: Uncomment below to run a dedicated Postgres
+#   (and change DB_HOST above to cloudnest-db)
+# ───────────────────────────────────────────────────────────
+#  cloudnest-db:
+#    image: postgres:15
+#    container_name: cloudnest-db
+#    restart: unless-stopped
+#    environment:
+#      - POSTGRES_DB=arcellite
+#      - POSTGRES_USER=arcellite_user
+#      - POSTGRES_PASSWORD=${DB_PASSWORD:-arcellite2024}
+#    volumes:
+#      - cloudnest_pgdata:/var/lib/postgresql/data
+#    networks:
+#      - cloudnest
+#
+# And add to the volumes section:
+#  cloudnest_pgdata:
+#    driver: local

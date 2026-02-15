@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { HardDrive, FolderPlus, CheckCircle, Mail, Lock, User, Cloud, ArrowRight, AlertCircle, Loader2, Check, X, Eye, EyeOff, Usb, Server, ArrowRightLeft, Monitor } from 'lucide-react';
+import { HardDrive, FolderPlus, CheckCircle, Mail, Lock, User, Cloud, ArrowRight, ArrowLeft, AlertCircle, Loader2, Check, X, Eye, EyeOff, Usb, Server, ArrowRightLeft, Monitor, RefreshCw } from 'lucide-react';
 import { authApi } from '../../services/api.client';
 import type { RemovableDeviceInfo } from '../../types';
 
@@ -55,26 +55,35 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   const [transferProgress, setTransferProgress] = useState(0);
   const [transferMessage, setTransferMessage] = useState('');
   const [transferComplete, setTransferComplete] = useState(false);
+  const [transferScanError, setTransferScanError] = useState('');
 
   // ── Detect transfer data on connected USBs when wizard loads ──────────────
-  useEffect(() => {
-    const detectTransfer = async () => {
-      setTransferDetecting(true);
-      try {
-        const res = await fetch('/api/transfer/detect');
-        const data = await res.json();
-        if (data.found && data.devices?.length > 0) {
-          setTransferDevices(data.devices);
-          setSelectedTransfer(data.devices[0]);
-          setShowTransferImport(true);
-        }
-      } catch {
-        // No transfer data or API unavailable
-      } finally {
-        setTransferDetecting(false);
+  const detectTransferDevices = async () => {
+    setTransferDetecting(true);
+    setTransferScanError('');
+    try {
+      const res = await fetch('/api/transfer/detect');
+      if (!res.ok) throw new Error('Failed to contact server');
+      const data = await res.json();
+      if (data.found && data.devices?.length > 0) {
+        setTransferDevices(data.devices);
+        setSelectedTransfer(data.devices[0]);
+        setShowTransferImport(true);
+        setTransferScanError('');
+      } else {
+        setTransferScanError('No transfer data found on any connected USB drive.');
+        setShowTransferImport(false);
       }
-    };
-    detectTransfer();
+    } catch (err: any) {
+      setTransferScanError('Error scanning for USB transfer data: ' + (err?.message || 'Unknown error'));
+      setShowTransferImport(false);
+    } finally {
+      setTransferDetecting(false);
+    }
+  };
+
+  useEffect(() => {
+    detectTransferDevices();
   }, []);
 
   // Detect external drives when entering storage step
@@ -324,6 +333,11 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
 
   const stepTitles = ['Account', 'Verify', 'Profile', 'Storage', 'Complete'];
 
+  const handleGoBack = () => {
+    setError('');
+    if (step > 1) setStep(step - 1);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#5D5FEF]/5 via-white to-[#5D5FEF]/5 flex items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-lg">
@@ -524,9 +538,10 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
               <div key={s} className="flex items-center flex-1">
                 <div className="flex flex-col items-center">
                   <div
+                    onClick={() => { if (s < step) { setError(''); setStep(s); } }}
                     className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-black text-xs transition-all ${
                       s < step
-                        ? 'bg-green-500 text-white'
+                        ? 'bg-green-500 text-white cursor-pointer hover:bg-green-600'
                         : s === step
                         ? 'bg-[#5D5FEF] text-white shadow-lg shadow-[#5D5FEF]/20'
                         : 'bg-[#F5F5F7] text-gray-400'
@@ -729,6 +744,35 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                   'Create Account'
                 )}
               </button>
+
+              {/* Restore from USB option and scan feedback */}
+              {!showTransferImport && (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => { detectTransferDevices(); }}
+                    disabled={transferDetecting}
+                    className="w-full px-5 sm:px-6 py-3 bg-[#F5F5F7] text-gray-500 rounded-xl sm:rounded-2xl font-bold text-xs hover:bg-gray-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {transferDetecting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Scanning for USB transfer data...
+                      </>
+                    ) : (
+                      <>
+                        <Usb className="w-4 h-4" />
+                        Restore from USB Transfer
+                      </>
+                    )}
+                  </button>
+                  {transferScanError && (
+                    <div className="bg-yellow-50 border border-yellow-100 rounded-2xl p-3 flex items-start gap-2 mt-1">
+                      <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
+                      <p className="text-yellow-700 text-xs font-medium">{transferScanError}</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -836,6 +880,14 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                   Skip for now
                 </button>
               </div>
+
+              <button
+                onClick={handleGoBack}
+                className="w-full px-5 sm:px-6 py-3 bg-[#F5F5F7] text-gray-500 rounded-xl sm:rounded-2xl font-bold text-xs hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </button>
             </div>
           )}
 
@@ -916,6 +968,14 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                 ) : (
                   'Continue'
                 )}
+              </button>
+
+              <button
+                onClick={handleGoBack}
+                className="w-full px-5 sm:px-6 py-3 bg-[#F5F5F7] text-gray-500 rounded-xl sm:rounded-2xl font-bold text-xs hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
               </button>
             </div>
           )}
@@ -1032,6 +1092,14 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                   'Continue'
                 )}
               </button>
+
+              <button
+                onClick={handleGoBack}
+                className="w-full px-5 sm:px-6 py-3 bg-[#F5F5F7] text-gray-500 rounded-xl sm:rounded-2xl font-bold text-xs hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </button>
             </div>
           )}
 
@@ -1071,6 +1139,14 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                     <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
                   </>
                 )}
+              </button>
+
+              <button
+                onClick={handleGoBack}
+                className="w-full px-5 sm:px-6 py-3 bg-[#F5F5F7] text-gray-500 rounded-xl sm:rounded-2xl font-bold text-xs hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
               </button>
             </div>
           )}

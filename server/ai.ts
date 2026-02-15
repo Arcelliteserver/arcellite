@@ -70,13 +70,13 @@ const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
   Google: {
     apiUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
     resolveModel: (id) => {
-      // Map our IDs to Gemini API model names
+      // Map our IDs to Gemini API model names (stable versions)
       const map: Record<string, string> = {
-        'gemini-3-pro': 'gemini-2.5-pro-preview-06-05',
-        'gemini-3-flash': 'gemini-2.5-flash-preview-05-20',
-        'gemini-2.5-pro': 'gemini-2.5-pro-preview-06-05',
-        'gemini-2.5-flash': 'gemini-2.5-flash-preview-05-20',
-        'gemini-2.5-flash-lite': 'gemini-2.5-flash-preview-05-20',
+        'gemini-3-pro': 'gemini-2.5-pro',
+        'gemini-3-flash': 'gemini-2.5-flash',
+        'gemini-2.5-pro': 'gemini-2.5-pro',
+        'gemini-2.5-flash': 'gemini-2.5-flash',
+        'gemini-2.5-flash-lite': 'gemini-2.5-flash',
         'gemini-2-flash': 'gemini-2.0-flash',
       };
       return map[id] || id;

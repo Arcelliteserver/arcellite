@@ -414,7 +414,7 @@ const DatabaseDetailView: React.FC<{
     <div className="w-full animate-in fade-in duration-300">
       {/* Header */}
       <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
-        <button onClick={onBack} className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-xl transition-colors flex-shrink-0">
+        <button onClick={onBack} className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-xl transition-colors flex-shrink-0 hidden md:flex">
           <ArrowLeft className="w-5 h-5 text-gray-500" />
         </button>
         <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-gradient-to-br ${dbType?.color || 'from-gray-500 to-gray-600'} shadow-md flex items-center justify-center p-1.5 sm:p-2 flex-shrink-0`}>
@@ -1024,9 +1024,9 @@ const DatabaseView: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-10 gap-4">
         <div className="relative">
           <div className="absolute -left-2 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-3 sm:pl-4 md:pl-6 relative flex items-center gap-2 sm:gap-3">
-            <Database className="w-6 sm:w-8 h-6 sm:h-8 text-[#5D5FEF] flex-shrink-0" />
-            <span className="truncate">Database Management</span>
+          <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-4 md:pl-6 relative">
+            Database Management
+            <span className="absolute -top-2 -right-8 md:-right-12 w-16 h-16 md:w-20 md:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
           </h2>
         </div>
 

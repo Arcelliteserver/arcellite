@@ -26,7 +26,7 @@ server/dist
 
 # Environment and data
 .env
-.env.*
+# .env.*
 arcellite-data/
 
 # Temporary / debug files

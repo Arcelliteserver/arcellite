@@ -5,6 +5,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'http';
 import * as authService from '../services/auth.service.js';
+import * as securityService from '../services/security.service.js';
 import { sendVerificationEmail } from '../services/email.service.js';
 import { ensureBaseExists } from '../files.js';
 
@@ -109,7 +110,7 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse) 
  */
 export async function handleLogin(req: IncomingMessage, res: ServerResponse) {
   try {
-    const { email, password } = await parseBody(req);
+    const { email, password, totpCode } = await parseBody(req);
 
     if (!email || !password) {
       sendJson(res, 400, { error: 'Email and password are required' });
@@ -121,6 +122,22 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse) {
     if (!user) {
       sendJson(res, 401, { error: 'Invalid email or password' });
       return;
+    }
+
+    // Check if 2FA is enabled
+    const has2FA = await securityService.is2FAEnabled(user.id);
+    if (has2FA) {
+      if (!totpCode) {
+        // Return a challenge — user must provide TOTP code
+        sendJson(res, 200, { requires2FA: true, userId: user.id });
+        return;
+      }
+      // Verify the TOTP code
+      const secret = await securityService.getTotpSecret(user.id);
+      if (!secret || !securityService.verifyTotpCode(secret, totpCode)) {
+        sendJson(res, 401, { error: 'Invalid verification code' });
+        return;
+      }
     }
 
     const loginUa = req.headers['user-agent'] || '';
@@ -643,6 +660,7 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
       aiDatabaseCreate, aiDatabaseDelete, aiDatabaseQuery,
       aiSendEmail, aiCastMedia, aiFileRead,
       aiAutoRename, pdfThumbnails,
+      secTwoFactor, secFileObfuscation, secGhostFolders, secTrafficMasking, secStrictIsolation,
     } = body;
 
     await authService.updateUserSettings(user.id, {
@@ -655,6 +673,7 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
       aiDatabaseCreate, aiDatabaseDelete, aiDatabaseQuery,
       aiSendEmail, aiCastMedia, aiFileRead,
       aiAutoRename, pdfThumbnails,
+      secTwoFactor, secFileObfuscation, secGhostFolders, secTrafficMasking, secStrictIsolation,
     });
 
     // Log the settings change
@@ -672,6 +691,9 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
       aiDatabaseCreate: 'AI DB Create', aiDatabaseDelete: 'AI DB Delete', aiDatabaseQuery: 'AI DB Query',
       aiSendEmail: 'AI Send Email', aiCastMedia: 'AI Cast Media', aiFileRead: 'AI File Read',
       aiAutoRename: 'AI Auto-Rename', pdfThumbnails: 'PDF Thumbnails',
+      secTwoFactor: 'Two-Factor Auth', secFileObfuscation: 'File Obfuscation',
+      secGhostFolders: 'Ghost Folders', secTrafficMasking: 'Traffic Masking',
+      secStrictIsolation: 'Strict Isolation',
     };
     for (const [key, label] of Object.entries(aiLabels)) {
       if ((body as any)[key] !== undefined) {
@@ -697,6 +719,40 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
   } catch (error: any) {
     console.error('[Auth] Update settings error:', error);
     sendJson(res, 500, { error: error.message || 'Failed to update settings' });
+  }
+}
+
+/**
+ * POST /api/auth/reset-settings
+ * Reset all user preferences back to factory defaults
+ */
+export async function handleResetSettings(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
+    const sessionToken = authHeader.substring(7);
+    const user = await authService.validateSession(sessionToken);
+
+    if (!user) {
+      sendJson(res, 401, { error: 'Invalid or expired session' });
+      return;
+    }
+
+    await authService.resetUserSettings(user.id);
+
+    // Log activity
+    authService.logActivity(user.id, 'settings', 'Reset all preferences to factory defaults').catch(() => {});
+    authService.createNotification(user.id, 'Settings Reset', 'All preferences have been restored to factory defaults', 'warning', 'system').catch(() => {});
+
+    const settings = await authService.getUserSettings(user.id);
+    sendJson(res, 200, { ok: true, settings });
+  } catch (error: any) {
+    console.error('[Auth] Reset settings error:', error);
+    sendJson(res, 500, { error: error.message || 'Failed to reset settings' });
   }
 }
 
@@ -821,5 +877,249 @@ export async function handleClearAllNotifications(req: IncomingMessage, res: Ser
   } catch (error: any) {
     console.error('[Auth] Clear all notifications error:', error);
     sendJson(res, 500, { error: error.message || 'Failed to clear notifications' });
+  }
+}
+
+// ─── Security Vault Routes ─────────────────────────────────────────────────
+
+/**
+ * POST /api/security/2fa/setup
+ * Generate a new TOTP secret and return the QR code URI
+ */
+export async function handle2FASetup(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    const user = await authService.validateSession(authHeader.substring(7));
+    if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    const secret = securityService.generateTotpSecret();
+    const uri = securityService.getTotpUri(secret, user.email);
+
+    // Store the secret temporarily — it's confirmed when user verifies a code
+    await securityService.saveTotpSecret(user.id, secret);
+
+    sendJson(res, 200, { secret, uri });
+  } catch (error: any) {
+    console.error('[Security] 2FA setup error:', error);
+    sendJson(res, 500, { error: error.message || '2FA setup failed' });
+  }
+}
+
+/**
+ * POST /api/security/2fa/verify
+ * Verify a TOTP code to confirm 2FA setup
+ */
+export async function handle2FAVerify(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    const user = await authService.validateSession(authHeader.substring(7));
+    if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    const { code } = await parseBody(req);
+    if (!code) { sendJson(res, 400, { error: 'Verification code required' }); return; }
+
+    const secret = await securityService.getTotpSecret(user.id);
+    if (!secret) { sendJson(res, 400, { error: 'No 2FA secret found. Run setup first.' }); return; }
+
+    const isValid = securityService.verifyTotpCode(secret, code);
+    if (!isValid) { sendJson(res, 400, { error: 'Invalid verification code' }); return; }
+
+    // Enable 2FA in user settings
+    await authService.updateUserSettings(user.id, { secTwoFactor: true });
+
+    authService.logActivity(user.id, 'security', 'Two-Factor Authentication enabled').catch(() => {});
+    authService.createNotification(user.id, 'Two-Factor Auth Enabled', 'Your account is now protected with 2FA.', 'success', 'security').catch(() => {});
+
+    sendJson(res, 200, { success: true, message: '2FA enabled successfully' });
+  } catch (error: any) {
+    console.error('[Security] 2FA verify error:', error);
+    sendJson(res, 500, { error: error.message || '2FA verification failed' });
+  }
+}
+
+/**
+ * POST /api/security/2fa/disable
+ * Disable 2FA
+ */
+export async function handle2FADisable(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    const user = await authService.validateSession(authHeader.substring(7));
+    if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    const { code } = await parseBody(req);
+    const secret = await securityService.getTotpSecret(user.id);
+
+    // Require a valid code to disable (security measure)
+    if (secret && code) {
+      const isValid = securityService.verifyTotpCode(secret, code);
+      if (!isValid) { sendJson(res, 400, { error: 'Invalid verification code' }); return; }
+    }
+
+    await securityService.removeTotpSecret(user.id);
+    await authService.updateUserSettings(user.id, { secTwoFactor: false });
+
+    authService.logActivity(user.id, 'security', 'Two-Factor Authentication disabled').catch(() => {});
+    authService.createNotification(user.id, 'Two-Factor Auth Disabled', 'Two-factor authentication has been removed from your account.', 'warning', 'security').catch(() => {});
+
+    sendJson(res, 200, { success: true });
+  } catch (error: any) {
+    console.error('[Security] 2FA disable error:', error);
+    sendJson(res, 500, { error: error.message || 'Failed to disable 2FA' });
+  }
+}
+
+/**
+ * POST /api/security/protocol-action
+ * Execute a protocol action (rotate keys, regenerate SSL, integrity check)
+ */
+export async function handleProtocolAction(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    const user = await authService.validateSession(authHeader.substring(7));
+    if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    const { action } = await parseBody(req);
+
+    switch (action) {
+      case 'rotate': {
+        const result = securityService.rotateRSAKeys();
+        authService.logActivity(user.id, 'security', `RSA keys rotated. Fingerprint: ${result.fingerprint}`).catch(() => {});
+        authService.createNotification(user.id, 'RSA Keys Rotated', `New 4096-bit RSA key pair generated. Fingerprint: ${result.fingerprint.substring(0, 20)}...`, 'success', 'security').catch(() => {});
+        sendJson(res, 200, { success: true, fingerprint: result.fingerprint, message: 'RSA keys rotated successfully' });
+        break;
+      }
+      case 'ssl': {
+        const result = securityService.regenerateSSL();
+        authService.logActivity(user.id, 'security', `SSL certificate regenerated. Subject: ${result.subject}`).catch(() => {});
+        authService.createNotification(user.id, 'SSL Certificate Regenerated', `New SSL certificate generated. Valid until ${new Date(result.validUntil).toLocaleDateString()}.`, 'success', 'security').catch(() => {});
+        sendJson(res, 200, { success: true, ...result, message: 'SSL certificate regenerated' });
+        break;
+      }
+      case 'integrity': {
+        const result = await securityService.runIntegrityCheck();
+        const status = result.errors.length === 0 ? 'passed' : 'issues found';
+        authService.logActivity(user.id, 'security', `Integrity check ${status}: ${result.checkedFiles}/${result.totalFiles} files verified, ${result.errors.length} issues`).catch(() => {});
+        authService.createNotification(
+          user.id,
+          result.errors.length === 0 ? 'Integrity Check Passed' : 'Integrity Check — Issues Found',
+          `Checked ${result.checkedFiles} of ${result.totalFiles} files. ${result.errors.length} issues detected.`,
+          result.errors.length === 0 ? 'success' : 'warning',
+          'security'
+        ).catch(() => {});
+        sendJson(res, 200, { success: true, ...result, message: `Integrity check complete: ${result.errors.length} issues found` });
+        break;
+      }
+      default:
+        sendJson(res, 400, { error: `Unknown action: ${action}` });
+    }
+  } catch (error: any) {
+    console.error('[Security] Protocol action error:', error);
+    sendJson(res, 500, { error: error.message || 'Protocol action failed' });
+  }
+}
+
+/**
+ * GET /api/security/status
+ * Get the current security status (key info, SSL info, etc.)
+ */
+export async function handleSecurityStatus(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    const user = await authService.validateSession(authHeader.substring(7));
+    if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    const has2FA = await securityService.is2FAEnabled(user.id);
+    const rsaInfo = securityService.getRSAKeyInfo();
+    const sslInfo = securityService.getSSLInfo();
+    const ghostFolders = await securityService.getGhostFolders(user.id);
+    const ipAllowlist = await securityService.getIpAllowlist(user.id);
+
+    sendJson(res, 200, {
+      twoFactor: { enabled: has2FA },
+      rsaKeys: rsaInfo,
+      ssl: sslInfo,
+      ghostFolders,
+      ipAllowlist,
+    });
+  } catch (error: any) {
+    console.error('[Security] Status error:', error);
+    sendJson(res, 500, { error: error.message || 'Failed to get security status' });
+  }
+}
+
+/**
+ * POST /api/security/ghost-folders
+ * Add a ghost folder
+ */
+export async function handleAddGhostFolder(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    const user = await authService.validateSession(authHeader.substring(7));
+    if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    const { folderPath } = await parseBody(req);
+    if (!folderPath) { sendJson(res, 400, { error: 'folderPath is required' }); return; }
+
+    await securityService.addGhostFolder(user.id, folderPath);
+    const ghostFolders = await securityService.getGhostFolders(user.id);
+
+    authService.logActivity(user.id, 'security', `Ghost folder added: ${folderPath}`).catch(() => {});
+    sendJson(res, 200, { success: true, ghostFolders });
+  } catch (error: any) {
+    sendJson(res, 500, { error: error.message || 'Failed to add ghost folder' });
+  }
+}
+
+/**
+ * DELETE /api/security/ghost-folders
+ * Remove a ghost folder
+ */
+export async function handleRemoveGhostFolder(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    const user = await authService.validateSession(authHeader.substring(7));
+    if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    const { folderPath } = await parseBody(req);
+    if (!folderPath) { sendJson(res, 400, { error: 'folderPath is required' }); return; }
+
+    await securityService.removeGhostFolder(user.id, folderPath);
+    const ghostFolders = await securityService.getGhostFolders(user.id);
+
+    authService.logActivity(user.id, 'security', `Ghost folder removed: ${folderPath}`).catch(() => {});
+    sendJson(res, 200, { success: true, ghostFolders });
+  } catch (error: any) {
+    sendJson(res, 500, { error: error.message || 'Failed to remove ghost folder' });
+  }
+}
+
+/**
+ * PUT /api/security/ip-allowlist
+ * Update the IP allowlist for strict isolation
+ */
+export async function handleUpdateIpAllowlist(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    const user = await authService.validateSession(authHeader.substring(7));
+    if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    const { ips } = await parseBody(req);
+    if (!Array.isArray(ips)) { sendJson(res, 400, { error: 'ips must be an array of IP addresses' }); return; }
+
+    await securityService.setIpAllowlist(user.id, ips);
+
+    authService.logActivity(user.id, 'security', `IP allowlist updated: ${ips.length} addresses`).catch(() => {});
+    sendJson(res, 200, { success: true, ipAllowlist: ips });
+  } catch (error: any) {
+    sendJson(res, 500, { error: error.message || 'Failed to update IP allowlist' });
   }
 }

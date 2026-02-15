@@ -8,19 +8,122 @@ import {
   ChevronRight,
   Monitor,
   Tv,
-  Smartphone,
   Cast,
   Check,
   Info,
   Loader2,
 } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
 import { FileItem } from '../../types';
 import FileIcon from '../files/FileIcon';
+
+// Set up PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).toString();
+
+/* ─── Inline PDF Reader Component ─── */
+const MobilePdfReader: React.FC<{ url: string; title: string }> = ({ url, title }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [totalPages, setTotalPages] = useState(0);
+  const [loadingPdf, setLoadingPdf] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const renderPdf = async () => {
+      try {
+        setLoadingPdf(true);
+        setError(null);
+        const pdf = await pdfjsLib.getDocument({ url, disableAutoFetch: false, disableStream: false }).promise;
+        if (cancelled) return;
+        setTotalPages(pdf.numPages);
+
+        const container = containerRef.current;
+        if (!container) return;
+        container.innerHTML = '';
+
+        // Render all pages sequentially
+        const containerWidth = container.clientWidth;
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          if (cancelled) break;
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 1 });
+          // Scale to fit container width with some padding
+          const scale = (containerWidth - 16) / viewport.width;
+          const scaledViewport = page.getViewport({ scale });
+
+          const canvas = document.createElement('canvas');
+          canvas.width = scaledViewport.width * window.devicePixelRatio;
+          canvas.height = scaledViewport.height * window.devicePixelRatio;
+          canvas.style.width = `${scaledViewport.width}px`;
+          canvas.style.height = `${scaledViewport.height}px`;
+          canvas.style.display = 'block';
+          canvas.style.margin = '0 auto 12px auto';
+          canvas.style.borderRadius = '4px';
+          canvas.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)';
+
+          const ctx = canvas.getContext('2d')!;
+          ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+          // Page number label
+          const label = document.createElement('div');
+          label.textContent = `Page ${i} of ${pdf.numPages}`;
+          label.style.cssText = 'text-align:center;font-size:10px;font-weight:700;color:#aaa;margin-bottom:8px;letter-spacing:0.05em;';
+
+          container.appendChild(canvas);
+          container.appendChild(label);
+
+          await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError('Could not load PDF');
+          console.error('[PDF Reader]', e);
+        }
+      } finally {
+        if (!cancelled) setLoadingPdf(false);
+      }
+    };
+
+    renderPdf();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <p className="text-white/50 text-sm font-bold">{error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col bg-gray-100 rounded-t-2xl overflow-hidden">
+      {loadingPdf && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 text-[#5D5FEF] animate-spin" />
+          <span className="text-gray-500 text-xs font-bold ml-2">Loading PDF...</span>
+        </div>
+      )}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-y-auto px-2 py-4"
+        onClick={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
+      />
+    </div>
+  );
+};
 
 const CAST_DEVICES = [
   { key: 'gaming_tv', label: 'GamingTV TV', icon: Tv },
   { key: 'smart_tv', label: 'SmartTV 4K', icon: Monitor },
-  { key: 'my_room', label: 'My Room Display', subtitle: 'Nest Hub', icon: Smartphone },
+  { key: 'my_room', label: 'My Room Display', subtitle: 'Nest Hub', iconSvg: true },
   { key: 'space_tv', label: 'Space TV', subtitle: 'Chromecast', icon: Cast, isDefault: true },
 ];
 
@@ -62,6 +165,7 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
   const isImage = file.type === 'image';
   const isVideo = file.type === 'video';
   const isAudio = file.type === 'audio';
+  const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'pdf';
 
   // Determine clean title
   const cleanTitle = file.name.replace(/^\d{13}_/, '').replace(/_/g, ' ');
@@ -119,8 +223,13 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
     setShowDetails(false);
   }, []);
 
-  // Get file URL for serving
-  const getFileUrl = () => file.url || '';
+  // Get file URL for serving — must be a full absolute URL for cast devices
+  const getFileUrl = () => {
+    if (file.url) {
+      return window.location.origin + file.url;
+    }
+    return '';
+  };
   const getMimeType = () => {
     const ext = file.name.split('.').pop()?.toLowerCase();
     const mimeMap: Record<string, string> = {
@@ -131,23 +240,40 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
     return mimeMap[ext || ''] || 'application/octet-stream';
   };
 
-  // Cast
+  // Cast — use webhook proxy to avoid CORS issues on phone
   const handleCast = async (deviceKey: string) => {
     setCasting(true);
     setShowCastMenu(false);
     try {
       const deviceLabel = CAST_DEVICES.find(d => d.key === deviceKey)?.label || deviceKey;
-      await fetch('https://n8n.arcelliteserver.com/webhook/castc35483a5', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: file.name,
-          fileType: file.type,
-          fileUrl: getFileUrl(),
-          mimeType: getMimeType(),
-          device: deviceKey,
-        }),
-      });
+      const webhookUrl = 'https://n8n.arcelliteserver.com/webhook/castc35483a5';
+      const payload = {
+        fileName: file.name,
+        fileType: file.type,
+        fileUrl: getFileUrl(),
+        mimeType: getMimeType(),
+        device: deviceKey,
+      };
+      // Try direct first, fall back to proxy
+      try {
+        const resp = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) throw new Error('Direct failed');
+      } catch {
+        // Use server-side proxy
+        await fetch('/api/apps/webhook-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            webhookUrl,
+            method: 'POST',
+            payload,
+          }),
+        });
+      }
       setCastSuccess(deviceLabel);
       setTimeout(() => setCastSuccess(null), 3000);
     } catch (error) {
@@ -276,7 +402,13 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
                           className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-white/10 transition-all text-left active:scale-95"
                         >
                           <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center">
-                            <DeviceIcon className="w-4 h-4 text-white/70" />
+                            {'iconSvg' in device && device.iconSvg ? (
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" className="w-5 h-5" fill="currentColor" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                                <path d="M480-200q-99 0-169.5-13.5T240-246v-34h-73q-35 0-59-26t-21-61l27-320q2-31 25-52t55-21h572q32 0 55 21t25 52l27 320q3 35-21 61t-59 26h-73v34q0 19-70.5 32.5T480-200ZM167-360h626l-27-320H194l-27 320Zm313-160Z"/>
+                              </svg>
+                            ) : DeviceIcon ? (
+                              <DeviceIcon className="w-4 h-4 text-white/70" />
+                            ) : null}
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-white truncate">{device.label}</p>
@@ -365,6 +497,8 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
               />
             )}
           </div>
+        ) : isPdf && file.url ? (
+          <MobilePdfReader url={file.url} title={cleanTitle} />
         ) : (
           <div className="flex flex-col items-center gap-4">
             <div className="w-32 h-32 rounded-[2.5rem] bg-white/5 border border-white/10 flex items-center justify-center">

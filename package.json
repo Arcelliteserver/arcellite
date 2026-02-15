@@ -8,7 +8,15 @@
     "type": "git",
     "url": "https://github.com/ArcelliteProject/arcellite.git"
   },
-  "keywords": ["self-hosted", "file-manager", "personal-cloud", "ai-assistant", "database", "react", "typescript"],
+  "keywords": [
+    "self-hosted",
+    "file-manager",
+    "personal-cloud",
+    "ai-assistant",
+    "database",
+    "react",
+    "typescript"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -31,15 +39,19 @@
     "lucide-react": "^0.563.0",
     "mysql2": "^3.16.3",
     "nodemailer": "^8.0.1",
+    "otplib": "^13.3.0",
     "pdfjs-dist": "^5.4.624",
     "pg": "^8.18.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recharts": "^3.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-react": "^5.0.0",
+    "sharp": "^0.34.5",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"

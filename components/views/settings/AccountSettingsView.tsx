@@ -91,6 +91,8 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   const [isResettingSettings, setIsResettingSettings] = useState(false);
   const [showPurgeDatabasesConfirm, setShowPurgeDatabasesConfirm] = useState(false);
   const [isPurgingDatabases, setIsPurgingDatabases] = useState(false);
+  const [dangerZoneSuccess, setDangerZoneSuccess] = useState<string | null>(null);
+  const [dangerZoneError, setDangerZoneError] = useState<string | null>(null);
   const [transferDrives, setTransferDrives] = useState<RemovableDeviceInfo[]>([]);
   const [transferDetecting, setTransferDetecting] = useState(false);
   const [selectedTransferDrive, setSelectedTransferDrive] = useState<RemovableDeviceInfo | null>(null);
@@ -225,12 +227,21 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
 
   const handleClearFiles = async () => {
     setIsClearingFiles(true);
+    setDangerZoneError(null);
     try {
       const res = await fetch('/api/files/clear-all', { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('sessionToken')}` } });
-      if (!res.ok) throw new Error('Failed');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to clear files');
+      }
+      const data = await res.json();
       setShowClearFilesConfirm(false);
-    } catch (err) {
+      setDangerZoneSuccess(`All files cleared successfully. ${data.deletedCount || 0} items removed.`);
+      setTimeout(() => setDangerZoneSuccess(null), 5000);
+    } catch (err: any) {
       console.error('Clear files failed:', err);
+      setDangerZoneError(err.message || 'Failed to clear files');
+      setTimeout(() => setDangerZoneError(null), 5000);
     } finally {
       setIsClearingFiles(false);
     }
@@ -238,14 +249,25 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
 
   const handleResetSettings = async () => {
     setIsResettingSettings(true);
+    setDangerZoneError(null);
     try {
+      const res = await fetch('/api/auth/reset-settings', { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('sessionToken')}` } });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to reset settings');
+      }
+      // Update local state to reflect defaults
       setNotifications(true);
-      setAutoMirroring(false);
-      setVaultLockdown(false);
+      setAutoMirroring(true);
+      setVaultLockdown(true);
       setStorageDevice('builtin');
       setShowResetSettingsConfirm(false);
-    } catch (err) {
+      setDangerZoneSuccess('All preferences have been restored to factory defaults.');
+      setTimeout(() => setDangerZoneSuccess(null), 5000);
+    } catch (err: any) {
       console.error('Reset settings failed:', err);
+      setDangerZoneError(err.message || 'Failed to reset settings');
+      setTimeout(() => setDangerZoneError(null), 5000);
     } finally {
       setIsResettingSettings(false);
     }
@@ -253,12 +275,21 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
 
   const handlePurgeDatabases = async () => {
     setIsPurgingDatabases(true);
+    setDangerZoneError(null);
     try {
       const res = await fetch('/api/databases/purge-all', { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('sessionToken')}` } });
-      if (!res.ok) throw new Error('Failed');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to purge databases');
+      }
+      const data = await res.json();
       setShowPurgeDatabasesConfirm(false);
-    } catch (err) {
+      setDangerZoneSuccess(`All databases purged successfully. ${data.purgedCount || 0} databases removed.`);
+      setTimeout(() => setDangerZoneSuccess(null), 5000);
+    } catch (err: any) {
       console.error('Purge databases failed:', err);
+      setDangerZoneError(err.message || 'Failed to purge databases');
+      setTimeout(() => setDangerZoneError(null), 5000);
     } finally {
       setIsPurgingDatabases(false);
     }
@@ -845,6 +876,23 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
           {/* Delete Account Section */}
           <section className="bg-white rounded-2xl md:rounded-[2.5rem] border border-red-100 p-6 md:p-8 lg:p-10 shadow-sm">
             <p className="text-[9px] md:text-[10px] font-black text-red-300 uppercase tracking-[0.25em] mb-6 md:mb-8 ml-2">Danger Zone</p>
+            
+            {/* Success/Error feedback */}
+            {dangerZoneSuccess && (
+              <div className="flex items-center gap-3 p-4 mb-4 bg-green-50 border border-green-200 rounded-2xl animate-in fade-in">
+                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                <p className="text-sm text-green-700 font-medium">{dangerZoneSuccess}</p>
+                <button onClick={() => setDangerZoneSuccess(null)} className="ml-auto"><X className="w-4 h-4 text-green-400 hover:text-green-600" /></button>
+              </div>
+            )}
+            {dangerZoneError && (
+              <div className="flex items-center gap-3 p-4 mb-4 bg-red-50 border border-red-200 rounded-2xl animate-in fade-in">
+                <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                <p className="text-sm text-red-700 font-medium">{dangerZoneError}</p>
+                <button onClick={() => setDangerZoneError(null)} className="ml-auto"><X className="w-4 h-4 text-red-400 hover:text-red-600" /></button>
+              </div>
+            )}
+
             <div className="space-y-2 md:space-y-3 mb-6 md:mb-8">
               {/* Clear All Files */}
               <button onClick={() => setShowClearFilesConfirm(true)} className="w-full flex items-center justify-between p-4 md:p-6 bg-red-50/30 border border-transparent hover:border-red-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group">

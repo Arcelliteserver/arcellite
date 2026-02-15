@@ -228,5 +228,18 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
     return true;
   }
 
+  // Purge all databases (Danger Zone)
+  if (url === '/api/databases/purge-all' && req.method === 'POST') {
+    import('../databases.ts').then(async ({ purgeAllDatabases }) => {
+      try {
+        const result = await purgeAllDatabases();
+        sendJson(res, { ok: true, ...result });
+      } catch (e) {
+        sendError(res, String((e as Error).message));
+      }
+    }).catch((e) => sendError(res, String((e as Error).message)));
+    return true;
+  }
+
   return false;
 }

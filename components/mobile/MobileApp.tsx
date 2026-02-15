@@ -3,6 +3,7 @@ import MobileBottomNav, { MobileTab } from './MobileBottomNav';
 import MobileHeader from './MobileHeader';
 import MobileOverview from './MobileOverview';
 import MobileFiles from './MobileFiles';
+import MobileGallery from './MobileGallery';
 import MobileChat from './MobileChat';
 import MobileMore from './MobileMore';
 import MobileFileViewer from './MobileFileViewer';
@@ -12,12 +13,10 @@ import { FileItem } from '../../types';
 import StatsView from '../views/system/StatsView';
 import ServerView from '../views/system/ServerView';
 import SystemLogsView from '../views/system/SystemLogsView';
-import RemovableStorageView from '../views/system/RemovableStorageView';
 import MountedDeviceView from '../views/system/MountedDeviceView';
-import SecurityVaultView from '../views/system/SecurityVaultView';
+import MobileSecurityVaultView from './MobileSecurityVaultView';
 import ActivityLogView from '../views/system/ActivityLogView';
 import ExportDataView from '../views/system/ExportDataView';
-import DatabaseView from '../views/system/DatabaseView';
 import TrashView from '../views/system/TrashView';
 import SharedView from '../views/files/SharedView';
 import AccountSettingsView from '../views/settings/AccountSettingsView';
@@ -26,7 +25,12 @@ import APIKeysView from '../views/settings/APIKeysView';
 import AISecurityView from '../views/settings/AISecurityView';
 import NotificationsView from '../views/settings/NotificationsView';
 import HelpSupportView from '../views/features/HelpSupportView';
-import MyAppsView from '../views/features/MyAppsView';
+import MobileMyAppsView from './MobileMyAppsView';
+
+// Mobile-optimised views
+import MobileDatabaseView from './MobileDatabaseView';
+import MobileUSBView from './MobileUSBView';
+import MobileSearchDropdown from './MobileSearchDropdown';
 
 export interface MobileAppProps {
   // User
@@ -220,13 +224,13 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
   const handleBottomTabChange = useCallback((tab: MobileTab) => {
     setMobileTab(tab);
     setSubPage(null);
+    // Clear selected file to dismiss any open file viewer
+    onDeselectFile();
     if (tab === 'overview') {
       onTabChange('overview');
     } else if (tab === 'files') {
-      // Default to 'all' files when switching to files tab
-      if (!['all', 'photos', 'videos', 'music'].includes(activeTab)) {
-        onTabChange('all');
-      }
+      // Always reset to 'all' when switching to Files tab
+      onTabChange('all');
     } else if (tab === 'chat') {
       onTabChange('chat');
     } else if (tab === 'photos') {
@@ -234,13 +238,84 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
     } else if (tab === 'settings') {
       onTabChange('settings');
     }
-  }, [onTabChange, activeTab]);
+  }, [onTabChange, activeTab, onDeselectFile]);
 
   // Handle back from sub-page
   const handleBackFromSubPage = useCallback(() => {
     setSubPage(null);
     setMobileTab('settings');
   }, []);
+
+  // ── Swipe-back gesture for sub-pages ──
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const swipeTranslate = useRef(0);
+  const subPageRef = useRef<HTMLDivElement>(null);
+  const isSwiping = useRef(false);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!subPage) return;
+    const x = e.touches[0].clientX;
+    // Only trigger from left 40px edge
+    if (x > 40) return;
+    touchStartX.current = x;
+    touchStartY.current = e.touches[0].clientY;
+    isSwiping.current = false;
+    swipeTranslate.current = 0;
+  }, [subPage]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!subPage || touchStartX.current === 0) return;
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
+    // Only horizontal swipes (not vertical scrolling)
+    if (!isSwiping.current && dy > Math.abs(dx)) { touchStartX.current = 0; return; }
+    if (dx > 10) isSwiping.current = true;
+    if (!isSwiping.current) return;
+    e.preventDefault();
+    swipeTranslate.current = Math.max(0, Math.min(dx, window.innerWidth));
+    if (subPageRef.current) {
+      subPageRef.current.style.transform = `translateX(${swipeTranslate.current}px)`;
+      subPageRef.current.style.opacity = String(1 - swipeTranslate.current / window.innerWidth * 0.5);
+    }
+  }, [subPage]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (!isSwiping.current) { touchStartX.current = 0; return; }
+    if (swipeTranslate.current > 100) {
+      // Complete the swipe — animate out
+      if (subPageRef.current) {
+        subPageRef.current.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
+        subPageRef.current.style.transform = `translateX(${window.innerWidth}px)`;
+        subPageRef.current.style.opacity = '0';
+        setTimeout(() => {
+          handleBackFromSubPage();
+          if (subPageRef.current) {
+            subPageRef.current.style.transition = '';
+            subPageRef.current.style.transform = '';
+            subPageRef.current.style.opacity = '';
+          }
+        }, 200);
+      } else {
+        handleBackFromSubPage();
+      }
+    } else {
+      // Snap back
+      if (subPageRef.current) {
+        subPageRef.current.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
+        subPageRef.current.style.transform = 'translateX(0)';
+        subPageRef.current.style.opacity = '1';
+        setTimeout(() => {
+          if (subPageRef.current) {
+            subPageRef.current.style.transition = '';
+          }
+        }, 200);
+      }
+    }
+    touchStartX.current = 0;
+    isSwiping.current = false;
+    swipeTranslate.current = 0;
+  }, [handleBackFromSubPage]);
 
   // Profile click → go to settings
   const handleProfileClick = useCallback(() => {
@@ -253,6 +328,14 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
     setSubPage('notifications');
     onTabChange('notifications');
   }, [onTabChange]);
+
+  // Wrap onFileClick for overview — also switch to files tab when a folder is opened
+  const handleOverviewFileClick = useCallback((file: FileItem) => {
+    if (file.isFolder) {
+      setMobileTab('files');
+    }
+    onFileClick(file);
+  }, [onFileClick]);
 
   // Navigate from overview quick actions
   const handleOverviewNavigate = useCallback((tab: string) => {
@@ -268,8 +351,8 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
   // Determine if chat view needs special full-height layout
   const isChatView = mobileTab === 'chat' && !subPage;
 
-  // Show search only for files and overview tabs
-  const showSearch = (mobileTab === 'files' || mobileTab === 'overview') && !subPage;
+  // Show search on all main tabs (not sub-pages or chat)
+  const showSearch = !subPage && mobileTab !== 'chat';
 
   // Handle back from chat
   const handleChatBack = useCallback(() => {
@@ -292,7 +375,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50/50 text-[#1d1d1f] antialiased overflow-hidden">
+    <div className="flex flex-col h-screen bg-[#F7F7F7] text-[#222222] antialiased overflow-hidden">
       {/* Header */}
       <MobileHeader
         title={headerTitle}
@@ -304,28 +387,47 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
         showSearch={showSearch}
       />
 
+      {/* Search Results Dropdown */}
+      {showSearch && searchQuery.trim() && (
+        <MobileSearchDropdown
+          query={searchQuery}
+          onFileClick={(file) => {
+            if (file.isFolder) {
+              setMobileTab('files');
+            }
+            onFileClick(file);
+          }}
+          onClose={() => onSearchChange('')}
+        />
+      )}
+
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden pt-16 pb-[100px] scroll-smooth custom-scrollbar">
+      <main
+        className="flex-1 overflow-y-auto overflow-x-hidden pt-[76px] pb-[130px] scroll-smooth custom-scrollbar"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
         {subPage ? (
           /* Sub-page from "More" menu — reuse desktop views */
-          <div className="px-4 py-4">
-            {/* Back button */}
+          <div ref={subPageRef} className="px-5 py-5" style={{ willChange: 'transform' }}>
+            
+            {/* Inline back link — minimal height, sits above the component */}
             <button
               onClick={handleBackFromSubPage}
-              className="flex items-center gap-1.5 px-3 py-2 mb-4 bg-white text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-gray-100 active:scale-95 transition-all"
+              className="flex items-center gap-1 mb-2 text-[12px] font-semibold text-[#5D5FEF] active:opacity-60 transition-opacity touch-manipulation"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
               </svg>
               Back
             </button>
-            
-            {/* Render the appropriate desktop view */}
+
             {subPage === 'stats' && <StatsView />}
             {subPage === 'server' && <ServerView onNavigateToLogs={() => { setSubPage('logs'); onTabChange('logs'); }} />}
             {subPage === 'logs' && <SystemLogsView />}
             {subPage === 'usb' && (
-              <RemovableStorageView
+              <MobileUSBView
                 onMountedDeviceOpen={(dev: any) => {
                   onMountedDeviceOpen(dev);
                   setSubPage('drive');
@@ -346,7 +448,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
                 onDeleteAccount={onDeleteAccount}
               />
             )}
-            {subPage === 'security' && <SecurityVaultView />}
+            {subPage === 'security' && <MobileSecurityVaultView />}
             {subPage === 'notifications' && <NotificationsView />}
             {subPage === 'appearance' && (
               <AppearanceView showToast={showToast} onSettingsChange={onSettingsChange} />
@@ -356,18 +458,18 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
             {subPage === 'activity' && <ActivityLogView />}
             {subPage === 'export' && <ExportDataView />}
             {subPage === 'help' && <HelpSupportView user={user} />}
-            {subPage === 'myapps' && <MyAppsView />}
+            {subPage === 'myapps' && <MobileMyAppsView />}
             {subPage === 'trash' && <TrashView />}
-            {subPage === 'database' && <DatabaseView />}
+            {subPage === 'database' && <MobileDatabaseView />}
             {subPage === 'shared' && <SharedView showToast={showToast} />}
           </div>
         ) : mobileTab === 'overview' ? (
-          <div className="px-4 py-4">
+          <div className="px-5 py-5">
             <MobileOverview
               user={user}
               recentItems={recentItems}
               files={files}
-              onFileClick={onFileClick}
+              onFileClick={handleOverviewFileClick}
               onFileAction={onFileAction}
               onNavigateTab={handleOverviewNavigate}
               onUpload={handleUploadTrigger}
@@ -376,7 +478,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
             />
           </div>
         ) : mobileTab === 'files' ? (
-          <div className="px-4 py-4">
+          <div className="px-5 py-5">
             <MobileFiles
               activeCategory={activeTab}
               currentFolderId={currentFolderId}
@@ -390,12 +492,12 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
               onCreateFolder={onCreateFolder}
               pdfThumbnails={pdfThumbnails}
               aiRenamedSet={aiRenamedSet}
+              onTabChange={onTabChange}
             />
           </div>
         ) : mobileTab === 'photos' ? (
-          <div className="px-4 py-4">
-            <MobileFiles
-              activeCategory="photos"
+          <div className="px-5 py-5">
+            <MobileGallery
               currentFolderId={currentFolderId}
               filteredFolders={filteredFolders}
               filteredFiles={filteredFilesOnly}
@@ -405,12 +507,10 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
               selectedFile={selectedFile}
               onGoBack={onGoBack}
               onCreateFolder={onCreateFolder}
-              pdfThumbnails={pdfThumbnails}
-              aiRenamedSet={aiRenamedSet}
             />
           </div>
         ) : mobileTab === 'settings' ? (
-          <div className="px-4 py-4">
+          <div className="px-5 py-5">
             <MobileMore
               onNavigate={handleMoreNavigate}
               user={user}
