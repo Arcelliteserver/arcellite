@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   User,
   Mail,
@@ -456,7 +457,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
             </div>
 
             {/* Edit Profile Modal */}
-            {isEditingProfile && (
+            {isEditingProfile && createPortal(
               <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[1000] flex items-center justify-center p-4" onClick={() => setIsEditingProfile(false)}>
                 <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center justify-between mb-6">
@@ -499,7 +500,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                   </div>
                 </div>
               </div>
-            )}
+            , document.body)}
           </section>
 
           <section className="bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm h-[460px] flex flex-col relative">
@@ -1312,7 +1313,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
       </div>
 
       {/* Delete Account Confirmation Modal */}
-      {showDeleteConfirm && (
+      {showDeleteConfirm && createPortal(
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[1000] flex items-center justify-center p-4" onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}>
           <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-center mb-6">
@@ -1351,10 +1352,10 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Clear Files Confirmation Modal */}
-      {showClearFilesConfirm && (
+      {showClearFilesConfirm && createPortal(
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[1000] flex items-center justify-center p-4" onClick={() => setShowClearFilesConfirm(false)}>
           <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-center mb-6">
@@ -1374,10 +1375,10 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Reset Settings Confirmation Modal */}
-      {showResetSettingsConfirm && (
+      {showResetSettingsConfirm && createPortal(
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[1000] flex items-center justify-center p-4" onClick={() => setShowResetSettingsConfirm(false)}>
           <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-center mb-6">
@@ -1397,10 +1398,10 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Purge Databases Confirmation Modal */}
-      {showPurgeDatabasesConfirm && (
+      {showPurgeDatabasesConfirm && createPortal(
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[1000] flex items-center justify-center p-4" onClick={() => setShowPurgeDatabasesConfirm(false)}>
           <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-center mb-6">
@@ -1420,10 +1421,10 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Transfer Confirmation Modal */}
-      {showTransferConfirm && selectedTransferDrive && (
+      {showTransferConfirm && selectedTransferDrive && createPortal(
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[1000] flex items-center justify-center p-4" onClick={() => setShowTransferConfirm(false)}>
           <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-center mb-6">
@@ -1460,7 +1461,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
     </div>
   );
 };
