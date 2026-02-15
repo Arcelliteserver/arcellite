@@ -607,5 +607,83 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
     return true;
   }
 
+  // Delete external file/folder (removable devices)
+  if (url === '/api/files/delete-external' && req.method === 'POST') {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', async () => {
+      try {
+        const { deleteExternal } = await import('../files.js');
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        if (!body.path) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Missing path' }));
+          return;
+        }
+        deleteExternal(body.path);
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e: any) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return true;
+  }
+
+  // Rename external file/folder (removable devices)
+  if (url === '/api/files/rename-external' && req.method === 'POST') {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', async () => {
+      try {
+        const { renameExternal } = await import('../files.js');
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        if (!body.path || !body.newName) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Missing path or newName' }));
+          return;
+        }
+        const newPath = renameExternal(body.path, body.newName);
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: true, newPath }));
+      } catch (e: any) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return true;
+  }
+
+  // Create folder on external path (removable devices)
+  if (url === '/api/files/mkdir-external' && req.method === 'POST') {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', async () => {
+      try {
+        const { mkdirExternal } = await import('../files.js');
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        if (!body.path) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Missing path' }));
+          return;
+        }
+        mkdirExternal(body.path);
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e: any) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return true;
+  }
+
   return false;
 }

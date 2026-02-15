@@ -689,6 +689,90 @@ export default defineConfig(({ mode }) => {
                 return;
               }
 
+              // Delete external file/folder (removable devices)
+              if (url === '/api/files/delete-external' && req.method === 'POST') {
+                const chunks: Buffer[] = [];
+                req.on('data', (c: Buffer) => chunks.push(c));
+                req.on('end', () => {
+                  import('./server/files.ts').then(({ deleteExternal }) => {
+                    try {
+                      const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+                      const filePath = body.path;
+                      if (!filePath) {
+                        res.statusCode = 400;
+                        res.setHeader('Content-Type', 'application/json');
+                        res.end(JSON.stringify({ error: 'Missing path' }));
+                        return;
+                      }
+                      deleteExternal(filePath);
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ ok: true }));
+                    } catch (e: any) {
+                      res.statusCode = 500;
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: e.message }));
+                    }
+                  });
+                });
+                return;
+              }
+
+              // Rename external file/folder (removable devices)
+              if (url === '/api/files/rename-external' && req.method === 'POST') {
+                const chunks: Buffer[] = [];
+                req.on('data', (c: Buffer) => chunks.push(c));
+                req.on('end', () => {
+                  import('./server/files.ts').then(({ renameExternal }) => {
+                    try {
+                      const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+                      const { path: oldPath, newName } = body;
+                      if (!oldPath || !newName) {
+                        res.statusCode = 400;
+                        res.setHeader('Content-Type', 'application/json');
+                        res.end(JSON.stringify({ error: 'Missing path or newName' }));
+                        return;
+                      }
+                      const newPath = renameExternal(oldPath, newName);
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ ok: true, newPath }));
+                    } catch (e: any) {
+                      res.statusCode = 500;
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: e.message }));
+                    }
+                  });
+                });
+                return;
+              }
+
+              // Create folder on external path (removable devices)
+              if (url === '/api/files/mkdir-external' && req.method === 'POST') {
+                const chunks: Buffer[] = [];
+                req.on('data', (c: Buffer) => chunks.push(c));
+                req.on('end', () => {
+                  import('./server/files.ts').then(({ mkdirExternal }) => {
+                    try {
+                      const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+                      const folderPath = body.path;
+                      if (!folderPath) {
+                        res.statusCode = 400;
+                        res.setHeader('Content-Type', 'application/json');
+                        res.end(JSON.stringify({ error: 'Missing path' }));
+                        return;
+                      }
+                      mkdirExternal(folderPath);
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ ok: true }));
+                    } catch (e: any) {
+                      res.statusCode = 500;
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: e.message }));
+                    }
+                  });
+                });
+                return;
+              }
+
               if (url === '/api/system/mount' && req.method === 'POST') {
                 const chunks: Buffer[] = [];
                 req.on('data', (c: Buffer) => chunks.push(c));

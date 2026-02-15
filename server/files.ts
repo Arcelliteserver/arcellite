@@ -304,3 +304,101 @@ export function listExternal(absolutePath: string): ListEntry[] {
     throw new Error(`Cannot read directory: permission denied. Ensure the server can access ${resolved}`);
   }
 }
+
+/** Validate and resolve an external path; throws if invalid. */
+function resolveExternalPath(absolutePath: string): string {
+  const normalized = path.normalize(absolutePath);
+  const resolved = path.resolve(normalized);
+  const allowed = EXTERNAL_ALLOWED_PREFIXES.some((p) => resolved.startsWith(p) || resolved === p.replace(/\/$/, ''));
+  if (!allowed) throw new Error('Path not allowed');
+  if (resolved.includes('..')) throw new Error('Invalid path');
+  return resolved;
+}
+
+/** Delete a file or folder at an absolute external path. */
+export function deleteExternal(absolutePath: string): void {
+  const resolved = resolveExternalPath(absolutePath);
+  console.log(`[deleteExternal] Deleting: "${resolved}"`);
+
+  // Try direct first
+  try {
+    const stat = fs.statSync(resolved);
+    if (stat.isDirectory()) {
+      fs.rmSync(resolved, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(resolved);
+    }
+    return;
+  } catch (err: any) {
+    if (err.code !== 'EACCES' && err.code !== 'EPERM') throw err;
+  }
+
+  // Fallback: sudo rm
+  try {
+    execSync(`sudo -n rm -rf ${JSON.stringify(resolved)}`, { timeout: 15000 });
+  } catch (sudoErr: any) {
+    console.error('[deleteExternal] sudo rm failed:', sudoErr.message);
+    throw new Error('Permission denied: cannot delete');
+  }
+}
+
+/** Rename a file or folder at an absolute external path. */
+export function renameExternal(oldPath: string, newName: string): string {
+  const resolvedOld = resolveExternalPath(oldPath);
+  // newName must not contain path separators
+  if (newName.includes('/') || newName.includes('\\') || newName.includes('..')) {
+    throw new Error('Invalid name');
+  }
+  const parentDir = path.dirname(resolvedOld);
+  const resolvedNew = path.join(parentDir, newName);
+
+  // Ensure destination doesn't already exist
+  if (fs.existsSync(resolvedNew)) {
+    throw new Error('A file or folder with that name already exists');
+  }
+
+  console.log(`[renameExternal] Renaming: "${resolvedOld}" -> "${resolvedNew}"`);
+
+  // Try direct first
+  try {
+    fs.renameSync(resolvedOld, resolvedNew);
+    return resolvedNew;
+  } catch (err: any) {
+    if (err.code !== 'EACCES' && err.code !== 'EPERM') throw err;
+  }
+
+  // Fallback: sudo mv
+  try {
+    execSync(`sudo -n mv ${JSON.stringify(resolvedOld)} ${JSON.stringify(resolvedNew)}`, { timeout: 15000 });
+    return resolvedNew;
+  } catch (sudoErr: any) {
+    console.error('[renameExternal] sudo mv failed:', sudoErr.message);
+    throw new Error('Permission denied: cannot rename');
+  }
+}
+
+/** Create a folder at an absolute external path. */
+export function mkdirExternal(absolutePath: string): void {
+  const resolved = resolveExternalPath(absolutePath);
+  console.log(`[mkdirExternal] Creating folder: "${resolved}"`);
+
+  if (fs.existsSync(resolved)) {
+    throw new Error('Folder already exists');
+  }
+
+  // Try direct first
+  try {
+    fs.mkdirSync(resolved, { recursive: true });
+    return;
+  } catch (err: any) {
+    if (err.code !== 'EACCES' && err.code !== 'EPERM') throw err;
+  }
+
+  // Fallback: sudo mkdir
+  try {
+    execSync(`sudo -n mkdir -p ${JSON.stringify(resolved)}`, { timeout: 10000 });
+  } catch (sudoErr: any) {
+    console.error('[mkdirExternal] sudo mkdir failed:', sudoErr.message);
+    throw new Error('Permission denied: cannot create folder');
+  }
+}

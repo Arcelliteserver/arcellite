@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Folder, FileText, ChevronRight, ChevronLeft, FolderPlus, Grid, List, Home } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { RefreshCw, Folder, FileText, ChevronRight, ChevronLeft, FolderPlus, Grid, List, Home, X } from 'lucide-react';
 import FileGrid from '../../files/FileGrid';
 import FileListView from '../../files/FileListView';
+import ConfirmModal from '../../common/ConfirmModal';
 import type { RemovableDeviceInfo } from '@/types';
 import type { FileItem } from '@/types';
 
@@ -27,6 +29,11 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
   const [browseError, setBrowseError] = useState(false);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; variant: 'danger' | 'warning' | 'info'; onConfirm: () => void }>({ isOpen: false, title: '', message: '', variant: 'warning', onConfirm: () => {} });
+  const [renameModal, setRenameModal] = useState<{ isOpen: boolean; path: string; currentName: string }>({ isOpen: false, path: '', currentName: '' });
+  const [newFolderModal, setNewFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [renameName, setRenameName] = useState('');
   // Current browsing path — starts at device root
   const [currentPath, setCurrentPath] = useState<string>(device.mountpoint || '');
 
@@ -81,13 +88,118 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
   }, [currentPath, device]);
 
   const handleDelete = useCallback(async (file: FileItem) => {
-    try {
-      // For mounted drives, we can delete the file directly
-      await fetchBrowse();
-    } catch (error) {
-      // Delete best-effort
+    const browsePath = currentPath || device.mountpoint || '';
+    const isFolder = file.isFolder || file.id.startsWith('folder-');
+    const name = file.name;
+    const fullPath = `${browsePath}/${name}`;
+
+    setConfirmModal({
+      isOpen: true,
+      title: isFolder ? 'Delete Folder' : 'Delete File',
+      message: `Are you sure you want to permanently delete "${name}"?${isFolder ? ' This will delete all contents inside.' : ''}`,
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        try {
+          const res = await fetch('/api/files/delete-external', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: fullPath }),
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            alert(`Delete failed: ${err.error || 'Unknown error'}`);
+          }
+          await fetchBrowse();
+        } catch {
+          alert('Delete failed');
+        }
+      },
+    });
+  }, [currentPath, device.mountpoint, fetchBrowse]);
+
+  const handleRename = useCallback((file: FileItem) => {
+    const browsePath = currentPath || device.mountpoint || '';
+    const fullPath = `${browsePath}/${file.name}`;
+    setRenameName(file.name);
+    setRenameModal({ isOpen: true, path: fullPath, currentName: file.name });
+  }, [currentPath, device.mountpoint]);
+
+  const submitRename = useCallback(async () => {
+    if (!renameName.trim() || renameName === renameModal.currentName) {
+      setRenameModal(prev => ({ ...prev, isOpen: false }));
+      return;
     }
-  }, [fetchBrowse]);
+    try {
+      const res = await fetch('/api/files/rename-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: renameModal.path, newName: renameName.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(`Rename failed: ${err.error || 'Unknown error'}`);
+      }
+      setRenameModal(prev => ({ ...prev, isOpen: false }));
+      await fetchBrowse();
+    } catch {
+      alert('Rename failed');
+    }
+  }, [renameName, renameModal, fetchBrowse]);
+
+  const handleNewFolder = useCallback(async () => {
+    if (!newFolderName.trim()) return;
+    const browsePath = currentPath || device.mountpoint || '';
+    const folderPath = `${browsePath}/${newFolderName.trim()}`;
+    try {
+      const res = await fetch('/api/files/mkdir-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: folderPath }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(`Create folder failed: ${err.error || 'Unknown error'}`);
+      }
+      setNewFolderModal(false);
+      setNewFolderName('');
+      await fetchBrowse();
+    } catch {
+      alert('Create folder failed');
+    }
+  }, [newFolderName, currentPath, device.mountpoint, fetchBrowse]);
+
+  const handleDownload = useCallback((file: FileItem) => {
+    const browsePath = currentPath || device.mountpoint || '';
+    const fullPath = `${browsePath}/${file.name}`;
+    const url = `/api/files/serve-external?path=${encodeURIComponent(fullPath)}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, [currentPath, device.mountpoint]);
+
+  const handleAction = useCallback((action: string, file: FileItem) => {
+    if (action === 'Delete') {
+      handleDelete(file);
+    } else if (action === 'Rename') {
+      handleRename(file);
+    } else if (action === 'Open') {
+      if (file.isFolder || file.id.startsWith('folder-')) {
+        const browsePath = currentPath || device.mountpoint || '';
+        setCurrentPath(`${browsePath}/${file.name}`);
+        setSelectedFileId(null);
+      } else if (file.url) {
+        window.open(file.url, '_blank');
+      } else {
+        setSelectedFileId(file.id);
+      }
+    } else if (action === 'Download') {
+      handleDownload(file);
+    }
+  }, [handleDelete, handleRename, handleDownload, currentPath, device.mountpoint]);
 
   useEffect(() => {
     fetchBrowse();
@@ -250,7 +362,7 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
                 </button>
               )}
               <button
-                onClick={() => {}}
+                onClick={() => { setNewFolderName(''); setNewFolderModal(true); }}
                 className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 md:px-5 py-2 sm:py-2.5 md:py-3 bg-white text-gray-600 rounded-lg sm:rounded-xl text-[8px] sm:text-[9px] md:text-[10px] font-black uppercase tracking-widest border border-gray-100 hover:bg-gray-50 transition-all"
               >
                 <FolderPlus className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
@@ -285,6 +397,7 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
                 onFileClick={(folder: any) => navigateToFolder(folder.name)}
                 allFiles={folderItems}
                 availableFolders={folderItems}
+                onAction={(action: string, file: any) => handleAction(action, file)}
               />
             </div>
           )}
@@ -321,17 +434,7 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
                     onFileClick={(file: any) => setSelectedFileId(file.id)}
                     selectedFileId={selectedFileId}
                     allFiles={[...folderItems, ...fileItems]}
-                    onAction={(action: string, file: any) => {
-                      if (action === 'Open') {
-                        if (file.url) {
-                          window.open(file.url, '_blank');
-                        } else {
-                          setSelectedFileId(file.id);
-                        }
-                      } else if (action === 'Delete') {
-                        handleDelete(file);
-                      }
-                    }}
+                    onAction={(action: string, file: any) => handleAction(action, file)}
                     availableFolders={folderItems}
                   />
                 ) : (
@@ -341,6 +444,84 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
             )}
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText="Delete"
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* Rename modal */}
+      {renameModal.isOpen && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setRenameModal(prev => ({ ...prev, isOpen: false }))} />
+          <div className="relative bg-white rounded-3xl shadow-2xl max-w-md w-full border-2 border-gray-100 animate-in zoom-in duration-200">
+            <button onClick={() => setRenameModal(prev => ({ ...prev, isOpen: false }))} className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition-colors">
+              <X className="w-5 h-5 text-gray-400" />
+            </button>
+            <div className="p-8">
+              <h3 className="text-2xl font-black text-gray-900 mb-3">Rename</h3>
+              <p className="text-gray-500 text-sm mb-6">Enter a new name:</p>
+              <input
+                type="text"
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); }}
+                autoFocus
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#5D5FEF]/30 focus:border-[#5D5FEF] mb-6"
+              />
+              <div className="flex items-center gap-3">
+                <button onClick={() => setRenameModal(prev => ({ ...prev, isOpen: false }))} className="flex-1 px-6 py-3 rounded-xl font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-all">
+                  Cancel
+                </button>
+                <button onClick={submitRename} className="flex-1 px-6 py-3 rounded-xl font-bold bg-[#5D5FEF] text-white hover:bg-[#4D4FCF] transition-all shadow-lg">
+                  Rename
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* New Folder modal */}
+      {newFolderModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setNewFolderModal(false)} />
+          <div className="relative bg-white rounded-3xl shadow-2xl max-w-md w-full border-2 border-gray-100 animate-in zoom-in duration-200">
+            <button onClick={() => setNewFolderModal(false)} className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition-colors">
+              <X className="w-5 h-5 text-gray-400" />
+            </button>
+            <div className="p-8">
+              <h3 className="text-2xl font-black text-gray-900 mb-3">New Folder</h3>
+              <p className="text-gray-500 text-sm mb-6">Enter a name for the new folder:</p>
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleNewFolder(); }}
+                autoFocus
+                placeholder="Folder name"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#5D5FEF]/30 focus:border-[#5D5FEF] mb-6"
+              />
+              <div className="flex items-center gap-3">
+                <button onClick={() => setNewFolderModal(false)} className="flex-1 px-6 py-3 rounded-xl font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-all">
+                  Cancel
+                </button>
+                <button onClick={handleNewFolder} disabled={!newFolderName.trim()} className="flex-1 px-6 py-3 rounded-xl font-bold bg-[#5D5FEF] text-white hover:bg-[#4D4FCF] transition-all shadow-lg disabled:opacity-50">
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
