@@ -110,6 +110,27 @@ const PG_TYPES = [
   'BYTEA',
 ];
 
+const MYSQL_TYPES = [
+  'INT', 'BIGINT', 'SMALLINT', 'TINYINT',
+  'TEXT', 'VARCHAR(255)', 'CHAR(1)', 'MEDIUMTEXT', 'LONGTEXT',
+  'BOOLEAN',
+  'FLOAT', 'DOUBLE', 'DECIMAL(10,2)',
+  'DATE', 'DATETIME', 'TIMESTAMP', 'TIME',
+  'JSON', 'BLOB', 'ENUM',
+];
+
+const SQLITE_TYPES = [
+  'INTEGER', 'TEXT', 'REAL', 'BLOB', 'NUMERIC',
+];
+
+function getTypesForEngine(dbType: string): string[] {
+  switch (dbType) {
+    case 'mysql': return MYSQL_TYPES;
+    case 'sqlite': return SQLITE_TYPES;
+    default: return PG_TYPES;
+  }
+}
+
 /* SQL syntax highlighting helper */
 const SQL_KEYWORDS = new Set([
   'SELECT','FROM','WHERE','INSERT','INTO','VALUES','UPDATE','SET','DELETE',
@@ -123,16 +144,18 @@ const SQL_KEYWORDS = new Set([
   'BEGIN','COMMIT','ROLLBACK','TRANSACTION','GRANT','REVOKE','OWNER',
   'RETURNING','WITH','RECURSIVE','ASC','DESC','NULLS','FIRST','LAST',
   'TRUE','FALSE','SERIAL','BIGSERIAL','SMALLSERIAL',
+  'SHOW','DESCRIBE','USE','ENGINE','CHARSET','COLLATE','PRAGMA',
 ]);
 
 const SQL_TYPES = new Set([
   'INTEGER','INT','BIGINT','SMALLINT','NUMERIC','DECIMAL','REAL',
   'DOUBLE','PRECISION','FLOAT','SERIAL','BIGSERIAL','SMALLSERIAL',
-  'TEXT','VARCHAR','CHAR','CHARACTER','VARYING',
-  'BOOLEAN','BOOL','DATE','TIME','TIMESTAMP','TIMESTAMPTZ','INTERVAL',
-  'UUID','JSON','JSONB','BYTEA','ARRAY','MONEY','BIT',
+  'TEXT','VARCHAR','CHAR','CHARACTER','VARYING','MEDIUMTEXT','LONGTEXT','TINYINT',
+  'BOOLEAN','BOOL','DATE','TIME','TIMESTAMP','TIMESTAMPTZ','INTERVAL','DATETIME',
+  'UUID','JSON','JSONB','BYTEA','ARRAY','MONEY','BIT','BLOB','ENUM',
   'INET','CIDR','MACADDR','POINT','LINE','LSEG','BOX','PATH','POLYGON','CIRCLE',
   'XML','TSVECTOR','TSQUERY','OID','REGCLASS',
+  'AUTO_INCREMENT',
 ]);
 
 const SQL_FUNCTIONS = new Set([
@@ -507,7 +530,7 @@ const DatabaseDetailView: React.FC<{
                           onChange={(e) => updateColumn(idx, 'type', e.target.value)}
                           className="w-full sm:w-auto px-2 py-2 rounded-lg border border-gray-200 focus:border-[#5D5FEF] focus:outline-none text-xs font-medium bg-white sm:min-w-[130px]"
                         >
-                          {PG_TYPES.map((t) => (
+                          {getTypesForEngine(db.type).map((t) => (
                             <option key={t} value={t}>{t}</option>
                           ))}
                         </select>

@@ -56,6 +56,12 @@ services:
       # Timezone
       - TZ=America/New_York
 
+      # MySQL/MariaDB — connects to mysql-arcellite container
+      - MYSQL_HOST=mysql-arcellite
+      - MYSQL_PORT=3306
+      - MYSQL_USER=arcellite_user
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-arcellite2024}
+
     volumes:
       # Persistent storage: files, photos, videos, music, security keys
       - cloudnest_data:/data/arcellite-data
@@ -69,8 +75,24 @@ services:
       - cloudnest
       - postgres-net
 
+  # MySQL/MariaDB for user-created MySQL databases
+  mysql-arcellite:
+    image: mariadb:11
+    container_name: mysql-arcellite
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-arcellite_root2024}
+      - MARIADB_USER=arcellite_user
+      - MARIADB_PASSWORD=${MYSQL_PASSWORD:-arcellite2024}
+    volumes:
+      - cloudnest_mysql:/var/lib/mysql
+    networks:
+      - cloudnest
+
 volumes:
   cloudnest_data:
+    driver: local
+  cloudnest_mysql:
     driver: local
 
 networks:
