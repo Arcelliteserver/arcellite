@@ -6,7 +6,6 @@ import {
   Mail,
   Shield,
   Smartphone,
-  Globe,
   Bell,
   Palette,
   ChevronRight,
@@ -31,6 +30,7 @@ import {
   Trash2,
   AlertTriangle,
   LogOut,
+  LogIn,
   ArrowRightLeft,
   Usb,
   CheckCircle,
@@ -745,22 +745,28 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                   <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-gray-100 flex items-center justify-center text-gray-400 group-hover:text-[#5D5FEF] transition-all">
                     <Bell className="w-4 h-4 md:w-5 md:h-5" />
                   </div>
-                  <span className="text-sm md:text-[15px] font-bold text-gray-700">Cloud Notifications</span>
+                  <div className="text-left">
+                    <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Cloud Notifications</span>
+                    <span className="text-[10px] md:text-[11px] text-gray-400 font-medium">Receive alerts for system events, security, and storage changes</span>
+                  </div>
                 </div>
-                <div className={`w-11 h-6 rounded-full transition-all duration-300 relative ${notifications ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`}>
+                <div className={`w-11 h-6 rounded-full transition-all duration-300 relative flex-shrink-0 ${notifications ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`}>
                   <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ${notifications ? 'left-[22px]' : 'left-0.5'}`} />
                 </div>
               </button>
 
-              {/* Auto Mirroring Toggle */}
+              {/* Login Alerts Toggle */}
               <button onClick={toggleAutoMirroring} className="w-full flex items-center justify-between p-4 md:p-6 bg-[#F5F5F7]/40 border border-transparent hover:border-gray-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group">
                 <div className="flex items-center gap-3 md:gap-5">
                   <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-gray-100 flex items-center justify-center text-gray-400 group-hover:text-[#5D5FEF] transition-all">
-                    <Globe className="w-4 h-4 md:w-5 md:h-5" />
+                    <LogIn className="w-4 h-4 md:w-5 md:h-5" />
                   </div>
-                  <span className="text-sm md:text-[15px] font-bold text-gray-700">Auto Mirroring</span>
+                  <div className="text-left">
+                    <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Login Alerts</span>
+                    <span className="text-[10px] md:text-[11px] text-gray-400 font-medium">Get notified when a new session is started on any device</span>
+                  </div>
                 </div>
-                <div className={`w-11 h-6 rounded-full transition-all duration-300 relative ${autoMirroring ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`}>
+                <div className={`w-11 h-6 rounded-full transition-all duration-300 relative flex-shrink-0 ${autoMirroring ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`}>
                   <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ${autoMirroring ? 'left-[22px]' : 'left-0.5'}`} />
                 </div>
               </button>
@@ -771,9 +777,12 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                   <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-gray-100 flex items-center justify-center text-gray-400 group-hover:text-[#5D5FEF] transition-all">
                     <Shield className="w-4 h-4 md:w-5 md:h-5" />
                   </div>
-                  <span className="text-sm md:text-[15px] font-bold text-gray-700">Vault Lockdown</span>
+                  <div className="text-left">
+                    <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Vault Lockdown</span>
+                    <span className="text-[10px] md:text-[11px] text-gray-400 font-medium">Read-only mode — blocks uploads, deletes, moves, and folder creation</span>
+                  </div>
                 </div>
-                <div className={`w-11 h-6 rounded-full transition-all duration-300 relative ${vaultLockdown ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`}>
+                <div className={`w-11 h-6 rounded-full transition-all duration-300 relative flex-shrink-0 ${vaultLockdown ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`}>
                   <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ${vaultLockdown ? 'left-[22px]' : 'left-0.5'}`} />
                 </div>
               </button>

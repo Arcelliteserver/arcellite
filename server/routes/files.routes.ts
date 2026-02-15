@@ -6,6 +6,13 @@ import os from 'os';
 import * as authService from '../services/auth.service.js';
 import * as securityService from '../services/security.service.js';
 
+/** Send vault-locked error response */
+function sendVaultLockedError(res: ServerResponse): void {
+  res.statusCode = 403;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({ error: 'Vault is in lockdown mode. Disable Vault Lockdown in Account Settings to make changes.' }));
+}
+
 const homeDir = os.homedir();
 let baseDir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
 // Expand leading ~ to homedir
@@ -16,6 +23,10 @@ if (baseDir.startsWith('~/') || baseDir === '~') {
 export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url: string) {
   // File upload
   if (url === '/api/files/upload' && req.method === 'POST') {
+    // Check vault lockdown before processing upload
+    authService.isVaultLocked().then(locked => {
+      if (locked) { sendVaultLockedError(res); return; }
+
     const busboy = Busboy({ headers: req.headers as any });
     let category = 'general';
     let relativePath = '';
@@ -60,6 +71,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
     });
 
     req.pipe(busboy);
+    }).catch(() => { sendVaultLockedError(res); });
     return true;
   }
 
@@ -270,8 +282,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
   if (url === '/api/files/mkdir' && req.method === 'POST') {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
+        if (await authService.isVaultLocked()) { sendVaultLockedError(res); return; }
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
         const category = (body.category as string) || 'general';
         const relativePath = (body.path as string) || '';
@@ -325,8 +338,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
   if (url === '/api/files/delete' && req.method === 'POST') {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
+        if (await authService.isVaultLocked()) { sendVaultLockedError(res); return; }
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
         const category = (body.category as string) || 'general';
         const pathParam = (body.path as string) || '';
@@ -359,8 +373,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
   if (url === '/api/files/move' && req.method === 'POST') {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
+        if (await authService.isVaultLocked()) { sendVaultLockedError(res); return; }
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
         const category = (body.category as string) || 'general';
         const sourcePath = (body.sourcePath as string) || '';
@@ -393,8 +408,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
   if (url === '/api/files/move-cross' && req.method === 'POST') {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
+        if (await authService.isVaultLocked()) { sendVaultLockedError(res); return; }
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
         const sourceCategory = (body.sourceCategory as string) || 'general';
         const sourcePath = (body.sourcePath as string) || '';

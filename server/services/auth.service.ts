@@ -203,6 +203,26 @@ export async function createSession(
     [userId, sessionToken, deviceName, deviceType, options?.ipAddress || null, options?.userAgent || null, options?.isCurrentHost || false, expiresAt]
   );
 
+  // Login Alerts: notify user about new login if enabled (autoMirroring setting)
+  try {
+    const settingsRow = await pool.query(
+      `SELECT preferences FROM user_settings WHERE user_id = $1`,
+      [userId]
+    );
+    const prefs = settingsRow.rows[0]?.preferences || {};
+    const loginAlertsEnabled = prefs.autoMirroring ?? true;
+    if (loginAlertsEnabled) {
+      const ipInfo = options?.ipAddress ? ` from ${options.ipAddress}` : '';
+      await createNotification(
+        userId,
+        'New Login Detected',
+        `New session started on ${deviceName}${ipInfo}`,
+        'info',
+        'security'
+      );
+    }
+  } catch { /* Login alert should never break session creation */ }
+
   const row = result.rows[0];
   return {
     id: row.id,
@@ -607,7 +627,7 @@ export async function getUserSettings(userId: number): Promise<{
   return {
     notificationsEnabled: row?.notifications_enabled ?? true,
     autoMirroring: prefs.autoMirroring ?? true,
-    vaultLockdown: prefs.vaultLockdown ?? true,
+    vaultLockdown: prefs.vaultLockdown ?? false,
     storageDevice: prefs.storageDevice ?? 'builtin',
     // AI Security permissions (default to sensible values)
     aiFileCreate: prefs.aiFileCreate ?? true,
@@ -634,6 +654,25 @@ export async function getUserSettings(userId: number): Promise<{
     secTrafficMasking: prefs.secTrafficMasking ?? false,
     secStrictIsolation: prefs.secStrictIsolation ?? false,
   };
+}
+
+/**
+ * Check if vault lockdown (read-only mode) is active for the first user.
+ * When enabled, all file modifications (upload, delete, move, rename, mkdir) are blocked.
+ */
+export async function isVaultLocked(): Promise<boolean> {
+  try {
+    const result = await pool.query(
+      `SELECT us.preferences FROM user_settings us
+       JOIN users u ON us.user_id = u.id
+       ORDER BY u.id ASC LIMIT 1`
+    );
+    if (result.rows.length === 0) return false;
+    const prefs = result.rows[0].preferences || {};
+    return prefs.vaultLockdown === true;
+  } catch {
+    return false; // If check fails, allow operations
+  }
 }
 
 /**
@@ -763,6 +802,7 @@ export async function updateUserSettings(
 
 /**
  * Create a notification for a user
+ * Respects the user's notificationsEnabled setting — if OFF, notifications are suppressed.
  */
 export async function createNotification(
   userId: number,
@@ -771,6 +811,17 @@ export async function createNotification(
   type: 'info' | 'warning' | 'success' | 'error' = 'info',
   category: 'system' | 'security' | 'storage' | 'update' = 'system'
 ): Promise<void> {
+  // Check if user has notifications enabled
+  try {
+    const settingsResult = await pool.query(
+      `SELECT notifications_enabled FROM user_settings WHERE user_id = $1`,
+      [userId]
+    );
+    if (settingsResult.rows.length > 0 && settingsResult.rows[0].notifications_enabled === false) {
+      return; // Notifications suppressed
+    }
+  } catch { /* If settings check fails, allow notification through */ }
+
   await pool.query(
     `INSERT INTO notifications (user_id, title, message, type, category)
      VALUES ($1, $2, $3, $4, $5)`,
