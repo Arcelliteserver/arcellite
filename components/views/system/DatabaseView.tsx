@@ -1212,15 +1212,15 @@ const DatabaseView: React.FC = () => {
               return (
                 <div
                   key={db.id}
-                  className={`bg-white rounded-2xl md:rounded-3xl border overflow-hidden hover:shadow-2xl transition-all duration-300 cursor-pointer group ${isSystem ? 'border-amber-200/60 hover:shadow-amber-500/10 hover:border-amber-300/40 ring-1 ring-amber-100/50' : 'border-gray-100 hover:shadow-[#5D5FEF]/8 hover:border-[#5D5FEF]/20'}`}
+                  className="bg-white rounded-2xl md:rounded-3xl border border-gray-100 overflow-hidden hover:shadow-2xl hover:shadow-[#5D5FEF]/8 hover:border-[#5D5FEF]/20 transition-all duration-300 cursor-pointer group"
                   onClick={() => setOpenDb(db)}
                 >
                   <div className="p-3.5 sm:p-5 md:p-6">
                     {/* Top: Icon + Name + Status */}
                     <div className="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-5">
-                      <div className={`w-11 sm:w-14 h-11 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br ${isSystem ? 'from-amber-400 to-amber-600' : (dbType?.color || 'from-gray-500 to-gray-600')} shadow-lg flex items-center justify-center p-2.5 sm:p-3 flex-shrink-0 group-hover:scale-105 transition-transform duration-300`}>
+                      <div className={`w-11 sm:w-14 h-11 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br ${dbType?.color || 'from-gray-500 to-gray-600'} shadow-lg flex items-center justify-center p-2.5 sm:p-3 flex-shrink-0 group-hover:scale-105 transition-transform duration-300`}>
                         <img
-                          src={isSystem ? '/assets/icons/workspace_premium_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg' : (dbType?.icon || '/assets/icons/storage_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg')}
+                          src={dbType?.icon || '/assets/icons/storage_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg'}
                           alt={db.type}
                           className="w-full h-full object-contain filter brightness-0 invert"
                         />
@@ -1228,7 +1228,7 @@ const DatabaseView: React.FC = () => {
                       <div className="flex-1 min-w-0">
                         <h4 className="text-base sm:text-lg font-black text-gray-900 group-hover:text-[#5D5FEF] transition-colors truncate">{db.name}</h4>
                         <p className="text-[9px] sm:text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">
-                          {isSystem ? 'System • Protected' : (dbType?.name || db.type)}
+                          {dbType?.name || db.type}
                         </p>
                       </div>
                       <div className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[9px] sm:text-[10px] font-black tracking-wide flex items-center gap-1 sm:gap-1.5 flex-shrink-0 ${isRunning ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
@@ -1281,6 +1281,16 @@ const DatabaseView: React.FC = () => {
                       >
                         View
                       </button>
+                      {isSystem && (
+                        <div className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center bg-amber-50 border border-amber-200/60 flex-shrink-0" title="System database — cannot be removed">
+                          <img
+                            src="/assets/icons/workspace_premium_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg"
+                            alt="Protected"
+                            className="w-5 h-5 object-contain"
+                            style={{ filter: 'brightness(0) saturate(100%) invert(67%) sepia(74%) saturate(575%) hue-rotate(360deg) brightness(101%) contrast(101%)' }}
+                          />
+                        </div>
+                      )}
                       {!isSystem && (
                         <button
                           onClick={() => handleDeleteDatabase(db.id, db.name)}
