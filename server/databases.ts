@@ -92,6 +92,21 @@ function getUserDbPool(pgDatabaseName: string): pg.Pool {
   return new Pool({ ...PG_CONFIG, database: pgDatabaseName, max: 5, idleTimeoutMillis: 10000 });
 }
 
+// System database IDs
+const SYSTEM_CHAT_DB_ID = '__system_chat_history';
+const SYSTEM_CHAT_PG_NAME = 'cloudnest_chat_history';
+
+/** Resolve a database ID (user or system) to a pg pool */
+function resolveDbPool(id: string): { pool: pg.Pool; isSystem: boolean } | null {
+  if (id === SYSTEM_CHAT_DB_ID) {
+    return { pool: getUserDbPool(SYSTEM_CHAT_PG_NAME), isSystem: true };
+  }
+  const metadata = loadMetadata();
+  const db = metadata[id];
+  if (!db || !db.pgDatabaseName) return null;
+  return { pool: getUserDbPool(db.pgDatabaseName), isSystem: false };
+}
+
 // List all databases
 export function listDatabases(): DatabaseMetadata[] {
   return Object.values(loadMetadata());
@@ -149,6 +164,7 @@ export async function createDatabase(name: string, type: 'postgresql' | 'mysql' 
 
 // Delete database (drops the real PG database)
 export async function deleteDatabase(id: string): Promise<void> {
+  if (id === SYSTEM_CHAT_DB_ID) throw new Error('Cannot delete system database');
   const metadata = loadMetadata();
   if (!metadata[id]) throw new Error('Database not found');
 
@@ -172,6 +188,41 @@ export async function deleteDatabase(id: string): Promise<void> {
 
 // Get database details with size refresh
 export async function getDatabase(id: string): Promise<DatabaseMetadata | null> {
+  if (id === SYSTEM_CHAT_DB_ID) {
+    const pool = getUserDbPool(SYSTEM_CHAT_PG_NAME);
+    try {
+      const sizeResult = await pool.query(`SELECT pg_database_size(current_database()) as size`);
+      const sizeBytes = parseInt(sizeResult.rows[0]?.size || '0', 10);
+      return {
+        id: SYSTEM_CHAT_DB_ID,
+        name: 'AI Chat History',
+        displayName: 'AI Chat History',
+        type: 'postgresql',
+        status: 'running',
+        size: formatBytes(sizeBytes),
+        sizeBytes,
+        created: new Date().toISOString(),
+        pgDatabaseName: SYSTEM_CHAT_PG_NAME,
+        isSystem: true,
+      } as any;
+    } catch {
+      return {
+        id: SYSTEM_CHAT_DB_ID,
+        name: 'AI Chat History',
+        displayName: 'AI Chat History',
+        type: 'postgresql',
+        status: 'stopped',
+        size: '0 B',
+        sizeBytes: 0,
+        created: new Date().toISOString(),
+        pgDatabaseName: SYSTEM_CHAT_PG_NAME,
+        isSystem: true,
+      } as any;
+    } finally {
+      await pool.end();
+    }
+  }
+
   const metadata = loadMetadata();
   const db = metadata[id];
   if (!db) return null;
@@ -196,12 +247,10 @@ export async function getDatabase(id: string): Promise<DatabaseMetadata | null> 
 
 // List tables in a database
 export async function listTables(id: string): Promise<{ name: string; rowCount: number; size: string }[]> {
-  const metadata = loadMetadata();
-  const db = metadata[id];
-  if (!db) throw new Error('Database not found');
-  if (!db.pgDatabaseName) throw new Error('No PostgreSQL database associated');
+  const resolved = resolveDbPool(id);
+  if (!resolved) throw new Error('Database not found');
 
-  const pool = getUserDbPool(db.pgDatabaseName);
+  const pool = resolved.pool;
   try {
     const result = await pool.query(`
       SELECT t.tablename AS name, COALESCE(s.n_live_tup, 0) AS row_count,
@@ -217,11 +266,10 @@ export async function listTables(id: string): Promise<{ name: string; rowCount: 
 
 // Get table columns
 export async function getTableColumns(id: string, tableName: string): Promise<{ name: string; type: string; nullable: boolean; defaultValue: string | null }[]> {
-  const metadata = loadMetadata();
-  const db = metadata[id];
-  if (!db) throw new Error('Database not found');
+  const resolved = resolveDbPool(id);
+  if (!resolved) throw new Error('Database not found');
 
-  const pool = getUserDbPool(db.pgDatabaseName);
+  const pool = resolved.pool;
   try {
     const result = await pool.query(
       `SELECT column_name AS name, data_type AS type, is_nullable = 'YES' AS nullable, column_default AS default_value
@@ -235,12 +283,11 @@ export async function getTableColumns(id: string, tableName: string): Promise<{ 
 
 // Get table data (paginated)
 export async function getTableData(id: string, tableName: string, limit = 100, offset = 0): Promise<{ rows: any[]; totalCount: number; columns: string[] }> {
-  const metadata = loadMetadata();
-  const db = metadata[id];
-  if (!db) throw new Error('Database not found');
+  const resolved = resolveDbPool(id);
+  if (!resolved) throw new Error('Database not found');
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) throw new Error('Invalid table name');
 
-  const pool = getUserDbPool(db.pgDatabaseName);
+  const pool = resolved.pool;
   try {
     const countResult = await pool.query(`SELECT COUNT(*) as total FROM "${tableName}"`);
     const totalCount = parseInt(countResult.rows[0].total, 10);
@@ -254,11 +301,10 @@ export async function getTableData(id: string, tableName: string, limit = 100, o
 
 // Execute a SQL query
 export async function executeQuery(id: string, sql: string): Promise<{ rows: any[]; columns: string[]; rowCount: number; command: string }> {
-  const metadata = loadMetadata();
-  const db = metadata[id];
-  if (!db) throw new Error('Database not found');
+  const resolved = resolveDbPool(id);
+  if (!resolved) throw new Error('Database not found');
 
-  const pool = getUserDbPool(db.pgDatabaseName);
+  const pool = resolved.pool;
   try {
     const result = await pool.query(sql);
     const columns = result.fields ? result.fields.map((f: any) => f.name) : [];
@@ -270,9 +316,8 @@ export async function executeQuery(id: string, sql: string): Promise<{ rows: any
 
 // Create a table
 export async function createTable(id: string, tableName: string, columns: { name: string; type: string; primaryKey?: boolean; nullable?: boolean; defaultValue?: string }[]): Promise<void> {
-  const metadata = loadMetadata();
-  const db = metadata[id];
-  if (!db) throw new Error('Database not found');
+  const resolved = resolveDbPool(id);
+  if (!resolved) throw new Error('Database not found');
   // Normalize table name to lowercase for PostgreSQL compatibility
   const normalizedTable = tableName.toLowerCase();
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(normalizedTable)) throw new Error('Invalid table name. Use letters, numbers, and underscores only.');
@@ -290,7 +335,7 @@ export async function createTable(id: string, tableName: string, columns: { name
   });
 
   const sql = `CREATE TABLE ${normalizedTable} (\n  ${colDefs.join(',\n  ')}\n)`;
-  const pool = getUserDbPool(db.pgDatabaseName);
+  const pool = resolved.pool;
   try {
     await pool.query(sql);
   } finally {
@@ -300,12 +345,11 @@ export async function createTable(id: string, tableName: string, columns: { name
 
 // Drop a table
 export async function dropTable(id: string, tableName: string): Promise<void> {
-  const metadata = loadMetadata();
-  const db = metadata[id];
-  if (!db) throw new Error('Database not found');
+  const resolved = resolveDbPool(id);
+  if (!resolved) throw new Error('Database not found');
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) throw new Error('Invalid table name');
 
-  const pool = getUserDbPool(db.pgDatabaseName);
+  const pool = resolved.pool;
   try {
     await pool.query(`DROP TABLE IF EXISTS ${tableName.toLowerCase()} CASCADE`);
   } finally {

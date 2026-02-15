@@ -101,6 +101,24 @@ export async function initializeDatabase() {
     await client.query(schema);
 
     console.log('[Database] Schema initialized successfully');
+
+    // Auto-create the AI chat history database if it doesn't exist
+    try {
+      const chatDbName = 'cloudnest_chat_history';
+      const check = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [chatDbName]);
+      if (check.rows.length === 0) {
+        const dbUser = process.env.DB_USER || 'arcellite_user';
+        await client.query(`CREATE DATABASE "${chatDbName}" OWNER "${dbUser}"`);
+        console.log(`[Database] Created ${chatDbName} database for AI chat history`);
+      }
+    } catch (chatErr) {
+      // Non-fatal — the chat DB may already exist from a previous run
+      const msg = (chatErr as Error).message || '';
+      if (!msg.includes('already exists')) {
+        console.error('[Database] Failed to create chat history database:', msg);
+      }
+    }
+
     return true;
   } catch (error) {
     console.error('[Database] Failed to initialize schema:', error);
