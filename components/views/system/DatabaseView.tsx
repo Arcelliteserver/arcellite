@@ -869,9 +869,9 @@ const DatabaseDetailView: React.FC<{
             <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3.5 sm:p-5">
               <h3 className="text-sm font-black text-gray-900 mb-3 sm:mb-4">Connection URLs</h3>
               <div className="space-y-3">
-                {/* PostgreSQL URL */}
+                {/* Local PostgreSQL URL */}
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">PostgreSQL URL</label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Local PostgreSQL URL</label>
                   <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
                     <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getConnectionUrl()}</code>
                     <button
@@ -880,6 +880,23 @@ const DatabaseDetailView: React.FC<{
                       title="Copy URL"
                     >
                       {copiedField === 'pgUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Global PostgreSQL URL */}
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Global PostgreSQL URL</label>
+                  <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
+                    <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">
+                      {`postgresql://${db.config.username}:${db.config.password}@cloud.arcelliteserver.com:${db.config.port}/${db.config.database}`}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(`postgresql://${db.config!.username}:${db.config!.password}@cloud.arcelliteserver.com:${db.config!.port}/${db.config!.database}`, 'globalUrl')}
+                      className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+                      title="Copy Global URL"
+                    >
+                      {copiedField === 'globalUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>

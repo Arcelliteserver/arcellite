@@ -28,6 +28,7 @@ interface DatabaseInstance {
   sizeBytes?: number;
   created: string;
   pgDatabaseName?: string;
+  isSystem?: boolean;
   config?: { host: string; port: number; username: string; password: string; database: string };
 }
 
@@ -441,18 +442,51 @@ const MobileDatabaseDetail: React.FC<{
               </div>
             </div>
           ))}
-          {/* Connection URL */}
+          {/* Connection URLs */}
           <div className="p-4 bg-white rounded-2xl border border-gray-200/60">
-            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Connection URL</p>
-            <p className="text-[12px] font-mono text-gray-700 break-all">
-              postgresql://{db.config.username}:{showPassword ? db.config.password : '****'}@{host}:{db.config.port}/{db.config.database}
-            </p>
-            <button
-              onClick={() => copyText(`postgresql://${db.config!.username}:${db.config!.password}@${host}:${db.config!.port}/${db.config!.database}`, 'url')}
-              className="mt-2 flex items-center gap-1 text-[12px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
-            >
-              {copiedField === 'url' ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy URL</>}
-            </button>
+            <p className="text-[11px] font-bold text-[#5D5FEF] uppercase tracking-wider mb-3">Connection URLs</p>
+
+            {/* Local PostgreSQL URL */}
+            <div className="mb-3">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Local PostgreSQL URL</p>
+              <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
+                postgresql://{db.config.username}:{showPassword ? db.config.password : '****'}@{host}:{db.config.port}/{db.config.database}
+              </p>
+              <button
+                onClick={() => copyText(`postgresql://${db.config!.username}:${db.config!.password}@${host}:${db.config!.port}/${db.config!.database}`, 'localUrl')}
+                className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
+              >
+                {copiedField === 'localUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+              </button>
+            </div>
+
+            {/* Global PostgreSQL URL */}
+            <div className="mb-3">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Global PostgreSQL URL</p>
+              <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
+                postgresql://{db.config.username}:{showPassword ? db.config.password : '****'}@cloud.arcelliteserver.com:{db.config.port}/{db.config.database}
+              </p>
+              <button
+                onClick={() => copyText(`postgresql://${db.config!.username}:${db.config!.password}@cloud.arcelliteserver.com:${db.config!.port}/${db.config!.database}`, 'globalUrl')}
+                className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
+              >
+                {copiedField === 'globalUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+              </button>
+            </div>
+
+            {/* JDBC URL */}
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">JDBC URL (DataGrip / IntelliJ)</p>
+              <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
+                jdbc:postgresql://{host}:{db.config.port}/{db.config.database}
+              </p>
+              <button
+                onClick={() => copyText(`jdbc:postgresql://${host}:${db.config!.port}/${db.config!.database}`, 'jdbcUrl')}
+                className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
+              >
+                {copiedField === 'jdbcUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -576,12 +610,18 @@ const MobileDatabaseView: React.FC = () => {
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setDeleteTarget(db); }}
-                  className="p-2 rounded-xl text-gray-300 active:text-red-500 active:bg-red-50 touch-manipulation"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {db.isSystem ? (
+                  <div className="p-2 rounded-xl bg-amber-50 border border-amber-200/60" title="System database">
+                    <svg className="w-4 h-4 text-amber-500" viewBox="0 -960 960 960" fill="currentColor"><path d="M480-120q-33 0-56.5-23.5T400-200h160q0 33-23.5 56.5T480-120ZM320-200v-80h320v80H320Zm10-120q-69-41-109.5-110T180-580q0-125 87.5-212.5T480-880q125 0 212.5 87.5T780-580q0 81-40.5 150T630-320H330Z"/></svg>
+                  </div>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(db); }}
+                    className="p-2 rounded-xl text-gray-300 active:text-red-500 active:bg-red-50 touch-manipulation"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
                 <ChevronRight className="w-4 h-4 text-gray-300" />
               </div>
             </button>
