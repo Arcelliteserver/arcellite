@@ -46,10 +46,12 @@ export default defineConfig(({ mode }) => {
               const url = req.url?.split('?')[0];
               const fullUrl = req.url ?? '';
 
-              // ─── Security Middleware: Traffic Masking ───
+              // ─── Security Middleware: Traffic Masking & Strict Isolation ───
               if (fullUrl.startsWith('/api/')) {
                 try {
                   const secService = await import('./server/services/security.service.js');
+
+                  // Apply traffic masking headers if enabled
                   const maskingEnabled = await secService.isTrafficMaskingEnabled();
                   if (maskingEnabled) {
                     const headers = secService.getTrafficMaskingHeaders();
@@ -57,52 +59,28 @@ export default defineConfig(({ mode }) => {
                       res.setHeader(key, value);
                     }
                   }
-                } catch { /* traffic masking is optional */ }
-              }
 
-              // ─── Central Auth Guard: require auth for all API routes except public ones ───
-              if (fullUrl.startsWith('/api/')) {
-                const PUBLIC_ROUTES = ['/api/auth/login', '/api/auth/register', '/api/auth/setup-status'];
-                if (!PUBLIC_ROUTES.includes(url || '')) {
-                  const authHeader = req.headers.authorization;
-                  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                    res.statusCode = 401;
-                    res.setHeader('Content-Type', 'application/json');
-                    res.end(JSON.stringify({ error: 'Unauthorized' }));
-                    return;
-                  }
-                  try {
-                    const authSvc = await import('./server/services/auth.service.js');
-                    const user = await authSvc.validateSession(authHeader.substring(7));
-                    if (!user) {
-                      res.statusCode = 401;
-                      res.setHeader('Content-Type', 'application/json');
-                      res.end(JSON.stringify({ error: 'Invalid or expired session' }));
-                      return;
-                    }
-                    // Attach user to request for downstream handlers
-                    (req as any).user = user;
-
-                    // Strict Isolation: block non-authorized IPs
-                    try {
-                      const secService = await import('./server/services/security.service.js');
-                      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-                        || req.socket?.remoteAddress || '';
-                      const allowed = await secService.isIpAllowed(user.id, clientIp);
-                      if (!allowed) {
-                        res.statusCode = 403;
-                        res.setHeader('Content-Type', 'application/json');
-                        res.end(JSON.stringify({ error: 'Access denied: IP not in allowlist (Strict Isolation)' }));
-                        return;
+                  // Strict Isolation: block non-authorized IPs (skip login/register so user can still auth)
+                  if (url !== '/api/auth/login' && url !== '/api/auth/register') {
+                    const authHeader = req.headers.authorization;
+                    if (authHeader?.startsWith('Bearer ')) {
+                      const authSvc = await import('./server/services/auth.service.js');
+                      const user = await authSvc.validateSession(authHeader.substring(7));
+                      if (user) {
+                        (req as any).user = user;
+                        const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+                          || req.socket?.remoteAddress || '';
+                        const allowed = await secService.isIpAllowed(user.id, clientIp);
+                        if (!allowed) {
+                          res.statusCode = 403;
+                          res.setHeader('Content-Type', 'application/json');
+                          res.end(JSON.stringify({ error: 'Access denied: IP not in allowlist (Strict Isolation)' }));
+                          return;
+                        }
                       }
-                    } catch { /* IP allowlist check is optional */ }
-                  } catch (authErr) {
-                    res.statusCode = 500;
-                    res.setHeader('Content-Type', 'application/json');
-                    res.end(JSON.stringify({ error: 'Auth service unavailable' }));
-                    return;
+                    }
                   }
-                }
+                } catch { /* security middleware should never break normal flow */ }
               }
 
               // Auth routes
