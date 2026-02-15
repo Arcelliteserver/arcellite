@@ -31,6 +31,7 @@ interface DatabaseInstance {
   sizeBytes?: number;
   created: string;
   pgDatabaseName?: string;
+  sqliteFilePath?: string;
   isSystem?: boolean;
   config?: {
     host: string;
@@ -446,7 +447,7 @@ const DatabaseDetailView: React.FC<{
         </div>
         <div className="flex-1 min-w-0">
           <h2 className="text-lg sm:text-xl md:text-2xl font-black text-gray-900 truncate">{db.name}</h2>
-          <p className="text-[10px] sm:text-xs text-gray-500 font-bold truncate">{db.pgDatabaseName || db.type}</p>
+          <p className="text-[10px] sm:text-xs text-gray-500 font-bold truncate">{db.pgDatabaseName || db.config?.database || db.sqliteFilePath?.split('/').pop() || (db.type === 'sqlite' ? `${db.id}.sqlite` : db.type)}</p>
         </div>
         <div className={`px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 sm:gap-1.5 flex-shrink-0 ${db.status === 'running' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
           <div className={`w-1.5 sm:w-2 h-1.5 sm:h-2 rounded-full ${db.status === 'running' ? 'bg-green-500' : 'bg-gray-400'}`} />
@@ -1272,13 +1273,17 @@ const DatabaseView: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* PG Name tag */}
-                    {(db as any).pgDatabaseName && (
-                      <div className="mb-3 sm:mb-5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-[#5D5FEF]/5 rounded-lg sm:rounded-xl border border-[#5D5FEF]/10">
-                        <p className="text-[8px] font-black text-[#5D5FEF]/40 uppercase tracking-widest mb-0.5">PG Name</p>
-                        <p className="text-xs font-bold font-mono text-[#5D5FEF]/70">{(db as any).pgDatabaseName}</p>
-                      </div>
-                    )}
+                    {/* Database Name tag */}
+                    {(() => {
+                      const dbName = db.pgDatabaseName || db.config?.database || db.sqliteFilePath?.split('/').pop() || (db.type === 'sqlite' ? `${db.id}.sqlite` : null);
+                      const label = db.type === 'sqlite' ? 'DB File' : db.type === 'mysql' ? 'DB Name' : 'PG Name';
+                      return dbName ? (
+                        <div className="mb-3 sm:mb-5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-[#5D5FEF]/5 rounded-lg sm:rounded-xl border border-[#5D5FEF]/10">
+                          <p className="text-[8px] font-black text-[#5D5FEF]/40 uppercase tracking-widest mb-0.5">{label}</p>
+                          <p className="text-xs font-bold font-mono text-[#5D5FEF]/70">{dbName}</p>
+                        </div>
+                      ) : null;
+                    })()}
 
                     {/* Actions */}
                     <div className="flex items-center gap-1.5 sm:gap-2" onClick={(e) => e.stopPropagation()}>
