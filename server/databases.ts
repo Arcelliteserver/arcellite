@@ -250,7 +250,12 @@ export async function createDatabase(name: string, type: 'postgresql' | 'mysql' 
   } else if (type === 'sqlite') {
     // ── SQLite ──
     ensureSqliteDir();
-    const filePath = getSqlitePath(id);
+    const sqliteDbName = `cloudnest_${sanitizePgName(name)}`;
+    const filePath = path.join(sqliteDir, `${sqliteDbName}.sqlite`);
+
+    // Check for existing file with same sanitized name
+    if (fs.existsSync(filePath)) throw new Error(`SQLite database "${sqliteDbName}" already exists`);
+
     const sqliteDb = await openSqliteDb(filePath);
     saveSqliteDb(sqliteDb, filePath);
     sqliteDb.close();
@@ -262,9 +267,9 @@ export async function createDatabase(name: string, type: 'postgresql' | 'mysql' 
       id, name, displayName: name, type, status: 'running',
       size: formatBytes(sizeBytes), sizeBytes,
       created: new Date(now).toISOString(), createdTimestamp: now,
-      pgDatabaseName: '',
+      pgDatabaseName: sqliteDbName,
       sqliteFilePath: filePath,
-      config: { host: 'embedded', port: 0, username: '', password: '', database: filePath },
+      config: { host: 'embedded', port: 0, username: '', password: '', database: sqliteDbName },
     };
     metadata[id] = db;
     saveMetadata(metadata);
