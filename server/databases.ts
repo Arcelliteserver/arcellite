@@ -324,8 +324,8 @@ export async function getDatabase(id: string): Promise<DatabaseMetadata | null> 
       const sizeBytes = parseInt(sizeResult.rows[0]?.size || '0', 10);
       return {
         id: SYSTEM_CHAT_DB_ID,
-        name: 'AI Chat History',
-        displayName: 'AI Chat History',
+        name: 'Arcellite',
+        displayName: 'Arcellite',
         type: 'postgresql',
         status: 'running',
         size: formatBytes(sizeBytes),
@@ -337,8 +337,8 @@ export async function getDatabase(id: string): Promise<DatabaseMetadata | null> 
     } catch {
       return {
         id: SYSTEM_CHAT_DB_ID,
-        name: 'AI Chat History',
-        displayName: 'AI Chat History',
+        name: 'Arcellite',
+        displayName: 'Arcellite',
         type: 'postgresql',
         status: 'stopped',
         size: '0 B',
@@ -411,7 +411,7 @@ export async function getDatabase(id: string): Promise<DatabaseMetadata | null> 
 /** Resolve DB metadata (user or system) */
 function getDbMeta(id: string): DatabaseMetadata | null {
   if (id === SYSTEM_CHAT_DB_ID) {
-    return { id: SYSTEM_CHAT_DB_ID, name: 'AI Chat History', displayName: 'AI Chat History', type: 'postgresql', status: 'running', size: '', sizeBytes: 0, created: '', createdTimestamp: 0, pgDatabaseName: SYSTEM_CHAT_PG_NAME, config: { host: PG_CONFIG.host, port: PG_CONFIG.port, username: PG_CONFIG.user, password: PG_CONFIG.password, database: SYSTEM_CHAT_PG_NAME } };
+    return { id: SYSTEM_CHAT_DB_ID, name: 'Arcellite', displayName: 'Arcellite', type: 'postgresql', status: 'running', size: '', sizeBytes: 0, created: '', createdTimestamp: 0, pgDatabaseName: SYSTEM_CHAT_PG_NAME, config: { host: PG_CONFIG.host, port: PG_CONFIG.port, username: PG_CONFIG.user, password: PG_CONFIG.password, database: SYSTEM_CHAT_PG_NAME } };
   }
   const metadata = loadMetadata();
   return metadata[id] || null;

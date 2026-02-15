@@ -59,8 +59,8 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
             };
             databases.unshift({
               id: '__system_chat_history',
-              name: 'AI Chat History',
-              displayName: 'AI Chat History',
+              name: 'Arcellite',
+              displayName: 'Arcellite',
               type: 'postgresql',
               status: 'running',
               size: formatBytes(sizeBytes),
