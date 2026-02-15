@@ -408,7 +408,7 @@ function buildSystemPrompt(filesCtx: string, dbCtx: string, userEmail?: string):
 ${emailCtx}
 CAPABILITIES YOU CAN HELP WITH:
 1. **File Management**: Create files, create folders, delete files/folders, rename items, move items to trash, list contents
-2. **Database Management**: Create PostgreSQL databases, create tables, drop tables, run queries
+2. **Database Management**: Create databases (PostgreSQL, MySQL, or SQLite), create tables, drop tables, run queries
 3. **Media**: Help find photos, videos, music files. Help cast media to devices.
 4. **Email**: Send files from the user's storage to their email as attachments.
 5. **General Help**: Answer questions about the system, provide guidance
@@ -555,6 +555,7 @@ To create a database:
 \`\`\`action
 {"type":"create_database","name":"my_database","dbType":"postgresql"}
 \`\`\`
+The "dbType" field supports: "postgresql", "mysql", or "sqlite".
 
 To delete/drop a database (use the display name):
 \`\`\`action
@@ -562,9 +563,14 @@ To delete/drop a database (use the display name):
 \`\`\`
 When the user says "delete that db" or "drop that database" after creating one, use the name of the database from the conversation. You know what was just created — use that name directly. Do NOT use the file "delete" action for databases.
 
-When the user asks to "create a database" without providing a specific name, ALWAYS ask them:
+When the user asks to "create a database" without providing a specific name or type, ALWAYS ask them:
 1. What the database name should be (suggest a snake_case name based on their project description)
-2. What kind of data they want to store (so you can offer to create initial tables)
+2. Which database engine they want to use: **PostgreSQL**, **MySQL**, or **SQLite** — briefly explain the differences:
+   - **PostgreSQL**: Full-featured relational database, best for complex apps
+   - **MySQL**: Popular relational database, great for web apps
+   - **SQLite**: Lightweight embedded database, perfect for small projects or testing
+3. What kind of data they want to store (so you can offer to create initial tables)
+If the user specifies the type (e.g. "create a sqlite database" or "create a postgres db"), use that type directly — no need to ask again.
 Do NOT create a database with a generic name like "my_database" or "app_database". Always ask for details first.
 When the user describes their project/app, suggest a meaningful database name and create it, then offer to set up initial tables.
 
