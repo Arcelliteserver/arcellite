@@ -460,9 +460,11 @@ const MobileDatabaseDetail: React.FC<{
       {/* Drop table confirm */}
       {dropTableTarget && (
         <ConfirmModal
+          isOpen={true}
           title="Drop Table"
           message={`Are you sure you want to drop "${dropTableTarget}"? This will permanently delete all data in this table.`}
-          confirmLabel="Drop"
+          confirmText="Drop"
+          variant="danger"
           onConfirm={handleDropTable}
           onCancel={() => setDropTableTarget(null)}
         />
@@ -617,9 +619,11 @@ const MobileDatabaseView: React.FC = () => {
       {/* Delete confirm */}
       {deleteTarget && (
         <ConfirmModal
+          isOpen={true}
           title="Delete Database"
           message={`Are you sure you want to delete "${deleteTarget.displayName || deleteTarget.name}"? This action cannot be undone.`}
-          confirmLabel="Delete"
+          confirmText="Delete"
+          variant="danger"
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
         />
