@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ChevronLeft,
   Plus,
@@ -679,13 +680,14 @@ const MobileDatabaseView: React.FC = () => {
         </div>
       )}
 
-      {/* Create Database Sheet */}
-      {showCreate && (
-        <div className="fixed inset-0 bg-black/50 z-[300] flex items-end justify-center" onClick={() => { setShowCreate(false); setSelectedDbType(null); setDbName(''); }}>
-          <div className="w-full max-w-lg bg-white rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300" onClick={e => e.stopPropagation()}>
+      {/* Create Database Sheet — portaled to body to escape willChange stacking context */}
+      {showCreate && createPortal(
+        <div className="fixed inset-0 bg-black/50 z-[9998] flex items-end justify-center" onClick={() => { setShowCreate(false); setSelectedDbType(null); setDbName(''); }}>
+          <div className="w-full max-w-lg bg-white rounded-t-3xl p-6 pb-8 animate-in slide-in-from-bottom duration-300" onClick={e => e.stopPropagation()}>
             {!selectedDbType ? (
               /* ── Step 1: Choose database type ── */
               <>
+                <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
                 <div className="flex items-center justify-between mb-5">
                   <h3 className="text-[18px] font-extrabold text-gray-900">Choose Type</h3>
                   <button onClick={() => { setShowCreate(false); setSelectedDbType(null); }} className="p-2 rounded-xl bg-gray-100 text-gray-500 active:scale-95 touch-manipulation"><X className="w-4 h-4" /></button>
@@ -720,6 +722,7 @@ const MobileDatabaseView: React.FC = () => {
             ) : (
               /* ── Step 2: Enter database name ── */
               <>
+                <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
                 <div className="flex items-center justify-between mb-5">
                   <div className="flex items-center gap-3">
                     <button onClick={() => { setSelectedDbType(null); setDbName(''); }} className="p-2 rounded-xl bg-gray-100 text-gray-500 active:scale-95 touch-manipulation">
@@ -754,7 +757,8 @@ const MobileDatabaseView: React.FC = () => {
               </>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Delete confirm */}
