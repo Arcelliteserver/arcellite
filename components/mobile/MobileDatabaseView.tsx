@@ -444,10 +444,34 @@ const MobileDatabaseDetail: React.FC<{
             </div>
           ))}
 
-          {/* Connection URLs — 4 total: 2 with IP, 2 with domain */}
+          {/* Connection URLs */}
           {(() => {
-            const scheme = db.type === 'mysql' ? 'mysql' : db.type === 'sqlite' ? 'sqlite' : 'postgresql';
-            const typeLabel = db.type === 'mysql' ? 'MySQL' : db.type === 'sqlite' ? 'SQLite' : 'PostgreSQL';
+            const isSqlite = db.type === 'sqlite';
+            if (isSqlite) {
+              const filePath = db.sqliteFilePath || db.config?.database || '';
+              const jdbcUrl = `jdbc:sqlite:${filePath}`;
+              return (
+                <div className="p-4 bg-white rounded-2xl border border-gray-200/60">
+                  <p className="text-[11px] font-bold text-[#5D5FEF] uppercase tracking-wider mb-3">Connection URLs</p>
+                  <div className="mb-3">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">SQLite File Path</p>
+                    <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">{filePath}</p>
+                    <button onClick={() => copyText(filePath, 'sqlitePath')} className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation">
+                      {copiedField === 'sqlitePath' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                    </button>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">JDBC URL (DataGrip / IntelliJ)</p>
+                    <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">{jdbcUrl}</p>
+                    <button onClick={() => copyText(jdbcUrl, 'jdbcUrl')} className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation">
+                      {copiedField === 'jdbcUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            const scheme = db.type === 'mysql' ? 'mysql' : 'postgresql';
+            const typeLabel = db.type === 'mysql' ? 'MySQL' : 'PostgreSQL';
             const localUrl = `${scheme}://${db.config!.username}:${db.config!.password}@${host}:${db.config!.port}/${db.config!.database}`;
             const globalUrl = `${scheme}://${db.config!.username}:${db.config!.password}@cloud.arcelliteserver.com:${db.config!.port}/${db.config!.database}`;
             const localUrlDisplay = `${scheme}://${db.config!.username}:${showPassword ? db.config!.password : '****'}@${host}:${db.config!.port}/${db.config!.database}`;
@@ -457,8 +481,6 @@ const MobileDatabaseDetail: React.FC<{
             return (
               <div className="p-4 bg-white rounded-2xl border border-gray-200/60">
                 <p className="text-[11px] font-bold text-[#5D5FEF] uppercase tracking-wider mb-3">Connection URLs</p>
-
-                {/* Local URL */}
                 <div className="mb-3">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Local {typeLabel} URL</p>
                   <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">{localUrlDisplay}</p>
@@ -466,8 +488,6 @@ const MobileDatabaseDetail: React.FC<{
                     {copiedField === 'localUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                   </button>
                 </div>
-
-                {/* Global URL */}
                 <div className="mb-3">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Global {typeLabel} URL</p>
                   <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">{globalUrlDisplay}</p>
@@ -475,8 +495,6 @@ const MobileDatabaseDetail: React.FC<{
                     {copiedField === 'globalUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                   </button>
                 </div>
-
-                {/* Local JDBC URL */}
                 <div className="mb-3">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">JDBC URL (Local)</p>
                   <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">{localJdbc}</p>
@@ -484,8 +502,6 @@ const MobileDatabaseDetail: React.FC<{
                     {copiedField === 'jdbcUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                   </button>
                 </div>
-
-                {/* Global JDBC URL */}
                 <div>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">JDBC URL (Global)</p>
                   <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">{globalJdbc}</p>
