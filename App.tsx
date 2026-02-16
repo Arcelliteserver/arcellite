@@ -519,6 +519,13 @@ const App: React.FC = () => {
     } catch (err) {
       // Silent — logout best-effort
     }
+    // Clear all user-specific localStorage data
+    localStorage.removeItem('connectedApps');
+    localStorage.removeItem('connectedAppIds');
+    localStorage.removeItem('mountedDevice');
+    localStorage.removeItem('myapps_state');
+    localStorage.removeItem('activeTab');
+    localStorage.removeItem('theme');
     setCurrentUser(null);
     setIsAuthenticated(false);
     setRecentItems([]);
