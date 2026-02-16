@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────
 #  Arcellite — Automated Installer
-#  Sets up Node.js, PostgreSQL, data directories, .env, and builds
-#  the application so it's ready to run.
+#  Sets up Node.js, PostgreSQL, MySQL/MariaDB, SQLite, data
+#  directories, .env, and builds the application so it's ready to run.
 #
 #  Usage:   chmod +x install.sh && ./install.sh
 #  Tested:  Ubuntu 22.04/24.04, Debian 12, Raspberry Pi OS (64-bit)
@@ -34,7 +34,7 @@ PROJECT_DIR="$(pwd)"
 # ═════════════════════════════════════════════════════════════════════
 #  STEP 1 — System dependencies
 # ═════════════════════════════════════════════════════════════════════
-step "1/7  Checking system dependencies"
+step "1/9  Checking system dependencies"
 
 # Detect package manager
 if command -v apt-get &>/dev/null; then
@@ -127,7 +127,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════
 #  STEP 2 — PostgreSQL
 # ═════════════════════════════════════════════════════════════════════
-step "2/7  Setting up PostgreSQL"
+step "2/9  Setting up PostgreSQL"
 
 if command -v psql &>/dev/null; then
   PG_VER=$(psql --version | grep -oP '\d+' | head -1)
@@ -323,9 +323,104 @@ fi
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  STEP 3 — Data directories
+#  STEP 3 — MySQL / MariaDB
 # ═════════════════════════════════════════════════════════════════════
-step "3/7  Creating data directories"
+step "3/9  Setting up MySQL / MariaDB"
+
+# MySQL credentials (generated once)
+MYSQL_USER="arcellite_user"
+MYSQL_PASSWORD=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n' | head -c 32)
+MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n' | head -c 32)
+MYSQL_HOST="127.0.0.1"
+MYSQL_PORT="3306"
+
+if command -v mysql &>/dev/null; then
+  MYSQL_VER=$(mysql --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1)
+  success "MySQL/MariaDB ${MYSQL_VER} detected"
+else
+  info "MySQL/MariaDB not found — installing MariaDB..."
+  if [[ "$PKG_MGR" == "apt" ]]; then
+    sudo apt-get update -qq >/dev/null 2>&1
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client >/dev/null 2>&1
+  elif [[ "$PKG_MGR" == "dnf" ]]; then
+    sudo dnf install -y mariadb-server mariadb >/dev/null 2>&1
+  elif [[ "$PKG_MGR" == "pacman" ]]; then
+    sudo pacman -S --noconfirm mariadb >/dev/null 2>&1
+    sudo mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql 2>/dev/null || true
+  else
+    warn "Install MySQL or MariaDB manually."
+  fi
+  success "MariaDB installed"
+fi
+
+# Ensure MySQL/MariaDB service is running
+for svc in mariadb mysql mysqld; do
+  if systemctl list-unit-files "${svc}.service" &>/dev/null 2>&1; then
+    MYSQL_SERVICE="$svc"
+    break
+  fi
+done
+MYSQL_SERVICE=${MYSQL_SERVICE:-mariadb}
+
+if systemctl is-active --quiet "$MYSQL_SERVICE" 2>/dev/null; then
+  success "${MYSQL_SERVICE} service is running"
+else
+  info "Starting ${MYSQL_SERVICE} service..."
+  sudo systemctl enable "$MYSQL_SERVICE" >/dev/null 2>&1 || true
+  sudo systemctl start "$MYSQL_SERVICE" >/dev/null 2>&1 || true
+  sleep 3
+  if systemctl is-active --quiet "$MYSQL_SERVICE" 2>/dev/null; then
+    success "${MYSQL_SERVICE} service started"
+  else
+    warn "Could not start MySQL/MariaDB. You may need to start it manually."
+  fi
+fi
+
+# Create MySQL user and set root password
+info "Configuring MySQL user '${MYSQL_USER}'..."
+
+# Try root access via sudo (default MariaDB unix_socket auth)
+if sudo mysql -e "SELECT 1" &>/dev/null 2>&1; then
+  # Set root password for TCP access
+  sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';" 2>/dev/null || \
+  sudo mysql -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${MYSQL_ROOT_PASSWORD}');" 2>/dev/null || true
+
+  # Create application user
+  sudo mysql -e "CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'localhost' IDENTIFIED BY '${MYSQL_PASSWORD}';" 2>/dev/null || true
+  sudo mysql -e "CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'127.0.0.1' IDENTIFIED BY '${MYSQL_PASSWORD}';" 2>/dev/null || true
+  sudo mysql -e "GRANT ALL PRIVILEGES ON \`cloudnest\_%\`.* TO '${MYSQL_USER}'@'localhost';" 2>/dev/null || true
+  sudo mysql -e "GRANT ALL PRIVILEGES ON \`cloudnest\_%\`.* TO '${MYSQL_USER}'@'127.0.0.1';" 2>/dev/null || true
+  sudo mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+  success "MySQL user '${MYSQL_USER}' configured"
+else
+  warn "Could not access MySQL as root. You may need to configure the MySQL user manually:"
+  warn "  CREATE USER '${MYSQL_USER}'@'localhost' IDENTIFIED BY '<password>';"
+  warn "  GRANT ALL PRIVILEGES ON \`cloudnest_%\`.* TO '${MYSQL_USER}'@'localhost';"
+fi
+
+# Verify MySQL connection
+if mysql -h 127.0.0.1 -P "$MYSQL_PORT" -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" -e "SELECT 1" &>/dev/null 2>&1; then
+  success "MySQL connection verified (TCP 127.0.0.1:${MYSQL_PORT})"
+else
+  warn "Could not verify MySQL connection. Check credentials after install."
+fi
+
+
+# ═════════════════════════════════════════════════════════════════════
+#  STEP 4 — SQLite setup
+# ═════════════════════════════════════════════════════════════════════
+step "4/9  Setting up SQLite"
+
+# SQLite uses sql.js (pure JavaScript, no system packages needed)
+# Just need to ensure the data directory exists
+info "SQLite uses sql.js (pure JS) — no system packages required"
+success "SQLite support ready (databases stored in ~/arcellite-data/databases/sqlite/)"
+
+
+# ═════════════════════════════════════════════════════════════════════
+#  STEP 5 — Data directories
+# ═════════════════════════════════════════════════════════════════════
+step "5/9  Creating data directories"
 
 DATA_DIR="${HOME}/arcellite-data"
 DIRS=(
@@ -335,6 +430,7 @@ DIRS=(
   "${DATA_DIR}/music"
   "${DATA_DIR}/shared"
   "${DATA_DIR}/databases"
+  "${DATA_DIR}/databases/sqlite"
 )
 for d in "${DIRS[@]}"; do
   mkdir -p "$d"
@@ -343,9 +439,9 @@ success "Data directory created at ${DATA_DIR}"
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  STEP 4 — Environment configuration (.env)
+#  STEP 6 — Environment configuration (.env)
 # ═════════════════════════════════════════════════════════════════════
-step "4/7  Generating environment configuration"
+step "6/9  Generating environment configuration"
 
 SESSION_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | xxd -p | tr -d '\n' | head -c 64)
 
@@ -360,12 +456,22 @@ cat > .env <<EOF
 # Generated by install.sh on $(date -u +"%Y-%m-%d %H:%M UTC")
 # ─────────────────────────────────────────────────────────────
 
-# PostgreSQL Database
+# PostgreSQL Database (primary — used for auth, sessions, app data)
 DB_HOST=${DB_HOST}
 DB_PORT=${PG_PORT}
 DB_NAME=${DB_NAME}
 DB_USER=${DB_USER}
 DB_PASSWORD=${DB_PASSWORD}
+
+# MySQL / MariaDB (for user-created MySQL databases)
+MYSQL_HOST=${MYSQL_HOST}
+MYSQL_PORT=${MYSQL_PORT}
+MYSQL_USER=${MYSQL_USER}
+MYSQL_PASSWORD=${MYSQL_PASSWORD}
+MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+
+# SQLite (file-based, stored in ARCELLITE_DATA/databases/sqlite/)
+# No credentials needed — managed automatically by sql.js
 
 # Application
 SESSION_SECRET=${SESSION_SECRET}
@@ -388,18 +494,18 @@ success ".env generated with secure credentials"
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  STEP 5 — Install npm dependencies
+#  STEP 7 — Install npm dependencies
 # ═════════════════════════════════════════════════════════════════════
-step "5/7  Installing npm dependencies"
+step "7/9  Installing npm dependencies"
 
 npm install --production=false 2>&1 | tail -1
 success "npm packages installed"
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  STEP 6 — Build the application
+#  STEP 8 — Build the application
 # ═════════════════════════════════════════════════════════════════════
-step "6/7  Building Arcellite"
+step "8/9  Building Arcellite"
 
 info "Building frontend..."
 npm run build 2>&1 | tail -1
@@ -411,9 +517,9 @@ success "Server compiled"
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  STEP 7 — systemd service (optional)
+#  STEP 9 — systemd service (optional)
 # ═════════════════════════════════════════════════════════════════════
-step "7/7  Setting up system service"
+step "9/9  Setting up system service"
 
 SERVICE_NAME="arcellite"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -427,8 +533,8 @@ if [[ "$INSTALL_SERVICE" =~ ^[Yy]$ ]]; then
   sudo tee "$SERVICE_FILE" > /dev/null <<SVCEOF
 [Unit]
 Description=Arcellite — Personal Cloud Server
-After=network.target postgresql.service
-Wants=postgresql.service
+After=network.target postgresql.service mariadb.service
+Wants=postgresql.service mariadb.service
 
 [Service]
 Type=simple
@@ -482,6 +588,11 @@ echo -e "  ${BOLD}Defaults:${NC}"
 echo -e "    Dev server:   http://localhost:3000"
 echo -e "    Prod server:  http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):3999"
 echo -e "    Data dir:     ${DATA_DIR}"
+echo ""
+echo -e "  ${BOLD}Databases:${NC}"
+echo -e "    PostgreSQL:   port ${PG_PORT} (app DB + user databases)"
+echo -e "    MySQL:        port ${MYSQL_PORT} (user databases)"
+echo -e "    SQLite:       ${DATA_DIR}/databases/sqlite/ (file-based)"
 echo ""
 echo -e "  ${BOLD}What's next:${NC}"
 echo -e "    1. Open the URL above in your browser"
