@@ -394,24 +394,27 @@ const DatabaseDetailView: React.FC<{
   const getConnectionUrl = () => {
     if (!db.config) return '';
     const host = getNetworkHost();
-    const scheme = db.type === 'mysql' ? 'mysql' : 'postgresql';
+    const scheme = db.type === 'mysql' ? 'mysql' : db.type === 'sqlite' ? 'sqlite' : 'postgresql';
     return `${scheme}://${db.config.username}:${db.config.password}@${host}:${db.config.port}/${db.config.database}`;
   };
 
   const getGlobalConnectionUrl = () => {
     if (!db.config) return '';
-    const scheme = db.type === 'mysql' ? 'mysql' : 'postgresql';
+    const scheme = db.type === 'mysql' ? 'mysql' : db.type === 'sqlite' ? 'sqlite' : 'postgresql';
     return `${scheme}://${db.config.username}:${db.config.password}@cloud.arcelliteserver.com:${db.config.port}/${db.config.database}`;
   };
 
   const getJdbcUrl = () => {
-    if (db.type === 'sqlite') {
-      return `jdbc:sqlite:${db.sqliteFilePath || db.config?.database || ''}`;
-    }
     if (!db.config) return '';
     const host = getNetworkHost();
-    const scheme = db.type === 'mysql' ? 'mysql' : 'postgresql';
+    const scheme = db.type === 'mysql' ? 'mysql' : db.type === 'sqlite' ? 'sqlite' : 'postgresql';
     return `jdbc:${scheme}://${host}:${db.config.port}/${db.config.database}`;
+  };
+
+  const getGlobalJdbcUrl = () => {
+    if (!db.config) return '';
+    const scheme = db.type === 'mysql' ? 'mysql' : db.type === 'sqlite' ? 'sqlite' : 'postgresql';
+    return `jdbc:${scheme}://cloud.arcelliteserver.com:${db.config.port}/${db.config.database}`;
   };
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -876,89 +879,69 @@ const DatabaseDetailView: React.FC<{
           </div>
 
           {/* Connection URLs */}
-          {(db.config || db.type === 'sqlite') && (
+          {db.config && (
             <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3.5 sm:p-5">
               <h3 className="text-sm font-black text-gray-900 mb-3 sm:mb-4">Connection URLs</h3>
               <div className="space-y-3">
-                {db.type === 'sqlite' ? (
-                  /* SQLite URLs */
-                  <>
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">SQLite File URL</label>
-                      <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
-                        <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">sqlite:///{db.sqliteFilePath || db.config?.database || ''}</code>
-                        <button
-                          onClick={() => copyToClipboard(`sqlite:///${db.sqliteFilePath || db.config?.database || ''}`, 'sqliteUrl')}
-                          className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
-                          title="Copy SQLite URL"
-                        >
-                          {copiedField === 'sqliteUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">JDBC URL (DataGrip / IntelliJ)</label>
-                      <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
-                        <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getJdbcUrl()}</code>
-                        <button
-                          onClick={() => copyToClipboard(getJdbcUrl(), 'jdbcUrl')}
-                          className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
-                          title="Copy JDBC URL"
-                        >
-                          {copiedField === 'jdbcUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  /* PostgreSQL / MySQL URLs */
-                  <>
-                    {/* Local URL */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Local {db.type === 'mysql' ? 'MySQL' : 'PostgreSQL'} URL</label>
-                      <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
-                        <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getConnectionUrl()}</code>
-                        <button
-                          onClick={() => copyToClipboard(getConnectionUrl(), 'pgUrl')}
-                          className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
-                          title="Copy URL"
-                        >
-                          {copiedField === 'pgUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
+                {/* Local URL */}
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Local {db.type === 'mysql' ? 'MySQL' : db.type === 'sqlite' ? 'SQLite' : 'PostgreSQL'} URL</label>
+                  <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
+                    <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getConnectionUrl()}</code>
+                    <button
+                      onClick={() => copyToClipboard(getConnectionUrl(), 'localUrl')}
+                      className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+                      title="Copy URL"
+                    >
+                      {copiedField === 'localUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
 
-                    {/* Global URL */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Global {db.type === 'mysql' ? 'MySQL' : 'PostgreSQL'} URL</label>
-                      <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
-                        <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getGlobalConnectionUrl()}</code>
-                        <button
-                          onClick={() => copyToClipboard(getGlobalConnectionUrl(), 'globalUrl')}
-                          className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
-                          title="Copy Global URL"
-                        >
-                          {copiedField === 'globalUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
+                {/* Global URL */}
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Global {db.type === 'mysql' ? 'MySQL' : db.type === 'sqlite' ? 'SQLite' : 'PostgreSQL'} URL</label>
+                  <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
+                    <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getGlobalConnectionUrl()}</code>
+                    <button
+                      onClick={() => copyToClipboard(getGlobalConnectionUrl(), 'globalUrl')}
+                      className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+                      title="Copy Global URL"
+                    >
+                      {copiedField === 'globalUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
 
-                    {/* JDBC URL */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">JDBC URL (DataGrip / IntelliJ)</label>
-                      <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
-                        <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getJdbcUrl()}</code>
-                        <button
-                          onClick={() => copyToClipboard(getJdbcUrl(), 'jdbcUrl')}
-                          className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
-                          title="Copy JDBC URL"
-                        >
-                          {copiedField === 'jdbcUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
+                {/* Local JDBC URL */}
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">JDBC URL (Local)</label>
+                  <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
+                    <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getJdbcUrl()}</code>
+                    <button
+                      onClick={() => copyToClipboard(getJdbcUrl(), 'jdbcUrl')}
+                      className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+                      title="Copy JDBC URL"
+                    >
+                      {copiedField === 'jdbcUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Global JDBC URL */}
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">JDBC URL (Global)</label>
+                  <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
+                    <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getGlobalJdbcUrl()}</code>
+                    <button
+                      onClick={() => copyToClipboard(getGlobalJdbcUrl(), 'globalJdbcUrl')}
+                      className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+                      title="Copy Global JDBC URL"
+                    >
+                      {copiedField === 'globalJdbcUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
