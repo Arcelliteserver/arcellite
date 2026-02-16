@@ -56,7 +56,14 @@ const ALL_POSSIBLE_APPS = [
 ];
 
 const MyAppsView: React.FC = () => {
-  // Lazy-initialize apps from localStorage (empty by default — user must configure each app)
+  // Force-clear stale localStorage from old versions (v2 = blank slate, no pre-filled apps)
+  if (localStorage.getItem('myapps_version') !== 'v2') {
+    localStorage.removeItem('connectedApps');
+    localStorage.removeItem('connectedAppIds');
+    localStorage.setItem('myapps_version', 'v2');
+  }
+
+  // Apps state: empty by default — user must configure each app
   const [apps, setApps] = useState<AppConnection[]>(() => {
     const saved = localStorage.getItem('connectedApps');
     if (saved) {
@@ -101,6 +108,7 @@ const MyAppsView: React.FC = () => {
     apiKey: '',
   });
   const [n8nWorkflows, setN8nWorkflows] = useState<any[]>([]);
+  const [pendingConnectId, setPendingConnectId] = useState<string | null>(null);
   const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
   const [expandedFileCategories, setExpandedFileCategories] = useState<Set<string>>(new Set());
   // Connected apps start COLLAPSED by default - click to expand
@@ -180,6 +188,15 @@ const MyAppsView: React.FC = () => {
     // Persist to server for cross-device sync
     saveToServer(apps, connectedAppIds);
   }, [connectedAppIds]);
+
+  // Trigger connection after state update (avoids stale closure issue with setTimeout)
+  useEffect(() => {
+    if (pendingConnectId) {
+      const appId = pendingConnectId;
+      setPendingConnectId(null);
+      connectApp(appId);
+    }
+  }, [pendingConnectId, apps]);
 
   const fetchN8nWorkflows = async (apiUrl: string, apiKey: string, appId?: string) => {
     try {
@@ -308,7 +325,71 @@ const MyAppsView: React.FC = () => {
     setError(null);
 
     try {
-      // Check if app has a webhook URL
+      // Database apps: connect via fetchDatabases
+      if (isDatabaseApp(appId) && (app as any).credentials) {
+        const creds = (app as any).credentials;
+        const databases = await fetchDatabases(
+          appId,
+          creds.host,
+          creds.port,
+          creds.username,
+          creds.password,
+          creds.database
+        );
+
+        setConnectedAppIds(prev => new Set([...prev, appId]));
+        setCollapsedConnectedApps(prev => new Set([...prev, appId]));
+        setApps(prevApps => prevApps.map(a => {
+          if (a.id === appId) {
+            return {
+              ...a,
+              status: 'connected',
+              statusMessage: `${databases.length} database(s) found`,
+              files: databases.map((dbName: string) => ({
+                id: dbName,
+                name: dbName,
+                type: 'database',
+              })),
+            };
+          }
+          return a;
+        }));
+        setError(null);
+        return;
+      }
+
+      // API apps (n8n, MCP): connect via fetchN8nWorkflows
+      if (isApiApp(appId) && (app as any).apiCredentials) {
+        const apiCreds = (app as any).apiCredentials;
+        const workflows = await fetchN8nWorkflows(apiCreds.apiUrl, apiCreds.apiKey, appId);
+        const isMcp = appId === 'mcp' || appId.startsWith('mcp-');
+
+        setConnectedAppIds(prev => new Set([...prev, appId]));
+        setCollapsedConnectedApps(prev => new Set([...prev, appId]));
+        setApps(prevApps => prevApps.map(a => {
+          if (a.id === appId) {
+            return {
+              ...a,
+              status: 'connected',
+              statusMessage: isMcp
+                ? 'MCP Server Connected'
+                : `${workflows.length} workflow(s) found`,
+              files: !isMcp ? workflows.map((w: any) => ({
+                id: w.id,
+                name: w.name,
+                type: 'workflow',
+                created: w.createdAt,
+                modified: w.updatedAt,
+              })) : [],
+            };
+          }
+          return a;
+        }));
+        setError(null);
+        return;
+      }
+
+      // Webhook apps: connect via webhook proxy
       if (!app.webhookUrl) {
         throw new Error(`${app.name} webhook not configured`);
       }
@@ -673,11 +754,11 @@ const MyAppsView: React.FC = () => {
   };
 
   const isDatabaseApp = (appId?: string) => {
-    return appId && ['postgresql', 'mysql'].includes(appId);
+    return appId && (appId === 'postgresql' || appId === 'mysql' || appId.startsWith('postgresql-') || appId.startsWith('mysql-'));
   };
 
   const isApiApp = (appId?: string) => {
-    return appId && ['n8n', 'mcp'].includes(appId);
+    return appId && (appId === 'n8n' || appId === 'mcp' || appId.startsWith('n8n-') || appId.startsWith('mcp-'));
   };
 
   const hasCredentials = (app: AppConnection) => {
@@ -957,7 +1038,26 @@ const MyAppsView: React.FC = () => {
                   ) : (
                     <div className="w-full flex flex-col gap-2">
                       <button
-                        onClick={() => handleConnect(app.id)}
+                        onClick={() => {
+                          // If app has no config yet, open Modify form instead of attempting connection
+                          const hasConfig = !!(
+                            app.webhookUrl ||
+                            (app as any).credentials ||
+                            (app as any).apiCredentials
+                          );
+                          if (hasConfig) {
+                            handleConnect(app.id);
+                          } else {
+                            // Open modify form so user can enter config first
+                            if (modifyingAppId !== app.id) {
+                              setModifyingAppId(app.id);
+                              setWebhookUrl('');
+                              setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
+                              setApiCredentials({ apiUrl: '', apiKey: '' });
+                              setError(null);
+                            }
+                          }
+                        }}
                         disabled={loading[app.id]}
                         className="w-full px-4 md:px-6 py-2.5 md:py-3 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#5D5FEF]/20 hover:shadow-xl hover:shadow-[#5D5FEF]/30 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
@@ -1044,22 +1144,71 @@ const MyAppsView: React.FC = () => {
                     <button onClick={() => setModifyingAppId(null)} className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all">
                       Cancel
                     </button>
-                    <button
-                      onClick={() => {
-                        setApps(prev => prev.map(a => {
-                          if (a.id !== app.id) return a;
-                          const updated = { ...a };
-                          if (isDatabaseApp(app.id)) (updated as any).credentials = { ...dbCredentials };
-                          else if (isApiApp(app.id)) (updated as any).apiCredentials = { ...apiCredentials };
-                          else updated.webhookUrl = webhookUrl;
-                          return updated;
-                        }));
-                        setModifyingAppId(null);
-                      }}
-                      className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all"
-                    >
-                      Save Changes
-                    </button>
+                    {app.status === 'connected' ? (
+                      <button
+                        onClick={() => {
+                          setApps(prev => prev.map(a => {
+                            if (a.id !== app.id) return a;
+                            const updated = { ...a };
+                            if (isDatabaseApp(app.id)) (updated as any).credentials = { ...dbCredentials };
+                            else if (isApiApp(app.id)) (updated as any).apiCredentials = { ...apiCredentials };
+                            else updated.webhookUrl = webhookUrl;
+                            return updated;
+                          }));
+                          setModifyingAppId(null);
+                        }}
+                        className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all"
+                      >
+                        Save Changes
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          // Save config first
+                          const appExists = apps.some(a => a.id === app.id);
+                          if (appExists) {
+                            // Update existing app in state
+                            setApps(prev => prev.map(a => {
+                              if (a.id !== app.id) return a;
+                              const updated = { ...a, status: 'disconnected' as const, statusMessage: undefined };
+                              if (isDatabaseApp(app.id)) (updated as any).credentials = { ...dbCredentials };
+                              else if (isApiApp(app.id)) (updated as any).apiCredentials = { ...apiCredentials };
+                              else updated.webhookUrl = webhookUrl;
+                              return updated;
+                            }));
+                          } else {
+                            // Add new app to state
+                            const meta = ALL_POSSIBLE_APPS.find(a => a.id === app.id);
+                            const newApp: AppConnection = {
+                              id: app.id,
+                              name: app.name,
+                              icon: app.icon,
+                              status: 'disconnected',
+                              children: (meta as any)?.children,
+                            };
+                            if (isDatabaseApp(app.id)) (newApp as any).credentials = { ...dbCredentials };
+                            else if (isApiApp(app.id)) (newApp as any).apiCredentials = { ...apiCredentials };
+                            else newApp.webhookUrl = webhookUrl;
+                            setApps(prev => [...prev, newApp]);
+                          }
+                          setModifyingAppId(null);
+                          setError(null);
+                          // Trigger connection after state updates via useEffect
+                          setPendingConnectId(app.id);
+                        }}
+                        disabled={
+                          isDatabaseApp(app.id)
+                            ? !dbCredentials.host || !dbCredentials.port || !dbCredentials.username || !dbCredentials.database
+                            : isApiApp(app.id)
+                              ? !apiCredentials.apiUrl.trim() || !apiCredentials.apiKey.trim()
+                              : !webhookUrl.trim()
+                        }
+                        className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                        Save & Connect
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

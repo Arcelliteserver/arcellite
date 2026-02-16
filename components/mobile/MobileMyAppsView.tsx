@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Loader2, RefreshCw, AlertCircle, Check, X, ExternalLink, ArrowRight, CheckCircle2, XCircle, Plus, ChevronRight, ArrowLeft } from 'lucide-react';
 
 /* ────────────────────────────────────────────────────────
@@ -37,37 +37,17 @@ interface AppConnection {
   webhookUrl?: string;
 }
 
-const AVAILABLE_APPS: AppConnection[] = [
-  {
-    id: 'google-drive',
-    name: 'Google Drive',
-    icon: '/assets/apps/google-drive.svg',
-    status: 'disconnected',
-    webhookUrl: 'https://n8n.arcelliteserver.com/webhook/google-files',
-    children: [
-      { name: 'Google Docs', icon: '/assets/apps/google-docs.svg', status: 'disconnected' },
-      { name: 'Google Sheets', icon: '/assets/apps/google-sheets.svg', status: 'disconnected' },
-      { name: 'Google Slides', icon: '/assets/apps/google-slides.svg', status: 'disconnected' },
-    ],
-  },
-  {
-    id: 'microsoft-onedrive',
-    name: 'Microsoft OneDrive',
-    icon: '/assets/apps/microsoft-onedrive.svg',
-    status: 'disconnected',
-    webhookUrl: 'https://n8n.arcelliteserver.com/webhook/onedrive-files',
-  },
-  {
-    id: 'slack',
-    name: 'Slack',
-    icon: '/assets/apps/slack.svg',
-    status: 'disconnected',
-    webhookUrl: 'https://n8n.arcelliteserver.com/webhook/slack-files',
-  },
-];
+// No pre-filled apps — user must configure each app manually
 
 const ALL_POSSIBLE_APPS = [
-  { id: 'google-drive', name: 'Google Drive', icon: '/assets/apps/google-drive.svg' },
+  {
+    id: 'google-drive', name: 'Google Drive', icon: '/assets/apps/google-drive.svg',
+    children: [
+      { name: 'Google Docs', icon: '/assets/apps/google-docs.svg', status: 'disconnected' as const },
+      { name: 'Google Sheets', icon: '/assets/apps/google-sheets.svg', status: 'disconnected' as const },
+      { name: 'Google Slides', icon: '/assets/apps/google-slides.svg', status: 'disconnected' as const },
+    ],
+  },
   { id: 'microsoft-onedrive', name: 'Microsoft OneDrive', icon: '/assets/apps/microsoft-onedrive.svg' },
   { id: 'dropbox', name: 'Dropbox', icon: '/assets/apps/dropbox.svg' },
   { id: 'slack', name: 'Slack', icon: '/assets/apps/slack.svg' },
@@ -84,6 +64,13 @@ const ALL_POSSIBLE_APPS = [
    ──────────────────────────────────────────────────────── */
 
 const MobileMyAppsView: React.FC = () => {
+  // Force-clear stale localStorage on version bump (one-time migration)
+  if (localStorage.getItem('myapps_version') !== 'v2') {
+    localStorage.removeItem('connectedApps');
+    localStorage.removeItem('connectedAppIds');
+    localStorage.setItem('myapps_version', 'v2');
+  }
+
   /* ═══════ State — IDENTICAL to desktop ═══════ */
   const [apps, setApps] = useState<AppConnection[]>(() => {
     const saved = localStorage.getItem('connectedApps');
@@ -93,7 +80,7 @@ const MobileMyAppsView: React.FC = () => {
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch {}
     }
-    return AVAILABLE_APPS;
+    return [];
   });
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
@@ -243,12 +230,46 @@ const MobileMyAppsView: React.FC = () => {
     return data.databases as string[];
   };
 
+  const isDatabaseApp = (id?: string) => id && (id === 'postgresql' || id === 'mysql' || id.startsWith('postgresql-') || id.startsWith('mysql-'));
+  const isApiApp = (id?: string) => id && (id === 'n8n' || id === 'mcp' || id.startsWith('n8n-') || id.startsWith('mcp-'));
+
   const connectApp = async (appId: string) => {
     const app = apps.find(a => a.id === appId);
     if (!app) return;
     setLoading(prev => ({ ...prev, [appId]: true }));
     setError(null);
     try {
+      // Database apps: connect via fetchDatabases
+      if (isDatabaseApp(appId) && (app as any).credentials) {
+        const creds = (app as any).credentials;
+        const databases = await fetchDatabases(appId, creds.host, creds.port, creds.username, creds.password, creds.database);
+        setConnectedAppIds(prev => new Set([...prev, appId]));
+        setCollapsedConnectedApps(prev => new Set([...prev, appId]));
+        setApps(prevApps => prevApps.map(a => a.id === appId ? {
+          ...a, status: 'connected', statusMessage: `${databases.length} database(s) found`,
+          files: databases.map((n: string) => ({ id: n, name: n, type: 'database' })),
+        } : a));
+        setError(null);
+        setLoading(prev => ({ ...prev, [appId]: false }));
+        return;
+      }
+      // API apps (n8n, MCP): connect via fetchN8nWorkflows
+      if (isApiApp(appId) && (app as any).apiCredentials) {
+        const apiCreds = (app as any).apiCredentials;
+        const workflows = await fetchN8nWorkflows(apiCreds.apiUrl, apiCreds.apiKey, appId);
+        const isMcp = appId === 'mcp' || appId.startsWith('mcp-');
+        setConnectedAppIds(prev => new Set([...prev, appId]));
+        setCollapsedConnectedApps(prev => new Set([...prev, appId]));
+        setApps(prevApps => prevApps.map(a => a.id === appId ? {
+          ...a, status: 'connected',
+          statusMessage: isMcp ? 'MCP Server Connected' : `${workflows.length} workflow(s) found`,
+          files: !isMcp ? workflows.map((w: any) => ({ id: w.id, name: w.name, type: 'workflow', created: w.createdAt, modified: w.updatedAt })) : [],
+        } : a));
+        setError(null);
+        setLoading(prev => ({ ...prev, [appId]: false }));
+        return;
+      }
+      // Webhook apps
       if (!app.webhookUrl) throw new Error(`${app.name} webhook not configured`);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -404,8 +425,6 @@ const MobileMyAppsView: React.FC = () => {
   };
 
   /* ═══════ Helpers — identical to desktop ═══════ */
-  const isDatabaseApp = (appId?: string) => appId && ['postgresql', 'mysql'].includes(appId);
-  const isApiApp = (appId?: string) => appId && ['n8n', 'mcp'].includes(appId);
   const getAvailableAppsForModal = () => {
     const mainApps = ['google-drive', 'microsoft-onedrive', 'slack'];
     return ALL_POSSIBLE_APPS.filter(app => mainApps.includes(app.id) || !apps.some(a => a.id === app.id));
@@ -645,6 +664,38 @@ const MobileMyAppsView: React.FC = () => {
     );
   }
 
+  // Merge apps state with ALL_POSSIBLE_APPS (connected first, then disconnected)
+  const unifiedApps = useMemo(() => {
+    const connected: (AppConnection & { isInState: boolean })[] = [];
+    const disconnected: (AppConnection & { isInState: boolean })[] = [];
+    const processedIds = new Set<string>();
+
+    for (const app of apps) {
+      processedIds.add(app.id);
+      const enriched = { ...app, isInState: true };
+      if (app.status === 'connected' || connectedAppIds.has(app.id)) {
+        connected.push(enriched);
+      } else {
+        disconnected.push(enriched);
+      }
+    }
+
+    for (const meta of ALL_POSSIBLE_APPS) {
+      if (!processedIds.has(meta.id)) {
+        disconnected.push({
+          id: meta.id,
+          name: meta.name,
+          icon: meta.icon,
+          status: 'disconnected' as const,
+          children: (meta as any).children,
+          isInState: false,
+        });
+      }
+    }
+
+    return [...connected, ...disconnected];
+  }, [apps, connectedAppIds]);
+
   /* ═══════════════════════════════════════════════════════
      MAIN APPS LIST (default view)
      ═══════════════════════════════════════════════════════ */
@@ -681,7 +732,7 @@ const MobileMyAppsView: React.FC = () => {
 
       {/* ── App Cards ── */}
       <div className="space-y-3">
-        {apps.map((app) => (
+        {unifiedApps.map((app) => (
           <div
             key={app.id}
             className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${
@@ -782,7 +833,25 @@ const MobileMyAppsView: React.FC = () => {
                 ) : (
                   <>
                     <button
-                      onClick={() => handleConnect(app.id)}
+                      onClick={() => {
+                        // If app has no config yet, open configure page instead of attempting connection
+                        const hasConfig = !!(
+                          app.webhookUrl ||
+                          (app as any).credentials ||
+                          (app as any).apiCredentials
+                        );
+                        if (hasConfig) {
+                          handleConnect(app.id);
+                        } else {
+                          // Open configure page so user can enter config first
+                          setSelectedNewApp({ id: app.id, name: app.name, icon: app.icon });
+                          setWebhookUrl('');
+                          setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
+                          setApiCredentials({ apiUrl: '', apiKey: '' });
+                          setError(null);
+                          setConnectPage('configure');
+                        }
+                      }}
                       disabled={loading[app.id]}
                       className="flex-1 px-4 py-2 bg-[#5D5FEF] text-white rounded-xl text-[11px] font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 shadow-sm shadow-[#5D5FEF]/20 disabled:opacity-50"
                     >
@@ -792,21 +861,19 @@ const MobileMyAppsView: React.FC = () => {
                         <><Check className="w-3.5 h-3.5" /><span>Connect</span></>
                       )}
                     </button>
-                    {hasCredentials(app) && (
-                      <button
-                        onClick={() => {
-                          setSelectedNewApp({ id: app.id, name: app.name, icon: app.icon });
-                          setWebhookUrl((app as any).webhookUrl || '');
-                          if ((app as any).credentials) setDbCredentials((app as any).credentials);
-                          if ((app as any).apiCredentials) setApiCredentials((app as any).apiCredentials);
-                          setConnectPage('configure');
-                        }}
-                        className="px-3 py-2 bg-[#5D5FEF]/10 text-[#5D5FEF] rounded-xl text-[11px] font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-[#5D5FEF]/20"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Modify</span>
-                      </button>
-                    )}
+                    <button
+                      onClick={() => {
+                        setSelectedNewApp({ id: app.id, name: app.name, icon: app.icon });
+                        setWebhookUrl((app as any).webhookUrl || '');
+                        if ((app as any).credentials) setDbCredentials((app as any).credentials);
+                        if ((app as any).apiCredentials) setApiCredentials((app as any).apiCredentials);
+                        setConnectPage('configure');
+                      }}
+                      className="px-3 py-2 bg-[#5D5FEF]/10 text-[#5D5FEF] rounded-xl text-[11px] font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-[#5D5FEF]/20"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Modify</span>
+                    </button>
                   </>
                 )}
               </div>
