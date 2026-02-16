@@ -15,6 +15,9 @@ const CATEGORY_DIR: Record<string, string> = {
 };
 
 export function getBaseDir(): string {
+  // Use cached user storage path if available
+  const cached = (globalThis as any).__arcellite_storage_path;
+  if (cached) return cached;
   let dir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
   // Expand leading ~ to homedir
   if (dir.startsWith('~/') || dir === '~') {

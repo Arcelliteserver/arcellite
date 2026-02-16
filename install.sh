@@ -133,17 +133,11 @@ if command -v vgs &>/dev/null && command -v lvextend &>/dev/null; then
     # Find the root LV
     ROOT_LV=$(df / --output=source | tail -1)
     if [[ "$ROOT_LV" == /dev/mapper/* ]] || [[ "$ROOT_LV" == /dev/dm-* ]]; then
-      echo "  Detected ~${VG_FREE_INT}GB unused disk space in LVM volume group."
-      read -rp "  Expand root filesystem to use all available space? [Y/n]: " expand_lvm
-      expand_lvm="${expand_lvm:-Y}"
-      if [[ "$expand_lvm" =~ ^[Yy] ]]; then
-        sudo lvextend -l +100%FREE "$ROOT_LV" >/dev/null 2>&1
-        sudo resize2fs "$ROOT_LV" >/dev/null 2>&1 || sudo xfs_growfs / >/dev/null 2>&1
-        NEW_SIZE=$(df -h / --output=size | tail -1 | tr -d ' ')
-        success "Root filesystem expanded to ${NEW_SIZE}"
-      else
-        warn "Skipped LVM expansion (~${VG_FREE_INT}GB unused)"
-      fi
+      info "Detected ~${VG_FREE_INT}GB unused disk space — auto-expanding root filesystem..."
+      sudo lvextend -l +100%FREE "$ROOT_LV" >/dev/null 2>&1
+      sudo resize2fs "$ROOT_LV" >/dev/null 2>&1 || sudo xfs_growfs / >/dev/null 2>&1
+      NEW_SIZE=$(df -h / --output=size | tail -1 | tr -d ' ')
+      success "Root filesystem expanded to ${NEW_SIZE}"
     fi
   else
     success "Disk fully allocated"

@@ -4,6 +4,8 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
+import fs from 'fs';
+import path from 'path';
 import * as authService from '../services/auth.service.js';
 import * as securityService from '../services/security.service.js';
 import { sendVerificationEmail } from '../services/email.service.js';
@@ -350,6 +352,33 @@ export async function handleUpdateProfile(req: IncomingMessage, res: ServerRespo
       avatarUrl,
       storagePath,
     });
+
+    // When storage path changes, invalidate cache and create directories
+    if (storagePath) {
+      // Clear the global cache so all modules pick up the new path
+      (globalThis as any).__arcellite_storage_path = null;
+
+      // Resolve and create data directories on the new path
+      try {
+        const os = await import('os');
+        let resolved = storagePath as string;
+        if (resolved.startsWith('~/') || resolved === '~') {
+          resolved = path.join(os.homedir(), resolved.slice(1));
+        }
+        const dirs = ['files', 'photos', 'videos', 'music', 'shared', 'databases', 'databases/sqlite'];
+        for (const sub of dirs) {
+          const dir = path.join(resolved, sub);
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+        }
+        // Set the new path in global cache
+        (globalThis as any).__arcellite_storage_path = resolved;
+        console.log(`[Storage] Data directory set to: ${resolved}`);
+      } catch (e) {
+        console.error('[Storage] Failed to create directories at new path:', e);
+      }
+    }
 
     sendJson(res, 200, { success: true, message: 'Profile updated successfully' });
   } catch (error: any) {

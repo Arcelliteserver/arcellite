@@ -991,3 +991,36 @@ export async function deleteAccount(userId: number): Promise<void> {
     }
   }
 }
+
+/**
+ * Get the resolved storage path for the active user.
+ * Reads storage_path from the first user in the database.
+ * Falls back to ARCELLITE_DATA env var or ~/arcellite-data.
+ */
+export async function getActiveStoragePath(): Promise<string> {
+  const os = await import('os');
+  const path = await import('path');
+
+  // Default fallback
+  let defaultDir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
+  if (defaultDir.startsWith('~/') || defaultDir === '~') {
+    defaultDir = path.join(os.homedir(), defaultDir.slice(1));
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT storage_path FROM users WHERE is_setup_complete = true ORDER BY id ASC LIMIT 1`
+    );
+    if (result.rows.length > 0 && result.rows[0].storage_path) {
+      let storagePath = result.rows[0].storage_path;
+      if (storagePath.startsWith('~/') || storagePath === '~') {
+        storagePath = path.join(os.homedir(), storagePath.slice(1));
+      }
+      return storagePath;
+    }
+  } catch {
+    // DB not ready yet — use default
+  }
+
+  return defaultDir;
+}

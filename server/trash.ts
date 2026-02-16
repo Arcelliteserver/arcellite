@@ -28,6 +28,9 @@ export interface TrashItem {
 }
 
 function getBaseDir(): string {
+  // Use cached user storage path from files.routes if available
+  const cached = (globalThis as any).__arcellite_storage_path;
+  if (cached) return cached;
   let dir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
   if (dir.startsWith('~/') || dir === '~') {
     dir = path.join(os.homedir(), dir.slice(2));

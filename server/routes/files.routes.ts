@@ -14,13 +14,51 @@ function sendVaultLockedError(res: ServerResponse): void {
 }
 
 const homeDir = os.homedir();
-let baseDir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
-// Expand leading ~ to homedir
-if (baseDir.startsWith('~/') || baseDir === '~') {
-  baseDir = path.join(homeDir, baseDir.slice(2));
+
+/** Cached resolved storage path (from user's DB setting) */
+let _cachedBaseDir: string | null = null;
+let _baseDirLastCheck = 0;
+
+/**
+ * Get the active storage directory.
+ * Reads the user's storage_path from the database (cached for 30s).
+ * Falls back to ARCELLITE_DATA env or ~/arcellite-data.
+ */
+async function getBaseDir(): Promise<string> {
+  const now = Date.now();
+  if (_cachedBaseDir && now - _baseDirLastCheck < 30_000) {
+    return _cachedBaseDir;
+  }
+  try {
+    _cachedBaseDir = await authService.getActiveStoragePath();
+    _baseDirLastCheck = now;
+    // Share with other modules (trash.ts, files.ts) via global
+    (globalThis as any).__arcellite_storage_path = _cachedBaseDir;
+    return _cachedBaseDir;
+  } catch {
+    // Fallback if DB isn't ready
+    let dir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
+    if (dir.startsWith('~/') || dir === '~') {
+      dir = path.join(homeDir, dir.slice(2));
+    }
+    return dir;
+  }
+}
+
+/** Synchronous fallback for non-async contexts */
+function getBaseDirSync(): string {
+  if (_cachedBaseDir) return _cachedBaseDir;
+  let dir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
+  if (dir.startsWith('~/') || dir === '~') {
+    dir = path.join(homeDir, dir.slice(2));
+  }
+  return dir;
 }
 
 export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url: string) {
+  // Warm up cache asynchronously (non-blocking)
+  if (!_cachedBaseDir) getBaseDir().catch(() => {});
+
   // File upload
   if (url === '/api/files/upload' && req.method === 'POST') {
     // Check vault lockdown before processing upload
@@ -46,6 +84,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
     });
 
     busboy.on('finish', () => {
+      getBaseDir().then(baseDir => {
       try {
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
@@ -68,6 +107,11 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ error: String((e as Error).message) }));
       }
+      }).catch(e => {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: String((e as Error).message) }));
+      });
     });
 
     req.pipe(busboy);
@@ -86,7 +130,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const targetDir = path.join(baseDir, categoryDir, pathParam);
+        const targetDir = path.join(getBaseDirSync(), categoryDir, pathParam);
 
         if (!fs.existsSync(targetDir)) {
           res.setHeader('Content-Type', 'application/json');
@@ -170,7 +214,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
       const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
       const categoryDir = catMap[category] || 'files';
-      const filePath = path.join(baseDir, categoryDir, pathParam);
+      const filePath = path.join(getBaseDirSync(), categoryDir, pathParam);
 
       if (!fs.existsSync(filePath)) {
         res.statusCode = 404;
@@ -257,7 +301,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
       const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
       const categoryDir = catMap[category] || 'files';
-      const filePath = path.join(baseDir, categoryDir, pathParam);
+      const filePath = path.join(getBaseDirSync(), categoryDir, pathParam);
 
       if (!fs.existsSync(filePath)) {
         res.statusCode = 404;
@@ -291,7 +335,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const targetPath = path.join(baseDir, categoryDir, relativePath);
+        const targetPath = path.join(getBaseDirSync(), categoryDir, relativePath);
 
         fs.mkdirSync(targetPath, { recursive: true });
 
@@ -319,7 +363,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const targetPath = path.join(baseDir, categoryDir, pathParam, name);
+        const targetPath = path.join(getBaseDirSync(), categoryDir, pathParam, name);
 
         fs.mkdirSync(targetPath, { recursive: true });
 
@@ -347,7 +391,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const targetPath = path.join(baseDir, categoryDir, pathParam);
+        const targetPath = path.join(getBaseDirSync(), categoryDir, pathParam);
 
         if (fs.existsSync(targetPath)) {
           fs.rmSync(targetPath, { recursive: true, force: true });
@@ -383,8 +427,8 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const sourceFullPath = path.join(baseDir, categoryDir, sourcePath);
-        const targetFullPath = path.join(baseDir, categoryDir, targetPath);
+        const sourceFullPath = path.join(getBaseDirSync(), categoryDir, sourcePath);
+        const targetFullPath = path.join(getBaseDirSync(), categoryDir, targetPath);
 
         const targetDir = path.dirname(targetFullPath);
         if (!fs.existsSync(targetDir)) {
@@ -420,8 +464,8 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const srcDir = catMap[sourceCategory] || 'files';
         const tgtDir = catMap[targetCategory] || 'files';
-        const sourceFullPath = path.join(baseDir, srcDir, sourcePath);
-        const targetFullPath = path.join(baseDir, tgtDir, targetPath);
+        const sourceFullPath = path.join(getBaseDirSync(), srcDir, sourcePath);
+        const targetFullPath = path.join(getBaseDirSync(), tgtDir, targetPath);
 
         if (!fs.existsSync(sourceFullPath)) {
           res.statusCode = 404;
@@ -563,7 +607,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         savedFileName = savedFileName.replace(/[<>:"|?*]/g, '_');
 
         // Save to vault
-        const targetDir = path.join(baseDir, category);
+        const targetDir = path.join(getBaseDirSync(), category);
         if (!fs.existsSync(targetDir)) {
           fs.mkdirSync(targetDir, { recursive: true });
         }

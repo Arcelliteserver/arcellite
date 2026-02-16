@@ -6,9 +6,15 @@ import archiver from 'archiver';
 import { pool } from '../db/connection.js';
 
 const homeDir = os.homedir();
-let baseDir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
-if (baseDir.startsWith('~/') || baseDir === '~') {
-  baseDir = path.join(homeDir, baseDir.slice(2));
+
+function getBaseDir(): string {
+  const cached = (globalThis as any).__arcellite_storage_path;
+  if (cached) return cached;
+  let dir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
+  if (dir.startsWith('~/') || dir === '~') {
+    dir = path.join(homeDir, dir.slice(2));
+  }
+  return dir;
 }
 
 const CATEGORY_DIR: Record<string, string> = {
@@ -55,7 +61,7 @@ function walkDir(dir: string, basePath: string = ''): Array<{ name: string; path
 function getAllFiles(): Array<{ category: string; name: string; path: string; size: number; modified: string; isFolder: boolean }> {
   const allFiles: Array<{ category: string; name: string; path: string; size: number; modified: string; isFolder: boolean }> = [];
   for (const [category, dirName] of Object.entries(CATEGORY_DIR)) {
-    const categoryPath = path.join(baseDir, dirName);
+    const categoryPath = path.join(getBaseDir(), dirName);
     const files = walkDir(categoryPath);
     for (const file of files) {
       allFiles.push({ category, ...file });
@@ -208,7 +214,7 @@ export function handleExportRoutes(req: IncomingMessage, res: ServerResponse, ur
         const csvData = [csvHeaders.join(','), ...csvRows].join('\n');
 
         // Metadata JSON (local file if it exists)
-        const metadataPath = path.join(baseDir, 'databases', 'metadata.json');
+        const metadataPath = path.join(getBaseDir(), 'databases', 'metadata.json');
         let metadataContent = '{}';
         if (fs.existsSync(metadataPath)) {
           metadataContent = fs.readFileSync(metadataPath, 'utf-8');
