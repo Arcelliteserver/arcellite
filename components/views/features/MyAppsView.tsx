@@ -33,56 +33,22 @@ interface AppConnection {
   webhookUrl?: string;
 }
 
-// Define all available apps with their webhooks
-const AVAILABLE_APPS: AppConnection[] = [
+// All possible apps that can be connected — no defaults pre-filled, user must configure
+const ALL_POSSIBLE_APPS = [
   {
-    id: 'google-drive',
-    name: 'Google Drive',
-    icon: '/assets/apps/google-drive.svg',
-    status: 'disconnected',
-    webhookUrl: 'https://n8n.arcelliteserver.com/webhook/google-files',
+    id: 'google-drive', name: 'Google Drive', icon: '/assets/apps/google-drive.svg',
+    description: 'Access your Google Drive files, Docs, Sheets, and Slides', category: 'storage',
     children: [
-      {
-        name: 'Google Docs',
-        icon: '/assets/apps/google-docs.svg',
-        status: 'disconnected',
-      },
-      {
-        name: 'Google Sheets',
-        icon: '/assets/apps/google-sheets.svg',
-        status: 'disconnected',
-      },
-      {
-        name: 'Google Slides',
-        icon: '/assets/apps/google-slides.svg',
-        status: 'disconnected',
-      },
+      { name: 'Google Docs', icon: '/assets/apps/google-docs.svg', status: 'disconnected' as const },
+      { name: 'Google Sheets', icon: '/assets/apps/google-sheets.svg', status: 'disconnected' as const },
+      { name: 'Google Slides', icon: '/assets/apps/google-slides.svg', status: 'disconnected' as const },
     ],
   },
-  {
-    id: 'microsoft-onedrive',
-    name: 'Microsoft OneDrive',
-    icon: '/assets/apps/microsoft-onedrive.svg',
-    status: 'disconnected',
-    webhookUrl: 'https://n8n.arcelliteserver.com/webhook/onedrive-files',
-  },
-  {
-    id: 'slack',
-    name: 'Slack',
-    icon: '/assets/apps/slack.svg',
-    status: 'disconnected',
-    webhookUrl: 'https://n8n.arcelliteserver.com/webhook/slack-files',
-  },
-];
-
-// All possible apps that can be connected
-const ALL_POSSIBLE_APPS = [
-  { id: 'google-drive', name: 'Google Drive', icon: '/assets/apps/google-drive.svg', description: 'Access your Google Drive files, Docs, Sheets, and Slides', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/google-files', category: 'storage' },
-  { id: 'microsoft-onedrive', name: 'Microsoft OneDrive', icon: '/assets/apps/microsoft-onedrive.svg', description: 'Sync files from your Microsoft OneDrive', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/onedrive-files', category: 'storage' },
-  { id: 'dropbox', name: 'Dropbox', icon: '/assets/apps/dropbox.svg', description: 'Connect your Dropbox cloud storage', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/dropbox-files', category: 'storage' },
-  { id: 'slack', name: 'Slack', icon: '/assets/apps/slack.svg', description: 'Access shared files from Slack channels', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/slack-files', category: 'communication' },
-  { id: 'discord', name: 'Discord', icon: '/assets/apps/discord.svg', description: 'Connect your Discord server and channels', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/discord-files', category: 'communication' },
-  { id: 'azure', name: 'Azure', icon: '/assets/apps/azure.svg', description: 'Connect to Microsoft Azure cloud services', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/azure-files', category: 'cloud' },
+  { id: 'microsoft-onedrive', name: 'Microsoft OneDrive', icon: '/assets/apps/microsoft-onedrive.svg', description: 'Sync files from your Microsoft OneDrive', category: 'storage' },
+  { id: 'dropbox', name: 'Dropbox', icon: '/assets/apps/dropbox.svg', description: 'Connect your Dropbox cloud storage', category: 'storage' },
+  { id: 'slack', name: 'Slack', icon: '/assets/apps/slack.svg', description: 'Access shared files from Slack channels', category: 'communication' },
+  { id: 'discord', name: 'Discord', icon: '/assets/apps/discord.svg', description: 'Connect your Discord server and channels', category: 'communication' },
+  { id: 'azure', name: 'Azure', icon: '/assets/apps/azure.svg', description: 'Connect to Microsoft Azure cloud services', category: 'cloud' },
   { id: 'postgresql', name: 'PostgreSQL', icon: '/assets/apps/postgresql.svg', description: 'Connect to an external PostgreSQL database', category: 'database' },
   { id: 'mysql', name: 'MySQL', icon: '/assets/apps/mysql.svg', description: 'Connect to an external MySQL database', category: 'database' },
   { id: 'n8n', name: 'n8n', icon: '/assets/apps/n8n.svg', description: 'Connect your n8n automation workflows', category: 'automation' },
@@ -90,7 +56,7 @@ const ALL_POSSIBLE_APPS = [
 ];
 
 const MyAppsView: React.FC = () => {
-  // Lazy-initialize apps from localStorage to prevent race condition
+  // Lazy-initialize apps from localStorage (empty by default — user must configure each app)
   const [apps, setApps] = useState<AppConnection[]>(() => {
     const saved = localStorage.getItem('connectedApps');
     if (saved) {
@@ -101,7 +67,7 @@ const MyAppsView: React.FC = () => {
         // Corrupted saved apps — fall through to defaults
       }
     }
-    return AVAILABLE_APPS;
+    return [];
   });
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
@@ -579,6 +545,7 @@ const MyAppsView: React.FC = () => {
     }
 
     // Add new app
+    const meta = ALL_POSSIBLE_APPS.find(a => a.id === selectedNewApp.id);
     const newApp: AppConnection = {
       id: appId,
       name: displayName,
@@ -587,6 +554,7 @@ const MyAppsView: React.FC = () => {
       webhookUrl: !['postgresql', 'mysql', 'n8n'].includes(selectedNewApp.id) 
         ? webhookUrl.trim()
         : undefined,
+      children: (meta as any)?.children,
     };
 
     // Store credentials for database or API apps if needed
@@ -799,8 +767,8 @@ const MyAppsView: React.FC = () => {
           name: meta.name,
           icon: meta.icon,
           status: 'disconnected' as const,
-          webhookUrl: meta.defaultWebhook,
           description: meta.description,
+          children: (meta as any).children,
           isInState: false,
         });
       }
