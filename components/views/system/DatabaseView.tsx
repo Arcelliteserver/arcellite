@@ -1143,27 +1143,48 @@ const DatabaseView: React.FC = () => {
           </div>
 
           {!selectedDbType ? (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
-              {databaseTypes.map((type) => (
-                <button
-                  key={type.id}
-                  onClick={() => setSelectedDbType(type.id)}
-                  className="group relative bg-white rounded-xl md:rounded-2xl border-2 border-gray-100 p-4 md:p-6 hover:border-[#5D5FEF] hover:shadow-lg transition-all text-left"
-                >
-                <div className={`w-12 h-12 md:w-16 md:h-16 rounded-lg md:rounded-xl bg-gradient-to-br ${type.color} shadow-lg mb-3 md:mb-4 flex items-center justify-center p-2.5 md:p-3`}>
-                  <img src={type.icon} alt={type.name} className="w-full h-full object-contain filter brightness-0 invert" />
-                </div>
-                <h4 className="text-sm md:text-base font-black text-gray-900 mb-1 md:mb-2 group-hover:text-[#5D5FEF] transition-colors">
-                  {type.name}
-                </h4>
-                <p className="text-xs text-gray-500 font-medium leading-relaxed">
-                  {type.description}
-                </p>
-                <div className="absolute top-3 md:top-4 right-3 md:right-4 w-6 h-6 rounded-full bg-[#5D5FEF]/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Plus className="w-4 h-4 text-[#5D5FEF]" />
-                </div>
-              </button>
-            ))}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-5">
+              {databaseTypes.map((type) => {
+                const typeCount = databases.filter(d => d.type === type.id).length;
+                const typeRunning = databases.filter(d => d.type === type.id && d.status === 'running').length;
+                return (
+                  <button
+                    key={type.id}
+                    onClick={() => setSelectedDbType(type.id)}
+                    className="group relative bg-white rounded-2xl md:rounded-3xl border-2 border-gray-100 p-5 md:p-7 hover:border-[#5D5FEF] hover:shadow-xl hover:shadow-[#5D5FEF]/5 transition-all duration-300 text-left overflow-hidden"
+                  >
+                    <div className={`absolute inset-0 bg-gradient-to-br ${type.color} opacity-0 group-hover:opacity-[0.03] transition-opacity duration-300`} />
+                    <div className="relative">
+                      <div className={`w-14 h-14 md:w-[4.5rem] md:h-[4.5rem] rounded-2xl md:rounded-[1.25rem] bg-gradient-to-br ${type.color} shadow-lg group-hover:shadow-xl group-hover:scale-105 transition-all duration-300 mb-4 md:mb-5 flex items-center justify-center p-3 md:p-4`}>
+                        <img src={type.icon} alt={type.name} className="w-full h-full object-contain filter brightness-0 invert" />
+                      </div>
+                      <h4 className="text-base md:text-lg font-black text-gray-900 mb-1.5 md:mb-2 group-hover:text-[#5D5FEF] transition-colors">
+                        {type.name}
+                      </h4>
+                      <p className="text-xs md:text-[13px] text-gray-500 font-medium leading-relaxed mb-4 md:mb-5">
+                        {type.description}
+                      </p>
+                      <div className="flex items-center gap-2 pt-3 md:pt-4 border-t border-gray-100">
+                        <span className="text-[10px] md:text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                          {typeCount} {typeCount === 1 ? 'instance' : 'instances'}
+                        </span>
+                        {typeRunning > 0 && (
+                          <>
+                            <span className="text-gray-200">·</span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              <span className="text-[10px] md:text-[11px] font-bold text-emerald-500">{typeRunning} active</span>
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="absolute top-4 md:top-5 right-4 md:right-5 w-8 h-8 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center opacity-0 group-hover:opacity-100 group-hover:scale-100 scale-75 transition-all duration-300">
+                      <Plus className="w-4 h-4 text-[#5D5FEF]" />
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <div className="bg-gray-50 rounded-xl md:rounded-2xl p-4 md:p-6 border-2 border-gray-100">
@@ -1217,50 +1238,76 @@ const DatabaseView: React.FC = () => {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8">
-        <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3 sm:p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row items-center sm:items-center gap-1.5 sm:gap-3">
-            <div className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
-              <Activity className="w-4 sm:w-5 h-4 sm:h-5 text-green-600" />
+      <div className="grid grid-cols-3 gap-2.5 sm:gap-5 mb-6 sm:mb-8">
+        {/* Active Databases */}
+        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-2xl sm:rounded-3xl border border-emerald-200/60 p-4 sm:p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 sm:w-32 sm:h-32 bg-emerald-200/20 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-emerald-500 shadow-lg shadow-emerald-500/25 flex items-center justify-center mb-3 sm:mb-4">
+              <Activity className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
             </div>
-            <div className="text-center sm:text-left">
-              <p className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider">Active</p>
-              <p className="text-lg sm:text-2xl font-black text-gray-900">
-                {databases.filter((db) => db.status === 'running').length}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3 sm:p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row items-center sm:items-center gap-1.5 sm:gap-3">
-            <div className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
-              <Server className="w-4 sm:w-5 h-4 sm:h-5 text-gray-600" />
-            </div>
-            <div className="text-center sm:text-left">
-              <p className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider">Total</p>
-              <p className="text-lg sm:text-2xl font-black text-gray-900">{databases.length}</p>
+            <p className="text-2xl sm:text-4xl font-black text-gray-900 leading-none mb-1">
+              {databases.filter((db) => db.status === 'running').length}
+            </p>
+            <p className="text-[10px] sm:text-xs font-bold text-emerald-600/80 uppercase tracking-wider">Active</p>
+            <div className="mt-2 sm:mt-3 flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[9px] sm:text-[10px] font-semibold text-emerald-500">
+                {databases.filter((db) => db.status === 'running').length === databases.length ? 'All running' : `${databases.filter((db) => db.status !== 'running').length} stopped`}
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl sm:rounded-2xl border-2 border-gray-100 p-3 sm:p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row items-center sm:items-center gap-1.5 sm:gap-3">
-            <div className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-              <HardDrive className="w-4 sm:w-5 h-4 sm:h-5 text-blue-600" />
+        {/* Total Databases */}
+        <div className="bg-gradient-to-br from-violet-50 to-indigo-100/50 rounded-2xl sm:rounded-3xl border border-violet-200/60 p-4 sm:p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 sm:w-32 sm:h-32 bg-violet-200/20 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-[#5D5FEF] shadow-lg shadow-[#5D5FEF]/25 flex items-center justify-center mb-3 sm:mb-4">
+              <Database className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
             </div>
-            <div className="text-center sm:text-left">
-              <p className="text-[9px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider">Storage</p>
-              <p className="text-lg sm:text-2xl font-black text-gray-900">
+            <p className="text-2xl sm:text-4xl font-black text-gray-900 leading-none mb-1">{databases.length}</p>
+            <p className="text-[10px] sm:text-xs font-bold text-violet-600/80 uppercase tracking-wider">Total</p>
+            <div className="mt-2 sm:mt-3 flex items-center gap-1 flex-wrap">
+              {(() => {
+                const pg = databases.filter(d => d.type === 'postgresql').length;
+                const my = databases.filter(d => d.type === 'mysql').length;
+                const sq = databases.filter(d => d.type === 'sqlite').length;
+                const parts: string[] = [];
+                if (pg) parts.push(`${pg} PG`);
+                if (my) parts.push(`${my} MySQL`);
+                if (sq) parts.push(`${sq} SQLite`);
+                return <span className="text-[9px] sm:text-[10px] font-semibold text-violet-500">{parts.join(' · ') || 'No databases'}</span>;
+              })()}
+            </div>
+          </div>
+        </div>
+
+        {/* Storage Used */}
+        <div className="bg-gradient-to-br from-blue-50 to-sky-100/50 rounded-2xl sm:rounded-3xl border border-blue-200/60 p-4 sm:p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 sm:w-32 sm:h-32 bg-blue-200/20 rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-blue-500 shadow-lg shadow-blue-500/25 flex items-center justify-center mb-3 sm:mb-4">
+              <HardDrive className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+            </div>
+            <p className="text-2xl sm:text-4xl font-black text-gray-900 leading-none mb-1">
+              {(() => {
+                const totalBytes = databases.reduce((acc, db: any) => acc + (db.sizeBytes || 0), 0);
+                if (totalBytes === 0) return '0 B';
+                const k = 1024;
+                const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(totalBytes) / Math.log(k));
+                return `${parseFloat((totalBytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+              })()}
+            </p>
+            <p className="text-[10px] sm:text-xs font-bold text-blue-600/80 uppercase tracking-wider">Storage</p>
+            <div className="mt-2 sm:mt-3">
+              <span className="text-[9px] sm:text-[10px] font-semibold text-blue-500">
                 {(() => {
-                  const totalBytes = databases.reduce((acc, db: any) => acc + (db.sizeBytes || 0), 0);
-                  if (totalBytes === 0) return '0 B';
-                  const k = 1024;
-                  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-                  const i = Math.floor(Math.log(totalBytes) / Math.log(k));
-                  return `${parseFloat((totalBytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+                  const largest = databases.reduce((max, db: any) => (db.sizeBytes || 0) > (max.sizeBytes || 0) ? db : max, databases[0]);
+                  return largest ? `Largest: ${largest.name}` : 'No data';
                 })()}
-              </p>
+              </span>
             </div>
           </div>
         </div>
