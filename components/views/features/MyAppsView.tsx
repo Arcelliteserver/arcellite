@@ -77,16 +77,16 @@ const AVAILABLE_APPS: AppConnection[] = [
 
 // All possible apps that can be connected
 const ALL_POSSIBLE_APPS = [
-  { id: 'google-drive', name: 'Google Drive', icon: '/assets/apps/google-drive.svg' },
-  { id: 'microsoft-onedrive', name: 'Microsoft OneDrive', icon: '/assets/apps/microsoft-onedrive.svg' },
-  { id: 'dropbox', name: 'Dropbox', icon: '/assets/apps/dropbox.svg' },
-  { id: 'slack', name: 'Slack', icon: '/assets/apps/slack.svg' },
-  { id: 'discord', name: 'Discord', icon: '/assets/apps/discord.svg' },
-  { id: 'azure', name: 'Azure', icon: '/assets/apps/azure.svg' },
-  { id: 'postgresql', name: 'PostgreSQL', icon: '/assets/apps/postgresql.svg' },
-  { id: 'mysql', name: 'MySQL', icon: '/assets/apps/mysql.svg' },
-  { id: 'n8n', name: 'n8n', icon: '/assets/apps/n8n.svg' },
-  { id: 'mcp', name: 'MCP', icon: '/assets/apps/mcp.svg' },
+  { id: 'google-drive', name: 'Google Drive', icon: '/assets/apps/google-drive.svg', description: 'Access your Google Drive files, Docs, Sheets, and Slides', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/google-files', category: 'storage' },
+  { id: 'microsoft-onedrive', name: 'Microsoft OneDrive', icon: '/assets/apps/microsoft-onedrive.svg', description: 'Sync files from your Microsoft OneDrive', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/onedrive-files', category: 'storage' },
+  { id: 'dropbox', name: 'Dropbox', icon: '/assets/apps/dropbox.svg', description: 'Connect your Dropbox cloud storage', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/dropbox-files', category: 'storage' },
+  { id: 'slack', name: 'Slack', icon: '/assets/apps/slack.svg', description: 'Access shared files from Slack channels', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/slack-files', category: 'communication' },
+  { id: 'discord', name: 'Discord', icon: '/assets/apps/discord.svg', description: 'Connect your Discord server and channels', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/discord-files', category: 'communication' },
+  { id: 'azure', name: 'Azure', icon: '/assets/apps/azure.svg', description: 'Connect to Microsoft Azure cloud services', defaultWebhook: 'https://n8n.arcelliteserver.com/webhook/azure-files', category: 'cloud' },
+  { id: 'postgresql', name: 'PostgreSQL', icon: '/assets/apps/postgresql.svg', description: 'Connect to an external PostgreSQL database', category: 'database' },
+  { id: 'mysql', name: 'MySQL', icon: '/assets/apps/mysql.svg', description: 'Connect to an external MySQL database', category: 'database' },
+  { id: 'n8n', name: 'n8n', icon: '/assets/apps/n8n.svg', description: 'Connect your n8n automation workflows', category: 'automation' },
+  { id: 'mcp', name: 'MCP', icon: '/assets/apps/mcp.svg', description: 'Connect a Model Context Protocol server', category: 'ai' },
 ];
 
 const MyAppsView: React.FC = () => {
@@ -119,8 +119,8 @@ const MyAppsView: React.FC = () => {
     }
     return new Set();
   });
-  const [showAddAppModal, setShowAddAppModal] = useState(false);
-  const [modalStep, setModalStep] = useState<1 | 2 | 3>(1); // Step 1: Select, Step 2: Configure, Step 3: Connect
+  const [expandingNewAppId, setExpandingNewAppId] = useState<string | null>(null);
+  const [modifyingAppId, setModifyingAppId] = useState<string | null>(null);
   const [selectedNewApp, setSelectedNewApp] = useState<typeof ALL_POSSIBLE_APPS[0] | null>(null);
   const [webhookUrl, setWebhookUrl] = useState('');
   const [dbCredentials, setDbCredentials] = useState({
@@ -712,18 +712,6 @@ const MyAppsView: React.FC = () => {
     return appId && ['n8n', 'mcp'].includes(appId);
   };
 
-  const getAvailableAppsForModal = () => {
-    // Always show the main 3 apps (Google Drive, OneDrive, Slack)
-    const mainApps = ['google-drive', 'microsoft-onedrive', 'slack'];
-    const filtered = ALL_POSSIBLE_APPS.filter(app => {
-      // Always include main apps
-      if (mainApps.includes(app.id)) return true;
-      // For other apps, only show if not already connected
-      return !apps.some(a => a.id === app.id);
-    });
-    return filtered;
-  };
-
   const hasCredentials = (app: AppConnection) => {
     return !!(
       (app as any).webhookUrl ||
@@ -954,21 +942,19 @@ const MyAppsView: React.FC = () => {
                       </button>
                       <button
                         onClick={() => {
-                          setSelectedNewApp({ id: app.id, name: app.name, icon: app.icon });
-                          setWebhookUrl((app as any).webhookUrl || '');
-                          if ((app as any).credentials) {
-                            setDbCredentials((app as any).credentials);
+                          if (modifyingAppId === app.id) {
+                            setModifyingAppId(null);
+                          } else {
+                            setModifyingAppId(app.id);
+                            setWebhookUrl((app as any).webhookUrl || '');
+                            if ((app as any).credentials) setDbCredentials((app as any).credentials);
+                            if ((app as any).apiCredentials) setApiCredentials((app as any).apiCredentials);
                           }
-                          if ((app as any).apiCredentials) {
-                            setApiCredentials((app as any).apiCredentials);
-                          }
-                          setModalStep(2);
-                          setShowAddAppModal(true);
                         }}
                         className="w-full px-4 md:px-6 py-2.5 md:py-3 bg-gradient-to-r from-[#5D5FEF]/80 to-[#4D4FCF]/80 text-white rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest hover:from-[#5D5FEF] hover:to-[#4D4FCF] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#5D5FEF]/15 hover:shadow-xl hover:shadow-[#5D5FEF]/25 active:scale-95"
                       >
                         <RefreshCw className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                        <span>Modify</span>
+                        <span>{modifyingAppId === app.id ? 'Cancel' : 'Modify'}</span>
                       </button>
                     </div>
                   ) : (
@@ -993,27 +979,95 @@ const MyAppsView: React.FC = () => {
                       {hasCredentials(app) && (
                         <button
                           onClick={() => {
-                            setSelectedNewApp({ id: app.id, name: app.name, icon: app.icon });
-                            setWebhookUrl((app as any).webhookUrl || '');
-                            if ((app as any).credentials) {
-                              setDbCredentials((app as any).credentials);
+                            if (modifyingAppId === app.id) {
+                              setModifyingAppId(null);
+                            } else {
+                              setModifyingAppId(app.id);
+                              setWebhookUrl((app as any).webhookUrl || '');
+                              if ((app as any).credentials) setDbCredentials((app as any).credentials);
+                              if ((app as any).apiCredentials) setApiCredentials((app as any).apiCredentials);
                             }
-                            if ((app as any).apiCredentials) {
-                              setApiCredentials((app as any).apiCredentials);
-                            }
-                            setModalStep(2);
-                            setShowAddAppModal(true);
                           }}
                           className="w-full px-4 md:px-6 py-2.5 md:py-3 bg-gradient-to-r from-[#5D5FEF]/80 to-[#4D4FCF]/80 text-white rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest hover:from-[#5D5FEF] hover:to-[#4D4FCF] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#5D5FEF]/15 hover:shadow-xl hover:shadow-[#5D5FEF]/25 active:scale-95"
                         >
                           <RefreshCw className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                          <span>Modify</span>
+                          <span>{modifyingAppId === app.id ? 'Cancel' : 'Modify'}</span>
                         </button>
                       )}
                     </div>
                   )}
                 </div>
               </div>
+
+              {/* Inline Modify Form */}
+              {modifyingAppId === app.id && (
+                <div className="mx-5 md:mx-6 lg:mx-8 mb-4 p-4 md:p-5 bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-200 animate-in slide-in-from-top-2 duration-200">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Update Connection</p>
+                  {isDatabaseApp(app.id) ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Host</label>
+                          <input type="text" value={dbCredentials.host} onChange={(e) => setDbCredentials(prev => ({ ...prev, host: e.target.value }))} placeholder="localhost" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Port</label>
+                          <input type="text" value={dbCredentials.port} onChange={(e) => setDbCredentials(prev => ({ ...prev, port: e.target.value }))} placeholder={app.id === 'postgresql' ? '5432' : '3306'} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Username</label>
+                        <input type="text" value={dbCredentials.username} onChange={(e) => setDbCredentials(prev => ({ ...prev, username: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Password</label>
+                        <input type="password" value={dbCredentials.password} onChange={(e) => setDbCredentials(prev => ({ ...prev, password: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Database</label>
+                        <input type="text" value={dbCredentials.database} onChange={(e) => setDbCredentials(prev => ({ ...prev, database: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                      </div>
+                    </div>
+                  ) : isApiApp(app.id) ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">API URL</label>
+                        <input type="text" value={apiCredentials.apiUrl} onChange={(e) => setApiCredentials(prev => ({ ...prev, apiUrl: e.target.value }))} placeholder="http://192.168.5.0:5678" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">API Key</label>
+                        <input type="password" value={apiCredentials.apiKey} onChange={(e) => setApiCredentials(prev => ({ ...prev, apiKey: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Webhook URL</label>
+                      <input type="text" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono" />
+                    </div>
+                  )}
+                  <div className="flex gap-3 mt-4">
+                    <button onClick={() => setModifyingAppId(null)} className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all">
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        setApps(prev => prev.map(a => {
+                          if (a.id !== app.id) return a;
+                          const updated = { ...a };
+                          if (isDatabaseApp(app.id)) (updated as any).credentials = { ...dbCredentials };
+                          else if (isApiApp(app.id)) (updated as any).apiCredentials = { ...apiCredentials };
+                          else updated.webhookUrl = webhookUrl;
+                          return updated;
+                        }));
+                        setModifyingAppId(null);
+                      }}
+                      className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Children Apps - Only show when not collapsed */}
               {app.children && app.children.length > 0 && app.status === 'connected' && !collapsedConnectedApps.has(app.id) && (
@@ -1248,397 +1302,210 @@ const MyAppsView: React.FC = () => {
           </div>
         ))}
 
-        {/* Add More Apps Section */}
-        <div className="bg-gradient-to-br from-gray-50 via-white to-gray-50 rounded-[2.5rem] border-2 border-dashed border-gray-200 p-10 text-center hover:border-[#5D5FEF]/30 transition-all duration-300 group/add">
-          <div className="w-16 h-16 rounded-2xl bg-white border-2 border-dashed border-gray-200 flex items-center justify-center mx-auto mb-4 group-hover/add:border-[#5D5FEF]/30 group-hover/add:bg-[#5D5FEF]/5 transition-all">
-            <span className="text-3xl text-gray-300 group-hover/add:text-[#5D5FEF] transition-colors">+</span>
+        {/* Available Apps — inline list with expandable forms */}
+        <div className="mt-2">
+          <div className="flex items-center gap-3 mb-4 md:mb-6">
+            <div className="w-1 h-6 bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full" />
+            <h3 className="text-lg md:text-xl font-black text-gray-900">Available Apps</h3>
+            <span className="px-2.5 py-1 bg-gray-100 rounded-full text-[9px] font-black text-gray-500 uppercase tracking-widest">
+              {ALL_POSSIBLE_APPS.length}
+            </span>
           </div>
-          <p className="text-gray-500 font-black text-sm mb-3">Want to connect more apps?</p>
-          <button 
-            onClick={() => setShowAddAppModal(true)}
-            className="px-8 py-3.5 bg-white text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 border-gray-100 hover:border-[#5D5FEF]/30 hover:bg-[#5D5FEF]/5 hover:text-[#5D5FEF] transition-all shadow-sm hover:shadow-md active:scale-95"
-          >
-            + Connect App
-          </button>
-        </div>
-      </div>
 
-      {/* Add App Modal */}
-      {showAddAppModal && (
-        <>
-          <div 
-            className="fixed inset-0 bg-black/50 z-[600] animate-in fade-in duration-200"
-            onClick={() => {
-              setShowAddAppModal(false);
-              setModalStep(1);
-              setSelectedNewApp(null);
-              setWebhookUrl('');
-              setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
-              setApiCredentials({ apiUrl: '', apiKey: '' });
-            }}
-          />
-          <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 animate-in fade-in zoom-in duration-200">
-            <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg">
-              {/* Modal Header with Step Indicator */}
-              <div className="bg-gradient-to-r from-[#5D5FEF]/10 to-[#5D5FEF]/5 px-6 md:px-8 py-6 md:py-8 border-b border-gray-100">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-xl md:text-2xl font-black text-gray-900">
-                      {modalStep === 1 && 'Select App'}
-                      {modalStep === 2 && 'Configure Credentials'}
-                      {modalStep === 3 && selectedNewApp?.name && `Connecting ${selectedNewApp.name}...`}
-                    </h3>
-                    <p className="text-xs md:text-sm text-gray-500 mt-1">
-                      {modalStep === 1 && 'Choose an application to connect'}
-                      {modalStep === 2 && selectedNewApp?.name && `Set up ${selectedNewApp.name}`}
-                      {modalStep === 3 && 'Please wait while we establish the connection'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowAddAppModal(false);
-                      setModalStep(1);
-                      setSelectedNewApp(null);
-                      setWebhookUrl('');
-                      setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
-                      setApiCredentials({ apiUrl: '', apiKey: '' });
-                    }}
-                    className="p-2 hover:bg-gray-100 rounded-xl transition-colors flex-shrink-0"
-                  >
-                    <X className="w-5 h-5 text-gray-400" />
-                  </button>
-                </div>
-                
-                {/* Step Indicator */}
-                <div className="flex items-center gap-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all ${
-                    modalStep >= 1 ? 'bg-[#5D5FEF] text-white' : 'bg-gray-100 text-gray-400'
-                  }`}>
-                    {modalStep > 1 ? <Check className="w-4 h-4" /> : '1'}
-                  </div>
-                  <div className={`flex-1 h-1 rounded-full transition-all ${modalStep > 1 ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`} />
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all ${
-                    modalStep >= 2 ? 'bg-[#5D5FEF] text-white' : 'bg-gray-100 text-gray-400'
-                  }`}>
-                    {modalStep > 2 ? <Check className="w-4 h-4" /> : '2'}
-                  </div>
-                  <div className={`flex-1 h-1 rounded-full transition-all ${modalStep > 2 ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`} />
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all ${
-                    modalStep >= 3 ? 'bg-[#5D5FEF] text-white' : 'bg-gray-100 text-gray-400'
-                  }`}>
-                    3
-                  </div>
-                </div>
-              </div>
+          <div className="space-y-3">
+            {ALL_POSSIBLE_APPS.map(availableApp => {
+              const isExpanded = expandingNewAppId === availableApp.id;
+              const isAlreadyAdded = apps.some(a => a.id === availableApp.id);
+              const isAlreadyConnected = connectedAppIds.has(availableApp.id);
+              const allowMultiple = ['n8n', 'mcp'].includes(availableApp.id);
+              const canConnect = !isAlreadyAdded || allowMultiple;
 
-              {/* Modal Content */}
-              <div className="p-6 md:p-8">
-                {/* STEP 1: Select App */}
-                {modalStep === 1 && (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[50vh] overflow-y-auto">
-                      {getAvailableAppsForModal().map(app => {
-                        const isConnected = connectedAppIds.has(app.id);
-                        return (
-                          <button
-                            key={app.id}
-                            onClick={() => {
-                              setSelectedNewApp(app);
-                              setModalStep(2);
-                            }}
-                            className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition-all relative ${
-                              'border-gray-100 bg-white hover:border-[#5D5FEF]/30 hover:bg-[#5D5FEF]/5'
-                            }`}
-                          >
-                            <img src={app.icon} alt={app.name} className="w-8 h-8 object-contain" />
-                            <span className="text-[10px] font-bold text-gray-700 text-center line-clamp-2">
-                              {app.name}
-                            </span>
-                            {isConnected && (
-                              <div className="absolute top-2 right-2 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                                <Check className="w-3 h-3 text-white" />
-                              </div>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {getAvailableAppsForModal().length === 0 && (
-                      <div className="text-center py-8">
-                        <p className="text-sm text-gray-400">All apps connected!</p>
+              return (
+                <div
+                  key={availableApp.id}
+                  className={`bg-white rounded-2xl border-2 transition-all duration-300 overflow-hidden ${
+                    isExpanded
+                      ? 'border-[#5D5FEF]/30 shadow-lg shadow-[#5D5FEF]/10'
+                      : isAlreadyConnected
+                        ? 'border-green-200/60 opacity-60'
+                        : 'border-gray-100 hover:border-gray-200'
+                  }`}
+                >
+                  {/* App header row */}
+                  <div className="flex items-center justify-between p-4 md:p-5">
+                    <div className="flex items-center gap-3 md:gap-4">
+                      <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center border ${
+                        isAlreadyConnected ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'
+                      }`}>
+                        <img src={availableApp.icon} alt={availableApp.name} className="w-6 h-6 md:w-7 md:h-7 object-contain" />
                       </div>
-                    )}
-                  </div>
-                )}
-
-                {/* STEP 2: Configure Credentials */}
-                {modalStep === 2 && selectedNewApp && (
-                  <div className="space-y-4 max-h-[55vh] overflow-y-auto">
-                    {/* Selected App Display */}
-                    <div className="bg-gradient-to-br from-[#5D5FEF]/5 to-[#5D5FEF]/10 rounded-xl p-4 border border-[#5D5FEF]/20 flex items-center gap-3">
-                      <img src={selectedNewApp.icon} alt={selectedNewApp.name} className="w-10 h-10 object-contain" />
                       <div>
-                        <p className="font-bold text-gray-900">{selectedNewApp.name}</p>
-                        <p className="text-[10px] text-gray-500">
-                          {isDatabaseApp(selectedNewApp.id) 
-                            ? 'Enter database credentials' 
-                            : isApiApp(selectedNewApp.id)
-                            ? 'Enter API credentials'
-                            : 'Configure webhook'
+                        <h4 className="text-sm md:text-base font-black text-gray-900">{availableApp.name}</h4>
+                        <p className="text-[10px] md:text-xs text-gray-400 mt-0.5">{availableApp.description}</p>
+                      </div>
+                    </div>
+                    {canConnect ? (
+                      <button
+                        onClick={() => {
+                          if (isExpanded) {
+                            setExpandingNewAppId(null);
+                            setSelectedNewApp(null);
+                            setError(null);
+                          } else {
+                            setExpandingNewAppId(availableApp.id);
+                            setSelectedNewApp(availableApp);
+                            // Pre-fill defaults
+                            if ((availableApp as any).defaultWebhook) {
+                              setWebhookUrl((availableApp as any).defaultWebhook);
+                            } else {
+                              setWebhookUrl('');
+                            }
+                            setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
+                            setApiCredentials({ apiUrl: '', apiKey: '' });
+                            setError(null);
                           }
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Webhook URL Input */}
-                    {!isDatabaseApp(selectedNewApp.id) && !isApiApp(selectedNewApp.id) && (
-                      <div>
-                        <label className="text-[9px] md:text-[10px] font-black text-gray-700 uppercase tracking-widest mb-2 block">
-                          Webhook URL
-                        </label>
-                        <input
-                          type="text"
-                          value={webhookUrl}
-                          onChange={(e) => setWebhookUrl(e.target.value)}
-                          placeholder="https://n8n.example.com/webhook/your-workflow"
-                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 font-mono text-sm"
-                        />
-                        <p className="text-[9px] text-gray-400 mt-2">
-                          Enter the webhook URL from your n8n workflow or integration service
-                        </p>
-                      </div>
+                        }}
+                        className={`px-4 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex-shrink-0 ${
+                          isExpanded
+                            ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            : 'bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white hover:from-[#4D4FCF] hover:to-[#3D3FBF] shadow-sm active:scale-95'
+                        }`}
+                      >
+                        {isExpanded ? 'Cancel' : 'Connect'}
+                      </button>
+                    ) : (
+                      <span className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-green-50 text-green-600 border border-green-200 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Connected
+                      </span>
                     )}
+                  </div>
 
-                    {/* API Credentials Input (for n8n, MCP) */}
-                    {isApiApp(selectedNewApp.id) && (
-                      <div className="space-y-4">
-                        <p className="text-[9px] text-gray-500">
-                          Enter your {selectedNewApp.name} instance credentials:
-                        </p>
+                  {/* Expanded inline form */}
+                  {isExpanded && (
+                    <div className="px-4 md:px-5 pb-4 md:pb-5 border-t border-gray-100 pt-4 animate-in slide-in-from-top-2 duration-200">
+                      {/* Webhook URL apps */}
+                      {!isDatabaseApp(availableApp.id) && !isApiApp(availableApp.id) && (
                         <div>
-                          <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-2 block">
-                            {selectedNewApp.name} API URL
-                          </label>
+                          <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Webhook URL</label>
                           <input
                             type="text"
-                            value={apiCredentials.apiUrl}
-                            onChange={(e) => setApiCredentials(prev => ({ ...prev, apiUrl: e.target.value }))}
-                            placeholder="http://192.168.5.0:5678"
-                            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono"
+                            value={webhookUrl}
+                            onChange={(e) => setWebhookUrl(e.target.value)}
+                            placeholder="https://n8n.example.com/webhook/your-workflow"
+                            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 font-mono text-sm"
                           />
-                          <p className="text-[9px] text-gray-400 mt-1">
-                            Your {selectedNewApp.name} instance URL (including http:// or https://)
-                          </p>
+                          <p className="text-[9px] text-gray-400 mt-1.5">Pre-filled with default Arcellite webhook. Modify if using a custom endpoint.</p>
                         </div>
-                        <div>
-                          <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-2 block">
-                            API Key
-                          </label>
-                          <input
-                            type="password"
-                            value={apiCredentials.apiKey}
-                            onChange={(e) => setApiCredentials(prev => ({ ...prev, apiKey: e.target.value }))}
-                            placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono"
-                          />
-                          <p className="text-[9px] text-gray-400 mt-1">
-                            Your API key from {selectedNewApp.name} settings
-                          </p>
-                        </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Database Credentials Input */}
-                    {isDatabaseApp(selectedNewApp.id) && (
-                      <div className="space-y-4">
-                        <p className="text-[9px] text-gray-500 mb-4">
-                          Enter your database connection details:
-                        </p>
-                        <div className="grid grid-cols-2 gap-3">
+                      {/* API apps (n8n, MCP) */}
+                      {isApiApp(availableApp.id) && (
+                        <div className="space-y-3">
                           <div>
-                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-2 block">
-                              Host
-                            </label>
+                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">{availableApp.name} API URL</label>
                             <input
                               type="text"
-                              value={dbCredentials.host}
-                              onChange={(e) => setDbCredentials(prev => ({ ...prev, host: e.target.value }))}
-                              placeholder="localhost"
-                              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm"
+                              value={apiCredentials.apiUrl}
+                              onChange={(e) => setApiCredentials(prev => ({ ...prev, apiUrl: e.target.value }))}
+                              placeholder="http://192.168.5.0:5678"
+                              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono"
                             />
                           </div>
                           <div>
-                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-2 block">
-                              Port
-                            </label>
-                            <input
-                              type="text"
-                              value={dbCredentials.port}
-                              onChange={(e) => setDbCredentials(prev => ({ ...prev, port: e.target.value }))}
-                              placeholder={selectedNewApp.id === 'postgresql' ? '5432' : '3306'}
-                              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm"
-                            />
-                          </div>
-                          <div className="col-span-2">
-                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-2 block">
-                              Username
-                            </label>
-                            <input
-                              type="text"
-                              value={dbCredentials.username}
-                              onChange={(e) => setDbCredentials(prev => ({ ...prev, username: e.target.value }))}
-                              placeholder="admin"
-                              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm"
-                            />
-                          </div>
-                          <div className="col-span-2">
-                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-2 block">
-                              Password (Optional)
-                            </label>
+                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">API Key / Bearer Token</label>
                             <input
                               type="password"
-                              value={dbCredentials.password}
-                              onChange={(e) => setDbCredentials(prev => ({ ...prev, password: e.target.value }))}
-                              placeholder="••••••••"
-                              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm"
-                            />
-                          </div>
-                          <div className="col-span-2">
-                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-2 block">
-                              Database Name
-                            </label>
-                            <input
-                              type="text"
-                              value={dbCredentials.database}
-                              onChange={(e) => setDbCredentials(prev => ({ ...prev, database: e.target.value }))}
-                              placeholder="mydb"
-                              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm"
+                              value={apiCredentials.apiKey}
+                              onChange={(e) => setApiCredentials(prev => ({ ...prev, apiKey: e.target.value }))}
+                              placeholder="eyJhbGciOiJIUzI1NiIs..."
+                              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono"
                             />
                           </div>
                         </div>
-                      </div>
-                    )}
-
-                    {/* Show error if any */}
-                    {error && (
-                      <div className="flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                        <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                        <p className="text-[9px] text-red-600">{error}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* STEP 3: Connecting */}
-                {modalStep === 3 && selectedNewApp && (
-                  <div className="space-y-4 py-8 text-center">
-                    {loading[selectedNewApp.id] ? (
-                      <>
-                        <div className="flex justify-center mb-4">
-                          <Loader2 className="w-12 h-12 text-[#5D5FEF] animate-spin" />
-                        </div>
-                        <p className="text-sm font-bold text-gray-700">Connecting to {selectedNewApp.name}...</p>
-                        <p className="text-xs text-gray-500">Please wait while we establish the connection</p>
-                      </>
-                    ) : apps.find(a => a.id === selectedNewApp.id)?.status === 'connected' ? (
-                      <>
-                        <div className="flex justify-center mb-4">
-                          <CheckCircle2 className="w-12 h-12 text-green-500" />
-                        </div>
-                        <p className="text-sm font-bold text-gray-700">{selectedNewApp.name} Connected!</p>
-                        <p className="text-xs text-gray-500">{apps.find(a => a.id === selectedNewApp.id)?.statusMessage}</p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex justify-center mb-4">
-                          <XCircle className="w-12 h-12 text-red-500" />
-                        </div>
-                        <p className="text-sm font-bold text-gray-700">Connection Failed</p>
-                        <p className="text-xs text-gray-500">{apps.find(a => a.id === selectedNewApp.id)?.statusMessage}</p>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Modal Footer */}
-              <div className="px-6 md:px-8 py-4 border-t border-gray-100 flex items-center gap-3">
-                {modalStep === 1 && (
-                  <button
-                    onClick={() => {
-                      setShowAddAppModal(false);
-                      setModalStep(1);
-                      setSelectedNewApp(null);
-                      setWebhookUrl('');
-                      setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
-                      setApiCredentials({ apiUrl: '', apiKey: '' });
-                    }}
-                    className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
-                  >
-                    Close
-                  </button>
-                )}
-                {modalStep === 2 && (
-                  <>
-                    <button
-                      onClick={() => setModalStep(1)}
-                      className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
-                    >
-                      Back
-                    </button>
-                    <button
-                      onClick={() => {
-                        setModalStep(3);
-                        handleAddApp();
-                      }}
-                      disabled={loading[selectedNewApp.id] || (
-                        isDatabaseApp(selectedNewApp.id) 
-                          ? !dbCredentials.host || !dbCredentials.port || !dbCredentials.username || !dbCredentials.database
-                          : isApiApp(selectedNewApp.id)
-                          ? !apiCredentials.apiUrl.trim() || !apiCredentials.apiKey.trim()
-                          : !webhookUrl.trim()
                       )}
-                      className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                      <ArrowRight className="w-3.5 h-3.5" />
-                      Connect
-                    </button>
-                  </>
-                )}
-                {modalStep === 3 && (
-                  <>
-                    <button
-                      onClick={() => {
-                        setModalStep(1);
-                        setSelectedNewApp(null);
-                        setWebhookUrl('');
-                        setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
-                        setApiCredentials({ apiUrl: '', apiKey: '' });
-                      }}
-                      className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
-                    >
-                      Add Another
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowAddAppModal(false);
-                        setModalStep(1);
-                        setSelectedNewApp(null);
-                        setWebhookUrl('');
-                        setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
-                        setApiCredentials({ apiUrl: '', apiKey: '' });
-                      }}
-                      className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all"
-                    >
-                      Done
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
+
+                      {/* Database apps */}
+                      {isDatabaseApp(availableApp.id) && (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Host</label>
+                              <input type="text" value={dbCredentials.host} onChange={(e) => setDbCredentials(prev => ({ ...prev, host: e.target.value }))} placeholder="localhost" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Port</label>
+                              <input type="text" value={dbCredentials.port} onChange={(e) => setDbCredentials(prev => ({ ...prev, port: e.target.value }))} placeholder={availableApp.id === 'postgresql' ? '5432' : '3306'} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Username</label>
+                            <input type="text" value={dbCredentials.username} onChange={(e) => setDbCredentials(prev => ({ ...prev, username: e.target.value }))} placeholder="admin" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Password</label>
+                            <input type="password" value={dbCredentials.password} onChange={(e) => setDbCredentials(prev => ({ ...prev, password: e.target.value }))} placeholder="••••••••" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Database Name</label>
+                            <input type="text" value={dbCredentials.database} onChange={(e) => setDbCredentials(prev => ({ ...prev, database: e.target.value }))} placeholder="mydb" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm" />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Error */}
+                      {error && (
+                        <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg mt-3">
+                          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                          <p className="text-[10px] text-red-600">{error}</p>
+                        </div>
+                      )}
+
+                      {/* Loading state */}
+                      {loading[availableApp.id] && (
+                        <div className="flex items-center gap-2 mt-3 text-[#5D5FEF]">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span className="text-xs font-bold">Connecting...</span>
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex gap-3 mt-4">
+                        <button
+                          onClick={() => {
+                            setExpandingNewAppId(null);
+                            setSelectedNewApp(null);
+                            setError(null);
+                          }}
+                          className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleAddApp();
+                          }}
+                          disabled={loading[availableApp.id] || (
+                            isDatabaseApp(availableApp.id)
+                              ? !dbCredentials.host || !dbCredentials.port || !dbCredentials.username || !dbCredentials.database
+                              : isApiApp(availableApp.id)
+                                ? !apiCredentials.apiUrl.trim() || !apiCredentials.apiKey.trim()
+                                : !webhookUrl.trim()
+                          )}
+                          className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          <ArrowRight className="w-3.5 h-3.5" />
+                          Connect
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </>
-      )}
+        </div>
+      </div>
     </div>
   );
 };
