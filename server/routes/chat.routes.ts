@@ -242,5 +242,33 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
     return true;
   }
 
+  // ── Generate AI title for conversation ─────────────────────────
+  if (url === '/api/chat/generate-title' && req.method === 'POST') {
+    parseBody(req).then(async (body) => {
+      try {
+        const { conversationId, userMessage, assistantMessage, model } = body;
+        if (!conversationId || !userMessage || !assistantMessage) {
+          sendError(res, 'conversationId, userMessage, and assistantMessage are required', 400);
+          return;
+        }
+        const { generateChatTitle } = await import('../ai.js');
+        const result = await generateChatTitle(userMessage, assistantMessage, model);
+        if (result.ok && result.title) {
+          await ensureChatSchema();
+          await chatPool.query(
+            'UPDATE chat_conversations SET title = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [result.title, conversationId]
+          );
+          sendJson(res, { ok: true, title: result.title });
+        } else {
+          sendJson(res, { ok: false, error: result.error || 'Failed to generate title' });
+        }
+      } catch (e) {
+        sendError(res, String((e as Error).message));
+      }
+    }).catch((e) => sendError(res, String(e.message)));
+    return true;
+  }
+
   return false;
 }

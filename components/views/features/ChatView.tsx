@@ -210,6 +210,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
 
     // Ensure we have a conversation ID (create one if needed)
     let convoId = currentConversationId;
+    const isFirstExchange = !convoId;
     if (!convoId) {
       convoId = await createConversation();
     }
@@ -345,6 +346,23 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
           timestamp: assistantTimestamp,
         });
         loadConversations(); // Refresh sidebar list
+
+        // Auto-generate a concise AI title for new conversations
+        if (isFirstExchange && accContent) {
+          fetch('/api/chat/generate-title', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              conversationId: convoId,
+              userMessage: userMessage,
+              assistantMessage: accContent,
+              model: selectedModel,
+            }),
+          })
+            .then(r => r.json())
+            .then(() => loadConversations())
+            .catch(() => {});
+        }
       }
     } catch (error) {
       const errorMsg: ChatMessage = {

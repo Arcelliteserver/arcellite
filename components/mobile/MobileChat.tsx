@@ -257,6 +257,7 @@ const MobileChat: React.FC<MobileChatProps> = ({
     if (inputRef.current) inputRef.current.style.height = '44px';
 
     let convoId = currentConversationId;
+    const isFirstExchange = !convoId;
     if (!convoId) convoId = await createConversation();
     if (convoId) saveMessage(convoId, userMsg);
 
@@ -363,6 +364,23 @@ const MobileChat: React.FC<MobileChatProps> = ({
           timestamp: assistantTs,
         });
         loadConversations();
+
+        // Auto-generate a concise AI title for new conversations
+        if (isFirstExchange && accContent) {
+          fetch('/api/chat/generate-title', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              conversationId: convoId,
+              userMessage: text,
+              assistantMessage: accContent,
+              model: selectedModel,
+            }),
+          })
+            .then(r => r.json())
+            .then(() => loadConversations())
+            .catch(() => {});
+        }
       }
     } catch {
       const errorMsg: ChatMessage = { role: 'assistant', content: 'Failed to connect. Make sure the server is running.', timestamp: Date.now() };
@@ -933,7 +951,7 @@ const MobileChat: React.FC<MobileChatProps> = ({
                 conversations.map((convo) => (
                   <div
                     key={convo.id}
-                    className={`rounded-2xl mb-2 transition-all border ${
+                    className={`w-full rounded-2xl mb-2 transition-all border ${
                       currentConversationId === convo.id
                         ? 'bg-[#5D5FEF]/5 border-[#5D5FEF]/20'
                         : 'bg-white border-gray-100 active:bg-gray-50'
@@ -942,7 +960,7 @@ const MobileChat: React.FC<MobileChatProps> = ({
                     role="button"
                     tabIndex={0}
                   >
-                    <div className="flex items-center gap-3 px-3 py-3 h-[60px] touch-manipulation">
+                    <div className="flex items-center gap-3 px-3 py-3 h-[60px] touch-manipulation overflow-hidden">
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
                         currentConversationId === convo.id ? 'bg-[#5D5FEF]/10' : 'bg-gray-50'
                       }`}>

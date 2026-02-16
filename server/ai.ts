@@ -812,6 +812,88 @@ export async function chatWithAI(
 }
 
 /**
+ * Generate a short, concise title for a chat conversation based on the first exchange.
+ * Uses the same AI provider/model as the conversation to generate a 3-8 word title.
+ */
+export async function generateChatTitle(
+  userMessage: string,
+  assistantMessage: string,
+  model: string = 'deepseek-chat'
+): Promise<{ ok: boolean; title?: string; error?: string }> {
+  const provider = getProviderForModel(model);
+  const apiKey = getApiKey(provider);
+  if (!apiKey) return { ok: false, error: 'No API key configured' };
+
+  const config = PROVIDER_CONFIGS[provider];
+  if (!config) return { ok: false, error: `Provider "${provider}" not supported` };
+
+  const titlePrompt = 'Generate a short title (3-8 words) for this conversation. Reply with ONLY the title, no quotes, no punctuation at the end, no explanation.';
+  const messages = [
+    { role: 'user' as const, content: userMessage },
+    { role: 'assistant' as const, content: assistantMessage.substring(0, 500) },
+    { role: 'user' as const, content: titlePrompt },
+  ];
+
+  const apiModel = config.resolveModel(model);
+
+  try {
+    let titleText = '';
+
+    if (provider === 'Anthropic') {
+      const response = await fetch(config.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: apiModel,
+          max_tokens: 30,
+          system: 'You generate short, concise conversation titles. Reply with only the title.',
+          messages: messages.map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+      if (!response.ok) return { ok: false, error: `API error ${response.status}` };
+      const data: any = await response.json();
+      titleText = data.content?.[0]?.text || '';
+    } else {
+      const fullMessages = [
+        { role: 'system' as const, content: 'You generate short, concise conversation titles. Reply with only the title.' },
+        ...messages,
+      ];
+
+      const response = await fetch(config.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: apiModel,
+          messages: fullMessages,
+          temperature: 0.3,
+          max_tokens: 30,
+          stream: false,
+        }),
+      });
+      if (!response.ok) return { ok: false, error: `API error ${response.status}` };
+      const data: any = await response.json();
+      titleText = data.choices?.[0]?.message?.content || '';
+    }
+
+    // Clean up the title
+    let title = titleText.trim().replace(/^["']|["']$/g, '').replace(/\.+$/, '').trim();
+    if (title.length > 80) title = title.substring(0, 77) + '...';
+    if (!title) return { ok: false, error: 'Empty title generated' };
+
+    return { ok: true, title };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
  * Test the DeepSeek API connection with a simple ping.
  */
 export async function testConnection(provider: string): Promise<{ ok: boolean; message: string }> {
