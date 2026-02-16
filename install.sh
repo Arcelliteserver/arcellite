@@ -418,14 +418,14 @@ if sudo mysql -e "SELECT 1" &>/dev/null 2>&1; then
   # Create application user
   sudo mysql -e "CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'localhost' IDENTIFIED BY '${MYSQL_PASSWORD}';" 2>/dev/null || true
   sudo mysql -e "CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'127.0.0.1' IDENTIFIED BY '${MYSQL_PASSWORD}';" 2>/dev/null || true
-  sudo mysql -e "GRANT ALL PRIVILEGES ON \`cloudnest\_%\`.* TO '${MYSQL_USER}'@'localhost';" 2>/dev/null || true
-  sudo mysql -e "GRANT ALL PRIVILEGES ON \`cloudnest\_%\`.* TO '${MYSQL_USER}'@'127.0.0.1';" 2>/dev/null || true
+  sudo mysql -e "GRANT ALL PRIVILEGES ON \`arcellite\_%\`.* TO '${MYSQL_USER}'@'localhost';" 2>/dev/null || true
+  sudo mysql -e "GRANT ALL PRIVILEGES ON \`arcellite\_%\`.* TO '${MYSQL_USER}'@'127.0.0.1';" 2>/dev/null || true
   sudo mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
   success "MySQL user '${MYSQL_USER}' configured"
 else
   warn "Could not access MySQL as root. You may need to configure the MySQL user manually:"
   warn "  CREATE USER '${MYSQL_USER}'@'localhost' IDENTIFIED BY '<password>';"
-  warn "  GRANT ALL PRIVILEGES ON \`cloudnest_%\`.* TO '${MYSQL_USER}'@'localhost';"
+  warn "  GRANT ALL PRIVILEGES ON \`arcellite_%\`.* TO '${MYSQL_USER}'@'localhost';"
 fi
 
 # Verify MySQL connection

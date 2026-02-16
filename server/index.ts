@@ -1,5 +1,5 @@
 /**
- * Cloudnest system API + files API + optional static app serving.
+ * Arcellite system API + files API + optional static app serving.
  * GET /api/system/storage → root filesystem + removable devices.
  * GET /api/files/list, POST /api/files/mkdir → folders on server.
  */
@@ -220,7 +220,7 @@ function start(portIndex: number): void {
   }
   ensureBaseExists();
   server.listen(port, '0.0.0.0', () => {
-    console.log(`Cloudnest server listening on http://0.0.0.0:${port}`);
+    console.log(`Arcellite server listening on http://0.0.0.0:${port}`);
     console.log(`  Data directory: ${getBaseDir()}`);
     console.log('  GET  /api/system/storage  → root + removable devices');
     console.log('  GET  /api/files/list      → list folders/files');

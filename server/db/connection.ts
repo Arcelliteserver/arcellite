@@ -104,7 +104,7 @@ export async function initializeDatabase() {
 
     // Auto-create the AI chat history database if it doesn't exist
     try {
-      const chatDbName = 'cloudnest_chat_history';
+      const chatDbName = 'arcellite_chat_history';
       const check = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [chatDbName]);
       if (check.rows.length === 0) {
         const dbUser = process.env.DB_USER || 'arcellite_user';

@@ -161,7 +161,7 @@ function saveSqliteDb(db: SqlJsDatabase, filePath: string) {
 
 // System database IDs
 const SYSTEM_CHAT_DB_ID = '__system_chat_history';
-const SYSTEM_CHAT_PG_NAME = 'cloudnest_chat_history';
+const SYSTEM_CHAT_PG_NAME = 'arcellite_chat_history';
 
 // List all databases
 export function listDatabases(): DatabaseMetadata[] {
@@ -175,7 +175,7 @@ export async function createDatabase(name: string, type: 'postgresql' | 'mysql' 
   if (existing) throw new Error(`Database with name "${name}" already exists`);
 
   const id = generateId();
-  const sanitizedName = `cloudnest_${sanitizePgName(name)}`;
+  const sanitizedName = `arcellite_${sanitizePgName(name)}`;
   const now = Date.now();
 
   if (type === 'postgresql') {
@@ -250,7 +250,7 @@ export async function createDatabase(name: string, type: 'postgresql' | 'mysql' 
   } else if (type === 'sqlite') {
     // ── SQLite ──
     ensureSqliteDir();
-    const sqliteDbName = `cloudnest_${sanitizePgName(name)}`;
+    const sqliteDbName = `arcellite_${sanitizePgName(name)}`;
     const filePath = path.join(sqliteDir, `${sqliteDbName}.sqlite`);
 
     // Check for existing file with same sanitized name

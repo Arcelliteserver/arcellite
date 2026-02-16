@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────
-# CloudNest (Arcellite) — Production Dockerfile
+# Arcellite — Production Dockerfile
 # Multi-stage build: install deps → build frontend → run
 # ───────────────────────────────────────────────────────────
 

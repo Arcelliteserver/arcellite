@@ -386,7 +386,7 @@ const DatabaseDetailView: React.FC<{
   };
 
   const getNetworkHost = () => {
-    // Use the hostname the user is currently accessing CloudNest from
+    // Use the hostname the user is currently accessing Arcellite from
     const h = window.location.hostname;
     return (h === 'localhost' || h === '127.0.0.1') ? (db.config?.host || 'localhost') : h;
   };
@@ -1198,7 +1198,7 @@ const DatabaseView: React.FC = () => {
                     autoFocus
                     onKeyDown={(e) => { if (e.key === 'Enter') handleCreateDatabase(); }}
                   />
-                  <p className="text-[11px] text-gray-400 mt-1.5 font-medium">PostgreSQL database name will be: <span className="font-mono font-bold">cloudnest_{dbName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')}</span></p>
+                  <p className="text-[11px] text-gray-400 mt-1.5 font-medium">PostgreSQL database name will be: <span className="font-mono font-bold">arcellite_{dbName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')}</span></p>
                 </div>
 
                 <div className="flex gap-3 pt-2">

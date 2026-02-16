@@ -3,12 +3,12 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
-// ── Dedicated connection pool for cloudnest_chat_history database ─────────
+// ── Dedicated connection pool for arcellite_chat_history database ─────────
 const rawHost = process.env.DB_HOST || 'localhost';
 const chatPool = new Pool({
   host: rawHost.startsWith('/') ? 'localhost' : rawHost,
   port: parseInt(process.env.DB_PORT || '5432'),
-  database: 'cloudnest_chat_history',
+  database: 'arcellite_chat_history',
   user: process.env.DB_USER || 'arcellite_user',
   password: process.env.DB_PASSWORD || 'changeme',
   max: 10,
@@ -16,7 +16,7 @@ const chatPool = new Pool({
   connectionTimeoutMillis: 3000,
 });
 
-// Auto-create chat tables in cloudnest_chat_history on first load
+// Auto-create chat tables in arcellite_chat_history on first load
 let chatSchemaInitialized = false;
 async function ensureChatSchema() {
   if (chatSchemaInitialized) return;
@@ -43,7 +43,7 @@ async function ensureChatSchema() {
       CREATE INDEX IF NOT EXISTS idx_chat_msg_conv ON chat_messages(conversation_id, created_at ASC);
     `);
     chatSchemaInitialized = true;
-    console.log('[Chat] Schema initialized in cloudnest_chat_history');
+    console.log('[Chat] Schema initialized in arcellite_chat_history');
   } catch (e) {
     console.error('[Chat] Failed to initialize schema:', (e as Error).message);
   }

@@ -259,7 +259,7 @@ const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user }) => {
 
       {/* ===== Version ===== */}
       <p className="text-center text-[12px] text-gray-300 font-medium mt-4 mb-2">
-        Arcellite CloudNest — Self-Hosted
+        Arcellite — Self-Hosted
       </p>
     </div>
   );

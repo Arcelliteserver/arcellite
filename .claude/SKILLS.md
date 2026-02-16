@@ -226,7 +226,7 @@ The AI can execute filesystem and database actions via structured `action` block
 - **Session**: Bearer token in `Authorization` header, stored in `localStorage`
 - **Max devices**: 4 concurrent sessions
 - **Trash retention**: 30 days
-- **DB naming**: User databases are prefixed `cloudnest_`
+- **DB naming**: User databases are prefixed `arcellite_`
 
 ## Adding Features
 

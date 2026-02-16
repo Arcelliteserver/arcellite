@@ -108,7 +108,7 @@ async function getUserData(userId?: number) {
     return {
       exportDate: new Date().toISOString(),
       version: '1.0',
-      application: 'CloudNest',
+      application: 'Arcellite',
       user: userResult.rows[0] || null,
       recentFiles: recentResult.rows,
       fileMetadata: metadataResult.rows,
@@ -139,7 +139,7 @@ export function handleExportRoutes(req: IncomingMessage, res: ServerResponse, ur
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
         res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Content-Disposition', `attachment; filename="cloudnest-export-${timestamp}.json"`);
+        res.setHeader('Content-Disposition', `attachment; filename="arcellite-export-${timestamp}.json"`);
         res.setHeader('Content-Length', Buffer.byteLength(jsonStr));
         res.end(jsonStr);
       } catch (e) {
@@ -172,7 +172,7 @@ export function handleExportRoutes(req: IncomingMessage, res: ServerResponse, ur
       const csv = [headers.join(','), ...rows].join('\n');
 
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="cloudnest-files-${timestamp}.csv"`);
+      res.setHeader('Content-Disposition', `attachment; filename="arcellite-files-${timestamp}.csv"`);
       res.setHeader('Content-Length', Buffer.byteLength(csv));
       res.end(csv);
     } catch (e) {
@@ -216,7 +216,7 @@ export function handleExportRoutes(req: IncomingMessage, res: ServerResponse, ur
 
         // Create ZIP archive
         res.setHeader('Content-Type', 'application/zip');
-        res.setHeader('Content-Disposition', `attachment; filename="cloudnest-backup-${timestamp}.zip"`);
+        res.setHeader('Content-Disposition', `attachment; filename="arcellite-backup-${timestamp}.zip"`);
 
         const archive = archiver('zip', { zlib: { level: 9 } });
         archive.on('error', (err: Error) => {
@@ -230,21 +230,21 @@ export function handleExportRoutes(req: IncomingMessage, res: ServerResponse, ur
         archive.pipe(res);
 
         // Add files to archive
-        archive.append(jsonData, { name: 'cloudnest-data.json' });
-        archive.append(csvData, { name: 'cloudnest-files.csv' });
+        archive.append(jsonData, { name: 'arcellite-data.json' });
+        archive.append(csvData, { name: 'arcellite-files.csv' });
         archive.append(metadataContent, { name: 'databases-metadata.json' });
 
         // Add a README
-        const readme = `CloudNest Backup
+        const readme = `Arcellite Backup
 ================
 Created: ${new Date().toISOString()}
 
 Contents:
-- cloudnest-data.json    — Full data export (user profile, recent files, activity log, notifications, settings, file listing)
-- cloudnest-files.csv    — File listing in CSV format
+- arcellite-data.json    — Full data export (user profile, recent files, activity log, notifications, settings, file listing)
+- arcellite-files.csv    — File listing in CSV format
 - databases-metadata.json — Database instances metadata
 
-This backup contains your CloudNest configuration and metadata.
+This backup contains your Arcellite configuration and metadata.
 Actual file contents are NOT included in this backup.
 `;
         archive.append(readme, { name: 'README.txt' });

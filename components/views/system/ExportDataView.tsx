@@ -47,7 +47,7 @@ const ExportDataView: React.FC = () => {
 
       // Get the filename from Content-Disposition header or generate one
       const disposition = response.headers.get('Content-Disposition');
-      let filename = `cloudnest-export.${option.id === 'csv' ? 'csv' : option.id === 'backup' ? 'zip' : 'json'}`;
+      let filename = `arcellite-export.${option.id === 'csv' ? 'csv' : option.id === 'backup' ? 'zip' : 'json'}`;
       if (disposition) {
         const match = disposition.match(/filename="?(.+?)"?$/);
         if (match) filename = match[1];

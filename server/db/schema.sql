@@ -144,4 +144,4 @@ CREATE INDEX IF NOT EXISTS idx_file_metadata_user ON file_metadata(user_id, file
 CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
 
--- Chat tables are managed in the cloudnest_chat_history database (see server/routes/chat.routes.ts)
+-- Chat tables are managed in the arcellite_chat_history database (see server/routes/chat.routes.ts)

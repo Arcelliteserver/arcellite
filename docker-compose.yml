@@ -1,7 +1,7 @@
 # ───────────────────────────────────────────────────────────
-# CloudNest (Arcellite) — Docker Compose
+# Arcellite — Docker Compose
 # ───────────────────────────────────────────────────────────
-# Deploy to /srv/cloudnest/ on your server.
+# Deploy to /srv/arcellite/ on your server.
 # Domain: cloud.arcelliteserver.com (port 3000)
 #
 # Uses your existing postgres-arcellite container.
@@ -9,14 +9,14 @@
 # commented-out service at the bottom.
 #
 # Quick start:
-#   cd /srv/cloudnest
+#   cd /srv/arcellite
 #   docker compose up -d --build
 # ───────────────────────────────────────────────────────────
 
 services:
-  cloudnest:
+  arcellite:
     build: .
-    container_name: cloudnest
+    container_name: arcellite
     restart: unless-stopped
     privileged: true
     ports:
@@ -64,7 +64,7 @@ services:
 
     volumes:
       # Persistent storage: files, photos, videos, music, security keys
-      - cloudnest_data:/data/arcellite-data
+      - arcellite_data:/data/arcellite-data
       # Host USB/removable media access (for transfer & external storage)
       - /media:/media:rw
       - /run/media:/run/media:rw
@@ -72,7 +72,7 @@ services:
       - /dev:/dev:ro
 
     networks:
-      - cloudnest
+      - arcellite
       - postgres-net
 
   # MySQL/MariaDB for user-created MySQL databases
@@ -85,18 +85,18 @@ services:
       - MARIADB_USER=arcellite_user
       - MARIADB_PASSWORD=${MYSQL_PASSWORD:-arcellite2024}
     volumes:
-      - cloudnest_mysql:/var/lib/mysql
+      - arcellite_mysql:/var/lib/mysql
     networks:
-      - cloudnest
+      - arcellite
 
 volumes:
-  cloudnest_data:
+  arcellite_data:
     driver: local
-  cloudnest_mysql:
+  arcellite_mysql:
     driver: local
 
 networks:
-  cloudnest:
+  arcellite:
     driver: bridge
   postgres-net:
     external: true
@@ -111,21 +111,21 @@ networks:
 #   docker network connect postgres-net postgres-arcellite
 #
 # Option B: Uncomment below to run a dedicated Postgres
-#   (and change DB_HOST above to cloudnest-db)
+#   (and change DB_HOST above to arcellite-db)
 # ───────────────────────────────────────────────────────────
-#  cloudnest-db:
+#  arcellite-db:
 #    image: postgres:15
-#    container_name: cloudnest-db
+#    container_name: arcellite-db
 #    restart: unless-stopped
 #    environment:
 #      - POSTGRES_DB=arcellite
 #      - POSTGRES_USER=arcellite_user
 #      - POSTGRES_PASSWORD=${DB_PASSWORD:-arcellite2024}
 #    volumes:
-#      - cloudnest_pgdata:/var/lib/postgresql/data
+#      - arcellite_pgdata:/var/lib/postgresql/data
 #    networks:
-#      - cloudnest
+#      - arcellite
 #
 # And add to the volumes section:
-#  cloudnest_pgdata:
+#  arcellite_pgdata:
 #    driver: local
