@@ -681,7 +681,7 @@ const MobileDatabaseView: React.FC = () => {
 
       {/* Create Database Sheet */}
       {showCreate && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => { setShowCreate(false); setSelectedDbType(null); setDbName(''); }}>
+        <div className="fixed inset-0 bg-black/50 z-[300] flex items-end justify-center" onClick={() => { setShowCreate(false); setSelectedDbType(null); setDbName(''); }}>
           <div className="w-full max-w-lg bg-white rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300" onClick={e => e.stopPropagation()}>
             {!selectedDbType ? (
               /* ── Step 1: Choose database type ── */
