@@ -56,11 +56,22 @@ const ALL_POSSIBLE_APPS = [
 ];
 
 const MyAppsView: React.FC = () => {
-  // Force-clear stale localStorage from old versions (v2 = blank slate, no pre-filled apps)
-  if (localStorage.getItem('myapps_version') !== 'v2') {
+  // Force-clear stale data on version bump — clears localStorage AND server
+  const justMigrated = React.useRef(false);
+  if (localStorage.getItem('myapps_version') !== 'v3') {
     localStorage.removeItem('connectedApps');
     localStorage.removeItem('connectedAppIds');
-    localStorage.setItem('myapps_version', 'v2');
+    localStorage.setItem('myapps_version', 'v3');
+    justMigrated.current = true;
+    // Also clear server-side data
+    const token = localStorage.getItem('sessionToken');
+    if (token) {
+      fetch('/api/apps/connections', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ apps: [], connectedAppIds: [] }),
+      }).catch(() => {});
+    }
   }
 
   // Apps state: empty by default — user must configure each app
@@ -138,28 +149,31 @@ const MyAppsView: React.FC = () => {
 
   // On mount: load state from server (works across devices), fall back to localStorage
   useEffect(() => {
-    const loadFromServer = async () => {
-      try {
-        const token = localStorage.getItem('sessionToken');
-        if (!token) return;
-        const resp = await fetch('/api/apps/connections', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        if (data.apps && Array.isArray(data.apps) && data.apps.length > 0) {
-          setApps(data.apps);
-          localStorage.setItem('connectedApps', JSON.stringify(data.apps));
-        }
-        if (data.connectedAppIds && Array.isArray(data.connectedAppIds)) {
-          const ids = new Set<string>(data.connectedAppIds);
-          setConnectedAppIds(ids);
-          localStorage.setItem('connectedAppIds', JSON.stringify(data.connectedAppIds));
-          setCollapsedConnectedApps(ids);
-        }
-      } catch {}
-    };
-    loadFromServer();
+    // Skip loading from server if we just cleared everything in this session
+    if (!justMigrated.current) {
+      const loadFromServer = async () => {
+        try {
+          const token = localStorage.getItem('sessionToken');
+          if (!token) return;
+          const resp = await fetch('/api/apps/connections', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (data.apps && Array.isArray(data.apps) && data.apps.length > 0) {
+            setApps(data.apps);
+            localStorage.setItem('connectedApps', JSON.stringify(data.apps));
+          }
+          if (data.connectedAppIds && Array.isArray(data.connectedAppIds)) {
+            const ids = new Set<string>(data.connectedAppIds);
+            setConnectedAppIds(ids);
+            localStorage.setItem('connectedAppIds', JSON.stringify(data.connectedAppIds));
+            setCollapsedConnectedApps(ids);
+          }
+        } catch {}
+      };
+      loadFromServer();
+    }
 
     // Also sync apps state with connectedAppIds on mount
     setApps(prev => prev.map(app => {
