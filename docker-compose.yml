@@ -80,6 +80,8 @@ services:
     image: mariadb:11
     container_name: mysql-arcellite
     restart: unless-stopped
+    ports:
+      - "3306:3306"
     environment:
       - MARIADB_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-arcellite_root2024}
       - MARIADB_USER=arcellite_user

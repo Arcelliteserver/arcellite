@@ -25,7 +25,7 @@ interface DatabaseInstance {
   id: string;
   name: string;
   displayName?: string;
-  type: 'postgresql' | 'mysql' | 'sqlite' | 'mongodb';
+  type: 'postgresql' | 'mysql' | 'sqlite';
   status: 'running' | 'stopped';
   size: string;
   sizeBytes?: number;
@@ -91,13 +91,6 @@ const databaseTypes: DatabaseType[] = [
     icon: '/assets/icons/storage_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg',
     description: 'Lightweight embedded database',
     color: 'from-gray-500 to-gray-600',
-  },
-  {
-    id: 'mongodb',
-    name: 'MongoDB',
-    icon: '/assets/icons/hard_disk_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg',
-    description: 'Modern NoSQL document database',
-    color: 'from-green-500 to-green-600',
   },
 ];
 
@@ -1150,7 +1143,7 @@ const DatabaseView: React.FC = () => {
           </div>
 
           {!selectedDbType ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
               {databaseTypes.map((type) => (
                 <button
                   key={type.id}

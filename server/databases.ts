@@ -36,7 +36,7 @@ interface DatabaseMetadata {
   id: string;
   name: string;
   displayName: string;
-  type: 'postgresql' | 'mysql' | 'sqlite' | 'mongodb';
+  type: 'postgresql' | 'mysql' | 'sqlite';
   status: 'running' | 'stopped';
   size: string;
   sizeBytes: number;
@@ -169,7 +169,7 @@ export function listDatabases(): DatabaseMetadata[] {
 }
 
 // Create real PostgreSQL database
-export async function createDatabase(name: string, type: 'postgresql' | 'mysql' | 'sqlite' | 'mongodb'): Promise<DatabaseMetadata> {
+export async function createDatabase(name: string, type: 'postgresql' | 'mysql' | 'sqlite'): Promise<DatabaseMetadata> {
   const metadata = loadMetadata();
   const existing = Object.values(metadata).find((db) => db.name === name);
   if (existing) throw new Error(`Database with name "${name}" already exists`);
