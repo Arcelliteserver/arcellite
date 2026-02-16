@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Loader2,
   X,
+  ArrowLeft,
 } from 'lucide-react';
 import ConfirmModal from '../common/ConfirmModal';
 
@@ -41,6 +42,30 @@ const PG_TYPES = [
   'TEXT', 'VARCHAR(255)', 'INTEGER', 'BIGINT', 'SERIAL', 'BOOLEAN',
   'TIMESTAMP', 'DATE', 'NUMERIC', 'REAL', 'DOUBLE PRECISION', 'JSON',
   'JSONB', 'UUID', 'BYTEA', 'INET', 'CIDR', 'MACADDR',
+];
+
+const MOBILE_DB_TYPES = [
+  {
+    id: 'postgresql' as const,
+    name: 'PostgreSQL',
+    description: 'Advanced relational database',
+    icon: '/assets/apps/postgresql.svg',
+    color: 'from-blue-600 to-indigo-700',
+  },
+  {
+    id: 'mysql' as const,
+    name: 'MySQL',
+    description: 'Popular & widely used',
+    icon: '/assets/apps/mysql.svg',
+    color: 'from-orange-500 to-amber-600',
+  },
+  {
+    id: 'sqlite' as const,
+    name: 'SQLite',
+    description: 'Lightweight file-based',
+    icon: '/assets/icons/storage_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg',
+    color: 'from-gray-500 to-gray-700',
+  },
 ];
 
 /* ══════════════════════════════════════════════════════════════════ */
@@ -541,6 +566,7 @@ const MobileDatabaseView: React.FC = () => {
 
   /* ── create modal ── */
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedDbType, setSelectedDbType] = useState<string | null>(null);
   const [dbName, setDbName] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -559,15 +585,15 @@ const MobileDatabaseView: React.FC = () => {
   useEffect(() => { fetchDatabases(); }, [fetchDatabases]);
 
   const handleCreate = async () => {
-    if (!dbName.trim()) return;
+    if (!dbName.trim() || !selectedDbType) return;
     setCreating(true);
     try {
       await fetch('/api/databases/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: dbName, type: 'postgresql' }),
+        body: JSON.stringify({ name: dbName, type: selectedDbType }),
       });
-      setShowCreate(false); setDbName('');
+      setShowCreate(false); setDbName(''); setSelectedDbType(null);
       fetchDatabases();
     } catch { /* ignore */ }
     setCreating(false);
@@ -655,27 +681,78 @@ const MobileDatabaseView: React.FC = () => {
 
       {/* Create Database Sheet */}
       {showCreate && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setShowCreate(false)}>
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => { setShowCreate(false); setSelectedDbType(null); setDbName(''); }}>
           <div className="w-full max-w-lg bg-white rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-[18px] font-extrabold text-gray-900">New Database</h3>
-              <button onClick={() => setShowCreate(false)} className="p-2 rounded-xl bg-gray-100 text-gray-500 active:scale-95 touch-manipulation"><X className="w-4 h-4" /></button>
-            </div>
-            <input
-              value={dbName}
-              onChange={(e) => setDbName(e.target.value)}
-              placeholder="Database name"
-              autoFocus
-              className="w-full px-4 py-3.5 rounded-2xl bg-gray-100 text-[15px] font-medium text-gray-900 placeholder:text-gray-400 mb-4 outline-none focus:ring-2 focus:ring-[#5D5FEF]/30"
-            />
-            <p className="text-[12px] font-medium text-gray-400 mb-5">A new PostgreSQL database will be created and ready to use immediately.</p>
-            <button
-              disabled={creating || !dbName.trim()}
-              onClick={handleCreate}
-              className="w-full py-3.5 bg-[#5D5FEF] text-white rounded-2xl text-[15px] font-bold shadow-lg shadow-[#5D5FEF]/25 disabled:opacity-50 active:scale-[0.98] touch-manipulation"
-            >
-              {creating ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Create Database'}
-            </button>
+            {!selectedDbType ? (
+              /* ── Step 1: Choose database type ── */
+              <>
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-[18px] font-extrabold text-gray-900">Choose Type</h3>
+                  <button onClick={() => { setShowCreate(false); setSelectedDbType(null); }} className="p-2 rounded-xl bg-gray-100 text-gray-500 active:scale-95 touch-manipulation"><X className="w-4 h-4" /></button>
+                </div>
+                <div className="space-y-3">
+                  {MOBILE_DB_TYPES.map((type) => {
+                    const typeCount = databases.filter(d => d.type === type.id).length;
+                    return (
+                      <button
+                        key={type.id}
+                        onClick={() => setSelectedDbType(type.id)}
+                        className="w-full flex items-center gap-4 p-4 bg-gray-50 rounded-2xl border-2 border-gray-100 active:border-[#5D5FEF] active:scale-[0.98] transition-all touch-manipulation text-left"
+                      >
+                        <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${type.color} shadow-lg flex items-center justify-center p-2.5 flex-shrink-0`}>
+                          <img src={type.icon} alt={type.name} className="w-full h-full object-contain filter brightness-0 invert" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[15px] font-bold text-gray-900">{type.name}</p>
+                          <p className="text-[12px] font-medium text-gray-400 mt-0.5">{type.description}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {typeCount > 0 && (
+                            <span className="text-[11px] font-bold text-gray-300">{typeCount}</span>
+                          )}
+                          <ChevronRight className="w-4 h-4 text-gray-300" />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              /* ── Step 2: Enter database name ── */
+              <>
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => { setSelectedDbType(null); setDbName(''); }} className="p-2 rounded-xl bg-gray-100 text-gray-500 active:scale-95 touch-manipulation">
+                      <ArrowLeft className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${MOBILE_DB_TYPES.find(t => t.id === selectedDbType)?.color} flex items-center justify-center p-1.5`}>
+                        <img src={MOBILE_DB_TYPES.find(t => t.id === selectedDbType)?.icon} alt="" className="w-full h-full object-contain filter brightness-0 invert" />
+                      </div>
+                      <h3 className="text-[18px] font-extrabold text-gray-900">New {MOBILE_DB_TYPES.find(t => t.id === selectedDbType)?.name}</h3>
+                    </div>
+                  </div>
+                  <button onClick={() => { setShowCreate(false); setSelectedDbType(null); setDbName(''); }} className="p-2 rounded-xl bg-gray-100 text-gray-500 active:scale-95 touch-manipulation"><X className="w-4 h-4" /></button>
+                </div>
+                <input
+                  value={dbName}
+                  onChange={(e) => setDbName(e.target.value)}
+                  placeholder="Database name"
+                  autoFocus
+                  className="w-full px-4 py-3.5 rounded-2xl bg-gray-100 text-[15px] font-medium text-gray-900 placeholder:text-gray-400 mb-4 outline-none focus:ring-2 focus:ring-[#5D5FEF]/30"
+                />
+                <p className="text-[12px] font-medium text-gray-400 mb-5">
+                  A new {MOBILE_DB_TYPES.find(t => t.id === selectedDbType)?.name} database will be created and ready to use immediately.
+                </p>
+                <button
+                  disabled={creating || !dbName.trim()}
+                  onClick={handleCreate}
+                  className="w-full py-3.5 bg-[#5D5FEF] text-white rounded-2xl text-[15px] font-bold shadow-lg shadow-[#5D5FEF]/25 disabled:opacity-50 active:scale-[0.98] touch-manipulation"
+                >
+                  {creating ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Create Database'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
