@@ -28,6 +28,7 @@ interface DatabaseInstance {
   sizeBytes?: number;
   created: string;
   pgDatabaseName?: string;
+  sqliteFilePath?: string;
   isSystem?: boolean;
   config?: { host: string; port: number; username: string; password: string; database: string };
 }
@@ -414,79 +415,142 @@ const MobileDatabaseDetail: React.FC<{
       )}
 
       {/* ─── Info Tab ─── */}
-      {activeTab === 'info' && db.config && (
+      {activeTab === 'info' && (
         <div className="space-y-3">
-          {[
-            { label: 'Host', value: host },
-            { label: 'Port', value: String(db.config.port) },
-            { label: 'Database', value: db.config.database },
-            { label: 'Username', value: db.config.username },
-            { label: 'Password', value: db.config.password, secret: true },
-          ].map((row) => (
-            <div key={row.label} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-200/60">
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">{row.label}</p>
-                <p className="text-[14px] font-semibold text-gray-900 truncate font-mono">
-                  {row.secret && !showPassword ? '••••••••' : row.value}
-                </p>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {row.secret && (
-                  <button onClick={() => setShowPassword(!showPassword)} className="p-2 rounded-xl text-gray-400 active:bg-gray-100 touch-manipulation">
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          {/* Connection details — type-aware */}
+          {db.type === 'sqlite' ? (
+            /* SQLite: only show file path & database name */
+            <>
+              {[  
+                { label: 'Database', value: db.config?.database || db.pgDatabaseName || '' },
+                { label: 'File Path', value: db.sqliteFilePath || '' },
+                { label: 'Engine', value: 'SQLite (embedded)' },
+              ].filter(r => r.value).map((row) => (
+                <div key={row.label} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-200/60">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">{row.label}</p>
+                    <p className="text-[14px] font-semibold text-gray-900 truncate font-mono">{row.value}</p>
+                  </div>
+                  <button onClick={() => copyText(row.value, row.label)} className="p-2 rounded-xl text-gray-400 active:bg-gray-100 touch-manipulation flex-shrink-0">
+                    {copiedField === row.label ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                   </button>
-                )}
-                <button onClick={() => copyText(row.value, row.label)} className="p-2 rounded-xl text-gray-400 active:bg-gray-100 touch-manipulation">
-                  {copiedField === row.label ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-          ))}
-          {/* Connection URLs */}
+                </div>
+              ))}
+            </>
+          ) : db.config ? (
+            /* PostgreSQL / MySQL: show full connection details */
+            <>
+              {[
+                { label: 'Host', value: host },
+                { label: 'Port', value: String(db.config.port) },
+                { label: 'Database', value: db.config.database },
+                { label: 'Username', value: db.config.username },
+                { label: 'Password', value: db.config.password, secret: true },
+              ].map((row) => (
+                <div key={row.label} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-200/60">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">{row.label}</p>
+                    <p className="text-[14px] font-semibold text-gray-900 truncate font-mono">
+                      {row.secret && !showPassword ? '••••••••' : row.value}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {row.secret && (
+                      <button onClick={() => setShowPassword(!showPassword)} className="p-2 rounded-xl text-gray-400 active:bg-gray-100 touch-manipulation">
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    )}
+                    <button onClick={() => copyText(row.value, row.label)} className="p-2 rounded-xl text-gray-400 active:bg-gray-100 touch-manipulation">
+                      {copiedField === row.label ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          ) : null}
+
+          {/* Connection URLs — type-aware */}
           <div className="p-4 bg-white rounded-2xl border border-gray-200/60">
             <p className="text-[11px] font-bold text-[#5D5FEF] uppercase tracking-wider mb-3">Connection URLs</p>
 
-            {/* Local PostgreSQL URL */}
-            <div className="mb-3">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Local PostgreSQL URL</p>
-              <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
-                postgresql://{db.config.username}:{showPassword ? db.config.password : '****'}@{host}:{db.config.port}/{db.config.database}
-              </p>
-              <button
-                onClick={() => copyText(`postgresql://${db.config!.username}:${db.config!.password}@${host}:${db.config!.port}/${db.config!.database}`, 'localUrl')}
-                className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
-              >
-                {copiedField === 'localUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
-              </button>
-            </div>
+            {db.type === 'sqlite' ? (
+              /* SQLite URLs */
+              <>
+                <div className="mb-3">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">SQLite File URL</p>
+                  <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
+                    sqlite:///{db.sqliteFilePath || db.config?.database || ''}
+                  </p>
+                  <button
+                    onClick={() => copyText(`sqlite:///${db.sqliteFilePath || db.config?.database || ''}`, 'sqliteUrl')}
+                    className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
+                  >
+                    {copiedField === 'sqliteUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                  </button>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">JDBC URL (DataGrip / IntelliJ)</p>
+                  <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
+                    jdbc:sqlite:{db.sqliteFilePath || db.config?.database || ''}
+                  </p>
+                  <button
+                    onClick={() => copyText(`jdbc:sqlite:${db.sqliteFilePath || db.config?.database || ''}`, 'jdbcUrl')}
+                    className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
+                  >
+                    {copiedField === 'jdbcUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                  </button>
+                </div>
+              </>
+            ) : db.config ? (
+              /* PostgreSQL / MySQL URLs */
+              <>
+                {/* Local URL */}
+                <div className="mb-3">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                    Local {db.type === 'mysql' ? 'MySQL' : 'PostgreSQL'} URL
+                  </p>
+                  <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
+                    {db.type === 'mysql' ? 'mysql' : 'postgresql'}://{db.config.username}:{showPassword ? db.config.password : '****'}@{host}:{db.config.port}/{db.config.database}
+                  </p>
+                  <button
+                    onClick={() => copyText(`${db.type === 'mysql' ? 'mysql' : 'postgresql'}://${db.config!.username}:${db.config!.password}@${host}:${db.config!.port}/${db.config!.database}`, 'localUrl')}
+                    className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
+                  >
+                    {copiedField === 'localUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                  </button>
+                </div>
 
-            {/* Global PostgreSQL URL */}
-            <div className="mb-3">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Global PostgreSQL URL</p>
-              <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
-                postgresql://{db.config.username}:{showPassword ? db.config.password : '****'}@cloud.arcelliteserver.com:{db.config.port}/{db.config.database}
-              </p>
-              <button
-                onClick={() => copyText(`postgresql://${db.config!.username}:${db.config!.password}@cloud.arcelliteserver.com:${db.config!.port}/${db.config!.database}`, 'globalUrl')}
-                className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
-              >
-                {copiedField === 'globalUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
-              </button>
-            </div>
+                {/* Global URL */}
+                <div className="mb-3">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                    Global {db.type === 'mysql' ? 'MySQL' : 'PostgreSQL'} URL
+                  </p>
+                  <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
+                    {db.type === 'mysql' ? 'mysql' : 'postgresql'}://{db.config.username}:{showPassword ? db.config.password : '****'}@cloud.arcelliteserver.com:{db.config.port}/{db.config.database}
+                  </p>
+                  <button
+                    onClick={() => copyText(`${db.type === 'mysql' ? 'mysql' : 'postgresql'}://${db.config!.username}:${db.config!.password}@cloud.arcelliteserver.com:${db.config!.port}/${db.config!.database}`, 'globalUrl')}
+                    className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
+                  >
+                    {copiedField === 'globalUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                  </button>
+                </div>
 
-            {/* JDBC URL */}
-            <div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">JDBC URL (DataGrip / IntelliJ)</p>
-              <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
-                jdbc:postgresql://{host}:{db.config.port}/{db.config.database}
-              </p>
-              <button
-                onClick={() => copyText(`jdbc:postgresql://${host}:${db.config!.port}/${db.config!.database}`, 'jdbcUrl')}
-                className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
-              >
-                {copiedField === 'jdbcUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
-              </button>
-            </div>
+                {/* JDBC URL */}
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">JDBC URL (DataGrip / IntelliJ)</p>
+                  <p className="text-[11px] font-mono text-gray-700 break-all bg-gray-50 rounded-xl p-2.5 border border-gray-100">
+                    jdbc:{db.type === 'mysql' ? 'mysql' : 'postgresql'}://{host}:{db.config.port}/{db.config.database}
+                  </p>
+                  <button
+                    onClick={() => copyText(`jdbc:${db.type === 'mysql' ? 'mysql' : 'postgresql'}://${host}:${db.config!.port}/${db.config!.database}`, 'jdbcUrl')}
+                    className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[#5D5FEF] active:opacity-70 touch-manipulation"
+                  >
+                    {copiedField === 'jdbcUrl' ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                  </button>
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
       )}
