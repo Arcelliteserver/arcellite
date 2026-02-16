@@ -5,6 +5,7 @@
 <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen?style=flat-square" alt="Node" />
 <img src="https://img.shields.io/badge/react-19-blue?style=flat-square" alt="React" />
 <img src="https://img.shields.io/badge/typescript-5.8-blue?style=flat-square" alt="TypeScript" />
+<img src="https://img.shields.io/badge/PM2-managed-blueviolet?style=flat-square" alt="PM2" />
 
 # Arcellite
 
@@ -58,15 +59,46 @@ Arcellite is a minimalist, self-hosted personal cloud platform built with React 
 
 ### One-command install (recommended)
 
-The install script handles everything — Node.js, PostgreSQL, database setup, data directories, environment config, build, and optional systemd service:
+The install script handles everything — Node.js, PostgreSQL, MySQL/MariaDB, PM2, database setup, data directories, environment config, and auto-start:
 
 ```bash
-git clone https://github.com/ArcelliteProject/arcellite.git
+git clone https://github.com/Roberadesissai/arcellite.git
 cd arcellite
 chmod +x install.sh && ./install.sh
 ```
 
-That's it. Open the URL shown at the end and complete the setup wizard.
+That's it. Open `http://<your-ip>:3000` in your browser and complete the setup wizard.
+
+### What the installer does
+
+1. **Node.js** — Installs Node.js 20 if not present
+2. **PostgreSQL** — Installs and configures PostgreSQL (app database)
+3. **MySQL/MariaDB** — Installs MariaDB (for user-created MySQL databases)
+4. **SQLite** — Ready out of the box (pure JS via sql.js)
+5. **Data directories** — Creates `~/arcellite-data/` with all category folders
+6. **Environment** — Generates `.env` with secure random credentials
+7. **Dependencies** — Runs `npm install`
+8. **Build** — Builds the frontend
+9. **PM2** — Installs PM2, starts the app, configures auto-start on boot
+
+### After install
+
+```bash
+pm2 status              # Check if arcellite is running
+pm2 logs arcellite      # View logs
+pm2 restart arcellite   # Restart after changes
+pm2 monit               # Real-time monitoring
+```
+
+### Updating
+
+```bash
+cd arcellite
+git pull
+npm install
+npm run build
+pm2 restart arcellite
+```
 
 ---
 
@@ -77,12 +109,13 @@ That's it. Open the URL shown at the end and complete the setup wizard.
 
 - **Node.js** ≥ 18
 - **PostgreSQL** ≥ 14
+- **PM2** (`npm install -g pm2`)
 - **npm** ≥ 9
 
 #### 1. Clone and install
 
 ```bash
-git clone https://github.com/ArcelliteProject/arcellite.git
+git clone https://github.com/Roberadesissai/arcellite.git
 cd arcellite
 npm install
 ```
@@ -117,17 +150,41 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) — the setup wizard will guide you through creating your first account.
 
-#### 6. Run in production
+#### 6. Run in production (with PM2)
 
 ```bash
-npm run build          # Build the frontend
-npm run build:server   # Compile the server
-npm run server         # Start the production server
+npm run build                     # Build the frontend
+pm2 start ecosystem.config.cjs    # Start with PM2
+pm2 save                          # Save process list
+pm2 startup                       # Auto-start on boot
 ```
 
-The server binds to `0.0.0.0:3999` by default (or the next available port).
+The server runs on `0.0.0.0:3000` by default.
 
 </details>
+
+### Environment Variables
+
+The `.env` file is generated automatically by `install.sh`. Key variables:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `DB_HOST` | PostgreSQL host (auto-detected) | `127.0.0.1` or `/var/run/postgresql` |
+| `DB_PORT` | PostgreSQL port | `5432` |
+| `DB_NAME` | Database name | `arcellite` |
+| `DB_USER` | Database user | `arcellite_user` |
+| `DB_PASSWORD` | Database password | *(auto-generated)* |
+| `MYSQL_HOST` | MySQL host | `127.0.0.1` |
+| `MYSQL_PORT` | MySQL port | `3306` |
+| `SESSION_SECRET` | Session encryption key | *(auto-generated)* |
+| `NODE_ENV` | Environment mode | `production` |
+| `ARCELLITE_DATA` | Data storage path | `~/arcellite-data` |
+| `SMTP_HOST` | Email server (optional) | `smtp.gmail.com` |
+| `SMTP_PORT` | Email port | `587` |
+| `SMTP_USER` | Email username | `you@gmail.com` |
+| `SMTP_PASSWORD` | Email password / app password | *(your password)* |
+
+> **Note:** `DB_HOST` is auto-detected by the installer. It tries TCP (`127.0.0.1`) first, then Unix socket (`/var/run/postgresql`). Both work — the installer picks whichever connects successfully on your system.
 
 ## Project Structure
 
@@ -208,12 +265,13 @@ Arcellite can mount and browse USB drives on Linux. Requires `udisksctl` and app
 
 ## Tech Stack
 
-- **Frontend**: React 19, TypeScript, Vite, Lucide Icons, Recharts
-- **Backend**: Node.js, custom HTTP server (Vite middleware in dev)
-- **Database**: PostgreSQL (via `pg`)
-- **AI**: DeepSeek API (OpenAI-compatible)
+- **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS, Lucide Icons, Recharts
+- **Backend**: Node.js, Vite middleware (API server), PM2 (process manager)
+- **Database**: PostgreSQL (via `pg`), MySQL/MariaDB, SQLite (via sql.js)
+- **AI**: DeepSeek, OpenAI, Anthropic, Google, Grok, Qwen (OpenAI-compatible)
 - **File handling**: `busboy` (uploads), `archiver` (exports)
 - **Auth**: bcrypt, session tokens, SMTP email verification
+- **PWA**: Service worker, installable on any device
 
 ## Contributing
 

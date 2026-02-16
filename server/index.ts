@@ -151,7 +151,7 @@ async function handleUnmount(req: http.IncomingMessage, res: http.ServerResponse
   }
 }
 
-const DIST = path.join(__dirname, '..', 'dist');
+const DIST = path.join(__dirname, '..', '..', 'dist');
 const HAS_DIST = fs.existsSync(DIST);
 
 function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, url: string): void {

@@ -547,59 +547,89 @@ success "Server compiled"
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  STEP 9 — systemd service (optional)
+#  STEP 9 — PM2 process manager (auto-start on boot)
 # ═════════════════════════════════════════════════════════════════════
-step "9/9  Setting up system service"
+step "9/9  Setting up PM2 process manager"
 
-SERVICE_NAME="arcellite"
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-
-read -r -p "$(echo -e "${CYAN}Install Arcellite as a system service (starts on boot)? [Y/n]:${NC} ")" INSTALL_SERVICE
-INSTALL_SERVICE=${INSTALL_SERVICE:-Y}
-
-if [[ "$INSTALL_SERVICE" =~ ^[Yy]$ ]]; then
-  NODE_BIN=$(which node)
-
-  sudo tee "$SERVICE_FILE" > /dev/null <<SVCEOF
-[Unit]
-Description=Arcellite — Personal Cloud Server
-After=network.target postgresql.service mariadb.service
-Wants=postgresql.service mariadb.service
-
-[Service]
-Type=simple
-User=$(whoami)
-WorkingDirectory=${PROJECT_DIR}
-ExecStart=${NODE_BIN} ${PROJECT_DIR}/server/dist/index.js
-Restart=on-failure
-RestartSec=5
-Environment=NODE_ENV=production
-EnvironmentFile=${PROJECT_DIR}/.env
-
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=${DATA_DIR}
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-
-  sudo systemctl daemon-reload
-  sudo systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1
-  sudo systemctl start "${SERVICE_NAME}" 2>/dev/null || true
-
-  sleep 2
-  if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
-    success "Arcellite service installed and running"
-  else
-    warn "Service installed but may need a manual start: sudo systemctl start arcellite"
-  fi
+# Install PM2 globally
+if command -v pm2 &>/dev/null; then
+  success "PM2 already installed ($(pm2 -v))"
 else
-  info "Skipped — you can start manually with: npm run server"
+  info "Installing PM2..."
+  sudo npm install -g pm2 >/dev/null 2>&1
+  success "PM2 installed"
 fi
+
+# Create PM2 ecosystem config
+cat > "${PROJECT_DIR}/ecosystem.config.cjs" <<'PMEOF'
+const path = require('path');
+const fs = require('fs');
+
+// Load .env file
+const envFile = path.join(__dirname, '.env');
+const envVars = {};
+if (fs.existsSync(envFile)) {
+  fs.readFileSync(envFile, 'utf8').split('\n').forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx > 0) {
+      envVars[trimmed.substring(0, eqIdx).trim()] = trimmed.substring(eqIdx + 1).trim();
+    }
+  });
+}
+
+module.exports = {
+  apps: [{
+    name: 'arcellite',
+    script: 'node_modules/.bin/vite',
+    args: '--host 0.0.0.0 --port 3000',
+    interpreter: 'none',
+    cwd: __dirname,
+    env: envVars,
+    watch: false,
+    max_memory_restart: '500M',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss',
+  }],
+};
+PMEOF
+success "PM2 ecosystem config created"
+
+# Stop any existing arcellite process
+pm2 delete arcellite >/dev/null 2>&1 || true
+
+# Start with PM2
+info "Starting Arcellite with PM2..."
+pm2 start "${PROJECT_DIR}/ecosystem.config.cjs" >/dev/null 2>&1
+sleep 5
+
+if pm2 list 2>/dev/null | grep -q "arcellite.*online"; then
+  success "Arcellite is running via PM2"
+else
+  warn "PM2 started but process may not be online yet. Check: pm2 logs arcellite"
+fi
+
+# Save PM2 process list and set up auto-start on boot
+pm2 save >/dev/null 2>&1
+PM2_STARTUP=$(pm2 startup systemd -u "$(whoami)" --hp "$HOME" 2>&1 | grep "sudo" | head -1)
+if [[ -n "$PM2_STARTUP" ]]; then
+  eval "$PM2_STARTUP" >/dev/null 2>&1 || true
+  success "PM2 auto-start configured (survives reboots)"
+else
+  # Try without capturing
+  pm2 startup systemd >/dev/null 2>&1 || true
+  success "PM2 startup configured"
+fi
+
+# Open firewall port if ufw is active
+if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "active"; then
+  if ! sudo ufw status | grep -q "3000/tcp"; then
+    sudo ufw allow 3000/tcp comment "Arcellite" >/dev/null 2>&1
+    success "Firewall: port 3000 opened"
+  fi
+fi
+
+INSTALL_SERVICE="Y"
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -611,12 +641,11 @@ echo -e "${GREEN}${BOLD}  Arcellite installed successfully!${NC}"
 echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "  ${BOLD}Quick start:${NC}"
+echo -e "    App URL:      ${CYAN}http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):3000${NC}"
 echo -e "    Development:  ${CYAN}npm run dev${NC}"
-echo -e "    Production:   ${CYAN}npm run server${NC}"
 echo ""
 echo -e "  ${BOLD}Defaults:${NC}"
-echo -e "    Dev server:   http://localhost:3000"
-echo -e "    Prod server:  http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):3999"
+echo -e "    Server:       http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):3000"
 echo -e "    Data dir:     ${DATA_DIR}"
 echo ""
 echo -e "  ${BOLD}Databases:${NC}"
@@ -630,10 +659,11 @@ echo -e "    2. Complete the setup wizard (create your admin account)"
 echo -e "    3. Start uploading files and using the AI assistant"
 echo ""
 if [[ "$INSTALL_SERVICE" =~ ^[Yy]$ ]]; then
-echo -e "  ${BOLD}Service commands:${NC}"
-echo -e "    Status:   ${CYAN}sudo systemctl status arcellite${NC}"
-echo -e "    Logs:     ${CYAN}sudo journalctl -u arcellite -f${NC}"
-echo -e "    Restart:  ${CYAN}sudo systemctl restart arcellite${NC}"
+echo -e "  ${BOLD}PM2 commands:${NC}"
+echo -e "    Status:   ${CYAN}pm2 status${NC}"
+echo -e "    Logs:     ${CYAN}pm2 logs arcellite${NC}"
+echo -e "    Restart:  ${CYAN}pm2 restart arcellite${NC}"
+echo -e "    Monitor:  ${CYAN}pm2 monit${NC}"
 echo ""
 fi
 echo -e "  ${BOLD}Config:${NC}  ${PROJECT_DIR}/.env"
