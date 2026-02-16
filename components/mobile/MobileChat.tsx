@@ -951,33 +951,43 @@ const MobileChat: React.FC<MobileChatProps> = ({
                 conversations.map((convo) => (
                   <div
                     key={convo.id}
-                    className={`w-full rounded-2xl mb-2 transition-all border ${
+                    className={`w-full rounded-xl mb-1 transition-all ${
                       currentConversationId === convo.id
-                        ? 'bg-[#5D5FEF]/5 border-[#5D5FEF]/20'
-                        : 'bg-white border-gray-100 active:bg-gray-50'
+                        ? 'bg-[#5D5FEF]/8'
+                        : 'active:bg-gray-50'
                     }`}
-                    onClick={() => loadConversation(convo.id)}
-                    role="button"
-                    tabIndex={0}
                   >
-                    <div className="flex items-center gap-3 px-3 py-3 h-[60px] touch-manipulation overflow-hidden">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                        currentConversationId === convo.id ? 'bg-[#5D5FEF]/10' : 'bg-gray-50'
-                      }`}>
-                        <MessageSquare className={`w-4 h-4 ${currentConversationId === convo.id ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-[13px] font-semibold truncate max-w-full ${currentConversationId === convo.id ? 'text-[#5D5FEF]' : 'text-gray-700'}`}>
-                          {convo.title || 'Untitled Chat'}
-                        </p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[9px] font-bold text-gray-300">
-                            {new Date(convo.updated_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                          </span>
-                          <span className="text-[9px] text-gray-300">·</span>
-                          <span className="text-[9px] font-bold text-gray-300">{convo.message_count} msg{convo.message_count !== 1 ? 's' : ''}</span>
+                    <div className="flex items-center gap-2.5 px-3 py-2.5 touch-manipulation">
+                      <div
+                        className="flex items-center gap-2.5 flex-1 min-w-0"
+                        onClick={() => loadConversation(convo.id)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          currentConversationId === convo.id ? 'bg-[#5D5FEF]/10' : 'bg-gray-100'
+                        }`}>
+                          <MessageSquare className={`w-3.5 h-3.5 ${currentConversationId === convo.id ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-[13px] font-semibold truncate ${currentConversationId === convo.id ? 'text-[#5D5FEF]' : 'text-gray-700'}`}>
+                            {convo.title || 'Untitled Chat'}
+                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[9px] font-bold text-gray-300">
+                              {new Date(convo.updated_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                            </span>
+                            <span className="text-[9px] text-gray-300">·</span>
+                            <span className="text-[9px] font-bold text-gray-300">{convo.message_count} msg{convo.message_count !== 1 ? 's' : ''}</span>
+                          </div>
                         </div>
                       </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteConversation(convo.id); }}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-300 active:text-red-500 active:bg-red-50 flex-shrink-0 touch-manipulation transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))
