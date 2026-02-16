@@ -135,6 +135,28 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
       const isSd = name.startsWith('sd');
       if (!removable && !isSd) continue;
 
+      // Skip disks that contain the root filesystem or system partitions
+      const isSystemDisk = (d: LsblkDisk): boolean => {
+        const systemMounts = ['/', '/boot', '/boot/efi', '/boot/firmware', '/efi', '/home', '/var', '/usr', '/tmp', '/snap', '[SWAP]'];
+        if (d.mountpoint && systemMounts.some(m => String(d.mountpoint) === m || String(d.mountpoint).startsWith('/snap/'))) return true;
+        if (d.children?.length) {
+          return d.children.some(c => c.mountpoint && systemMounts.some(m => String(c.mountpoint) === m || String(c.mountpoint).startsWith('/snap/')));
+        }
+        return false;
+      };
+      // For non-removable sd* disks, skip if they contain system partitions
+      if (isSd && !removable && isSystemDisk(disk)) continue;
+      // Also skip even removable-flagged disks if they host / or /boot
+      if (removable && isSystemDisk(disk)) {
+        // Check more narrowly: only skip if it has root (/) or /boot mounts
+        const criticalMounts = ['/', '/boot', '/boot/efi', '/boot/firmware'];
+        const hasCritical = (d: LsblkDisk): boolean => {
+          if (d.mountpoint && criticalMounts.includes(String(d.mountpoint))) return true;
+          return d.children?.some(c => c.mountpoint && criticalMounts.includes(String(c.mountpoint))) ?? false;
+        };
+        if (hasCritical(disk)) continue;
+      }
+
       const sizeRaw = disk.size;
       let sizeBytes = 0;
       if (typeof sizeRaw === 'number' && !Number.isNaN(sizeRaw)) sizeBytes = sizeRaw;
@@ -190,6 +212,11 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
           // Ignore mount errors
         }
       }
+
+      // Final guard: skip system/boot mountpoints that slipped through
+      if (mountpoint && ['/', '/boot', '/boot/efi', '/boot/firmware', '/efi', '/home', '/var', '/usr', '/tmp'].includes(mountpoint)) continue;
+      // Skip vfat EFI partitions (even if we didn't catch them above)
+      if (fstype === 'vfat' && mountpoint.includes('/boot')) continue;
 
       // Calculate usage percentage
       const usedBytes = parseSizeHuman(fsUsed as string);
