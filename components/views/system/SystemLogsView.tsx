@@ -172,53 +172,121 @@ const SystemLogsView: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-8">
-        <div className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3 h-32">
-          <div className="w-10 h-10 bg-[#5D5FEF]/10 rounded-lg flex items-center justify-center flex-shrink-0">
-            <Database className="w-5 h-5 text-[#5D5FEF]" />
+      {(() => {
+        const successCount = logs.filter(l => l.status === 'success').length;
+        const errorCount = logs.filter(l => l.status === 'error').length;
+        const warningCount = logs.filter(l => l.status === 'warning').length;
+        const infoCount = logs.filter(l => l.status === 'neutral').length;
+        const healthPercent = logs.length > 0 ? Math.round(((logs.length - errorCount) / logs.length) * 100) : 100;
+
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            {/* Total / Health */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5D5FEF] to-indigo-600 flex items-center justify-center shadow-lg shadow-[#5D5FEF]/25">
+                  <Database className="w-5 h-5 text-white" />
+                </div>
+                <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  healthPercent >= 95 ? 'bg-emerald-100 text-emerald-700' : healthPercent >= 80 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                }`}>
+                  {healthPercent >= 95 ? 'Healthy' : healthPercent >= 80 ? 'Fair' : 'Issues'}
+                </div>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{logs.length}</p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Total Events</p>
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-emerald-600">{healthPercent}% healthy</span>
+                </div>
+                {errorCount > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-red-400" />
+                    <span className="text-[10px] sm:text-[11px] font-semibold text-red-500">{errorCount} errors</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Success */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                  <CheckCircle className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Passed</span>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{successCount}</p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Success</p>
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-500 transition-all duration-500"
+                    style={{ width: `${logs.length > 0 ? Math.max(2, (successCount / logs.length) * 100) : 0}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[9px] sm:text-[10px] font-semibold text-gray-400">{logs.length > 0 ? Math.round((successCount / logs.length) * 100) : 0}% of total</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Errors */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-lg shadow-red-500/25">
+                  <AlertCircle className="w-5 h-5 text-white" />
+                </div>
+                {errorCount > 0 ? (
+                  <div className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-100 text-red-700">
+                    {errorCount} found
+                  </div>
+                ) : (
+                  <div className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700">
+                    Clear
+                  </div>
+                )}
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{errorCount}</p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Errors</p>
+              <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Warnings</span>
+                  <span className="text-[10px] sm:text-[11px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">{warningCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Error rate</span>
+                  <span className="text-[10px] sm:text-[11px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded-md">{logs.length > 0 ? Math.round((errorCount / logs.length) * 100) : 0}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Info */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-cyan-600 flex items-center justify-center shadow-lg shadow-sky-500/25">
+                  <Info className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Logs</span>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{infoCount}</p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Info Events</p>
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-sky-400 to-cyan-500 transition-all duration-500"
+                    style={{ width: `${logs.length > 0 ? Math.max(2, (infoCount / logs.length) * 100) : 0}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[9px] sm:text-[10px] font-semibold text-gray-400">{logs.length > 0 ? Math.round((infoCount / logs.length) * 100) : 0}% of total</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div>
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-wider">Total</p>
-            <p className="text-xl md:text-2xl font-black text-gray-900">{logs.length}</p>
-          </div>
-        </div>
-        <div className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3 h-32">
-          <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
-            <CheckCircle className="w-5 h-5 text-green-600" />
-          </div>
-          <div>
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-wider">Success</p>
-            <p className="text-xl md:text-2xl font-black text-green-600">{logs.filter(l => l.status === 'success').length}</p>
-          </div>
-        </div>
-        <div className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3 h-32">
-          <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center flex-shrink-0">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-          </div>
-          <div>
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-wider">Errors</p>
-            <p className="text-xl md:text-2xl font-black text-red-600">{logs.filter(l => l.status === 'error').length}</p>
-          </div>
-        </div>
-        <div className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3 h-32">
-          <div className="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center flex-shrink-0">
-            <AlertTriangle className="w-5 h-5 text-amber-500" />
-          </div>
-          <div>
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-wider">Warnings</p>
-            <p className="text-xl md:text-2xl font-black text-amber-600">{logs.filter(l => l.status === 'warning').length}</p>
-          </div>
-        </div>
-        <div className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3 h-32">
-          <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
-            <Info className="w-5 h-5 text-blue-600" />
-          </div>
-          <div>
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-wider">Info</p>
-            <p className="text-xl md:text-2xl font-black text-blue-600">{logs.filter(l => l.status === 'neutral').length}</p>
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Filters and Search - redesigned */}
       <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm mb-6 flex flex-col">

@@ -7,7 +7,7 @@
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { getRootStorage, getRemovableDevices, getFirstPartition } from './storage.js';
 import { ensureBaseExists, listDir, listExternal, mkdir, getBaseDir } from './files.js';
@@ -152,6 +152,123 @@ async function handleUnmount(req: http.IncomingMessage, res: http.ServerResponse
   }
 }
 
+async function handleFormat(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  const body = await parseBody(req);
+  const device = (body.device as string)?.trim();
+  const fsType = (body.filesystem as string)?.trim() || 'exfat';
+  const label = (body.label as string)?.trim() || '';
+  const sudoPassword = (body.password as string) || '';
+
+  if (!device || !/^[a-z0-9]+$/.test(device)) {
+    sendJson(res, 400, { error: 'Missing or invalid device name' });
+    return;
+  }
+
+  const allowedFs = ['vfat', 'ext4', 'exfat', 'ntfs'];
+  if (!allowedFs.includes(fsType)) {
+    sendJson(res, 400, { error: `Unsupported filesystem: ${fsType}. Allowed: ${allowedFs.join(', ')}` });
+    return;
+  }
+
+  const runSudo = (args: string[], timeout = 120000): { status: number | null; stderr: string; stdout: string } => {
+    const noPassResult = spawnSync('sudo', ['-n', ...args], {
+      encoding: 'utf8',
+      timeout,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    if (noPassResult.status === 0) return noPassResult;
+    if (sudoPassword) {
+      return spawnSync('sudo', ['-S', ...args], {
+        input: sudoPassword + '\n',
+        encoding: 'utf8',
+        timeout,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+    }
+    return noPassResult;
+  };
+
+  const partition = getFirstPartition(device);
+  if (!partition) {
+    sendJson(res, 400, { error: 'No partition found to format' });
+    return;
+  }
+
+  try {
+    // Check if mounted
+    let mountpoint = '';
+    try {
+      const lsblkOut = execSync(`lsblk -J -o NAME,MOUNTPOINT /dev/${partition}`, { encoding: 'utf8', timeout: 5000 });
+      const lsblkData = JSON.parse(lsblkOut) as { blockdevices?: Array<{ mountpoint?: string }> };
+      mountpoint = lsblkData.blockdevices?.[0]?.mountpoint || '';
+    } catch {}
+
+    if (mountpoint) {
+      // Kill processes using the device first
+      try { runSudo(['fuser', '-mk', mountpoint]); } catch {}
+      await new Promise(r => setTimeout(r, 500));
+      // Unmount
+      let umountResult = runSudo(['umount', mountpoint]);
+      if (umountResult.status !== 0) {
+        umountResult = runSudo(['umount', '-l', mountpoint]);
+      }
+      if (umountResult.status !== 0) {
+        const errMsg = (umountResult.stderr || '').trim();
+        if (errMsg.includes('a password is required') || errMsg.includes('Sorry, try again') || errMsg.includes('incorrect password')) {
+          sendJson(res, 401, { error: 'Password required', requiresAuth: true });
+          return;
+        }
+        throw new Error(errMsg || 'Failed to unmount before format');
+      }
+      await new Promise(r => setTimeout(r, 500));
+      try { runSudo(['rmdir', mountpoint]); } catch {}
+    }
+
+    // Wipe existing filesystem signatures
+    runSudo(['wipefs', '-a', `/dev/${partition}`]);
+
+    // Format the partition
+    const mkfsArgs: string[] = [];
+    if (fsType === 'vfat') {
+      mkfsArgs.push('mkfs.vfat', '-F', '32');
+      if (label) mkfsArgs.push('-n', label.substring(0, 11).toUpperCase());
+      mkfsArgs.push(`/dev/${partition}`);
+    } else if (fsType === 'ext4') {
+      mkfsArgs.push('mkfs.ext4', '-F');
+      if (label) mkfsArgs.push('-L', label.substring(0, 16));
+      mkfsArgs.push(`/dev/${partition}`);
+    } else if (fsType === 'exfat') {
+      mkfsArgs.push('mkfs.exfat');
+      if (label) mkfsArgs.push('-L', label.substring(0, 15));
+      mkfsArgs.push(`/dev/${partition}`);
+    } else if (fsType === 'ntfs') {
+      mkfsArgs.push('mkfs.ntfs', '-f');
+      if (label) mkfsArgs.push('-L', label.substring(0, 32));
+      mkfsArgs.push(`/dev/${partition}`);
+    }
+
+    const formatResult = runSudo(mkfsArgs, 300000);
+
+    if (formatResult.status !== 0) {
+      const errMsg = (formatResult.stderr || formatResult.stdout || '').trim();
+      if (errMsg.includes('a password is required') || errMsg.includes('Sorry, try again') || errMsg.includes('incorrect password')) {
+        sendJson(res, 401, { error: 'Password required', requiresAuth: true });
+        return;
+      }
+      throw new Error(errMsg || 'Format failed');
+    }
+
+    sendJson(res, 200, { ok: true, message: `Formatted /dev/${partition} as ${fsType}` });
+  } catch (e) {
+    const msg = (e as Error).message || String(e);
+    sendJson(res, 500, { error: msg });
+  }
+}
+
 const DIST = path.join(__dirname, '..', '..', 'dist');
 const HAS_DIST = fs.existsSync(DIST);
 
@@ -212,6 +329,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/api/system/unmount') {
     await handleUnmount(req, res);
+    return;
+  }
+  if (pathname === '/api/system/format') {
+    await handleFormat(req, res);
     return;
   }
   if (HAS_DIST) {

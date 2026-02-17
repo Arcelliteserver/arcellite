@@ -38,6 +38,36 @@ const Header: React.FC<HeaderProps> = ({
   const [isHelpOpen, setIsHelpOpen] = React.useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = React.useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = React.useState(0);
+  const prevUnreadRef = React.useRef<number>(0);
+  const notificationSoundRef = React.useRef<HTMLAudioElement | null>(null);
+  const isFirstFetchRef = React.useRef(true);
+
+  // Initialize notification sound
+  React.useEffect(() => {
+    notificationSoundRef.current = new Audio('/audio/notification.wav');
+    notificationSoundRef.current.volume = 0.5;
+
+    // Unlock audio on first user interaction (mobile browsers require this)
+    const unlockAudio = () => {
+      if (notificationSoundRef.current) {
+        notificationSoundRef.current.muted = true;
+        notificationSoundRef.current.play().then(() => {
+          notificationSoundRef.current!.pause();
+          notificationSoundRef.current!.muted = false;
+          notificationSoundRef.current!.currentTime = 0;
+        }).catch(() => {});
+      }
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('click', unlockAudio);
+    };
+    document.addEventListener('touchstart', unlockAudio, { once: true });
+    document.addEventListener('click', unlockAudio, { once: true });
+
+    return () => {
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('click', unlockAudio);
+    };
+  }, []);
 
   // Fetch unread notification count on mount and periodically
   React.useEffect(() => {
@@ -45,12 +75,19 @@ const Header: React.FC<HeaderProps> = ({
       authApi.getNotifications(50)
         .then(data => {
           const unread = (data.notifications || []).filter((n: any) => !n.read).length;
+          // Play sound when new notifications arrive (not on initial load)
+          if (!isFirstFetchRef.current && unread > prevUnreadRef.current && notificationSoundRef.current) {
+            notificationSoundRef.current.currentTime = 0;
+            notificationSoundRef.current.play().catch(() => {});
+          }
+          isFirstFetchRef.current = false;
+          prevUnreadRef.current = unread;
           setUnreadNotificationCount(unread);
         })
         .catch(() => {});
     };
     fetchCount();
-    const interval = setInterval(fetchCount, 30000);
+    const interval = setInterval(fetchCount, 10000);
     return () => clearInterval(interval);
   }, []);
 

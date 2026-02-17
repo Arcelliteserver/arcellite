@@ -546,21 +546,17 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
                 className="max-w-full max-h-full object-contain"
                 preload="auto"
                 onClick={(e) => e.stopPropagation()}
-                onPlay={() => setShowControls(false)}
               />
-              {/* Tap zones at top and bottom edges to bring back overlay controls */}
-              {!showControls && (
-                <>
-                  <div
-                    className="absolute top-0 left-0 right-0 h-12"
-                    onClick={(e) => { e.stopPropagation(); setShowControls(true); }}
-                  />
-                  <div
-                    className="absolute bottom-0 left-0 right-0 h-12"
-                    onClick={(e) => { e.stopPropagation(); setShowControls(true); }}
-                  />
-                </>
-              )}
+              {/* Tap zones above & below native controls to toggle overlay */}
+              <div
+                className="absolute top-0 left-0 right-0 h-[30%]"
+                onClick={(e) => { e.stopPropagation(); setShowControls(prev => !prev); }}
+              />
+              <div
+                className="absolute left-0 right-0 h-[25%]"
+                style={{ bottom: '48px' }}
+                onClick={(e) => { e.stopPropagation(); setShowControls(prev => !prev); }}
+              />
             </div>
           ) : (
             <div className="flex flex-col items-center gap-3">

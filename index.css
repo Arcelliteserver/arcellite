@@ -91,6 +91,12 @@
   }
 }
 
+@keyframes shimmer {
+  to {
+    transform: translateX(200%);
+  }
+}
+
 .animate-in {
   animation-fill-mode: both;
 }

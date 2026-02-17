@@ -206,14 +206,14 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
                     <button
                       key={file.id}
                       onClick={() => onFileClick(file)}
-                      className="bg-white border border-gray-200/80 rounded-2xl shadow-sm active:scale-[0.97] transition-all overflow-hidden text-left touch-manipulation"
+                      className="bg-white border border-gray-200/80 rounded-2xl shadow-sm active:scale-[0.97] transition-all overflow-hidden text-left touch-manipulation min-w-0"
                     >
                       {isPdfBook ? (
                         <PdfThumbnailCard file={file} enabled={pdfThumbnails} />
                       ) : (
                         <div className="w-full h-[100px] bg-gray-50 flex items-center justify-center overflow-hidden">
                           {thumbnailUrl ? (
-                            <img src={thumbnailUrl} alt={file.name} className="w-full h-full object-cover" loading="lazy" />
+                            <img src={thumbnailUrl} alt={file.name} className="w-full h-full object-cover" loading="lazy" onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/images/photo_placeholder.png'; }} />
                           ) : isAudioFile ? (
                             <img src="/images/music_placeholder.png" alt="Music" className="w-full h-full object-cover" loading="lazy" />
                           ) : (
@@ -223,9 +223,9 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
                           )}
                         </div>
                       )}
-                      <div className="px-3 py-2.5">
-                        <p className="text-[13px] font-bold text-gray-900 truncate">{file.name}</p>
-                        <p className="text-[11px] font-medium text-gray-400 mt-0.5">
+                      <div className="px-3 py-2 overflow-hidden">
+                        <p className="text-[12px] font-bold text-gray-900 truncate leading-tight">{file.name}</p>
+                        <p className="text-[10px] font-medium text-gray-400 mt-0.5 truncate">
                           {new Date(file.modifiedTimestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           {file.size ? ` \u00b7 ${file.size}` : ''}
                         </p>

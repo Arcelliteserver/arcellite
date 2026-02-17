@@ -396,17 +396,14 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
           <div className="mb-10">
             {isImage ? (
               <div className="relative group overflow-hidden rounded-[2.5rem] shadow-2xl shadow-[#5D5FEF]/10 border border-gray-100">
-                {file.url ? (
-                  <img
-                    src={file.url}
-                    alt={file.name}
-                    className="w-full aspect-square object-cover"
-                  />
-                ) : (
-                  <div className="w-full aspect-square bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                    <FileIcon type={file.type} className="w-20 h-20 text-gray-400" />
-                  </div>
-                )}
+                <img
+                  src={file.url || '/images/photo_placeholder.png'}
+                  alt={file.name}
+                  className="w-full aspect-square object-cover"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = '/images/photo_placeholder.png';
+                  }}
+                />
               </div>
             ) : isVideo ? (
               <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl shadow-[#5D5FEF]/10 bg-black border border-gray-100 aspect-video flex items-center justify-center">

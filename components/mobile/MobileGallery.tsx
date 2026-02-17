@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   ChevronLeft,
   Image as ImageIcon,
@@ -10,6 +10,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { FileItem } from '../../types';
+import { useVideoThumbnail } from '../files/useVideoThumbnail';
 
 interface MobileGalleryProps {
   currentFolderId: string | null;
@@ -25,6 +26,73 @@ interface MobileGalleryProps {
 
 type GalleryFilter = 'all' | 'photos' | 'videos';
 
+/** Image tile with loading skeleton */
+const ImageTile: React.FC<{ url: string; name: string; onClick: () => void }> = ({ url, name, onClick }) => {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+
+  return (
+    <button
+      onClick={onClick}
+      className="relative aspect-square bg-gray-200 overflow-hidden active:opacity-80 transition-all touch-manipulation"
+    >
+      {!loaded && !error && (
+        <div className="absolute inset-0 bg-gray-200">
+          <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+        </div>
+      )}
+      {error ? (
+        <div className="absolute inset-0 bg-gray-100 flex items-center justify-center overflow-hidden">
+          <img src="/images/photo_placeholder.png" alt="Photo" className="w-full h-full object-cover" />
+        </div>
+      ) : (
+        <img
+          src={url}
+          alt={name}
+          className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          onError={() => setError(true)}
+        />
+      )}
+    </button>
+  );
+};
+
+/** Video thumbnail tile with canvas-generated preview */
+const VideoTile: React.FC<{ url: string; size?: string; onClick: () => void }> = ({ url, size, onClick }) => {
+  const thumbnail = useVideoThumbnail(url);
+
+  return (
+    <button
+      onClick={onClick}
+      className="relative aspect-square bg-gray-800 overflow-hidden active:opacity-80 transition-all touch-manipulation"
+    >
+      {thumbnail ? (
+        <img
+          src={thumbnail}
+          alt="Video thumbnail"
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div className="w-full h-full bg-gray-200">
+          <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+        </div>
+      )}
+      <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+          <Play className="w-5 h-5 text-gray-800 ml-0.5" fill="currentColor" />
+        </div>
+      </div>
+      {size && (
+        <span className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">
+          {size}
+        </span>
+      )}
+    </button>
+  );
+};
+
 const MobileGallery: React.FC<MobileGalleryProps> = ({
   currentFolderId,
   filteredFolders,
@@ -38,6 +106,10 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
 }) => {
   const [filter, setFilter] = useState<GalleryFilter>('all');
   const [showAllAlbums, setShowAllAlbums] = useState(false);
+
+  const handleFilterChange = useCallback((f: GalleryFilter) => {
+    setFilter(f);
+  }, []);
 
   // Compute media from ALL files (not the pre-filtered list which only has images)
   // This fixes videos not appearing in gallery
@@ -128,7 +200,7 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
         ]).map((f) => (
           <button
             key={f.id}
-            onClick={() => setFilter(f.id)}
+            onClick={() => handleFilterChange(f.id)}
             className={`flex-1 py-2.5 rounded-xl text-[13px] font-bold transition-all touch-manipulation ${
               filter === f.id
                 ? 'bg-white text-[#5D5FEF] shadow-sm'
@@ -204,40 +276,23 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
               <div className="grid grid-cols-3 gap-[3px] rounded-2xl overflow-hidden">
                 {items.map((file) => {
                   const url = getFileUrl(file);
+                  if (file.type === 'video') {
+                    return (
+                      <VideoTile
+                        key={file.id}
+                        url={url}
+                        size={file.size}
+                        onClick={() => onFileClick(file)}
+                      />
+                    );
+                  }
                   return (
-                    <button
+                    <ImageTile
                       key={file.id}
+                      url={url}
+                      name={file.name}
                       onClick={() => onFileClick(file)}
-                      className="relative aspect-square bg-gray-100 overflow-hidden active:opacity-80 transition-all touch-manipulation"
-                    >
-                      {file.type === 'image' ? (
-                        <img
-                          src={url}
-                          alt={file.name}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gray-800 flex items-center justify-center relative">
-                          <video
-                            src={url}
-                            preload="metadata"
-                            className="w-full h-full object-cover absolute inset-0"
-                            muted
-                          />
-                          <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                            <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                              <Play className="w-5 h-5 text-gray-800 ml-0.5" fill="currentColor" />
-                            </div>
-                          </div>
-                          {file.size && (
-                            <span className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">
-                              {file.size}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </button>
+                    />
                   );
                 })}
               </div>

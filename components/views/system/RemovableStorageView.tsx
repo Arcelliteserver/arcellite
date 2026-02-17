@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, HardDrive, MapPin, MoreVertical } from 'lucide-react';
+import { RefreshCw, HardDrive, MapPin, MoreVertical, Eye, EyeOff } from 'lucide-react';
 
 const CableIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
   <svg className={className} viewBox="0 -960 960 960" fill="currentColor">
@@ -145,7 +145,7 @@ const DeviceCard: React.FC<DeviceCardProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
             <HardDrive className="w-3.5 h-3.5 text-gray-400" />
-            <span>{dev.fsSizeHuman || dev.sizeHuman}</span>
+            <span>{dev.sizeHuman}</span>
           </div>
           <div className="text-xs font-bold text-gray-500 truncate max-w-[120px]" title={dev.label || dev.name}>
             {dev.label || dev.mountpoint?.split('/').pop() || dev.name}
@@ -222,6 +222,9 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
   const [formatLabel, setFormatLabel] = useState('');
   const [formatting, setFormatting] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
+  const [formatPassword, setFormatPassword] = useState('');
+  const [formatNeedsPassword, setFormatNeedsPassword] = useState(false);
+  const [showFormatPassword, setShowFormatPassword] = useState(false);
 
   const fetchStorage = useCallback(async () => {
     try {
@@ -405,6 +408,7 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
           device: formatModal.device.name,
           filesystem: formatFs,
           label: formatLabel,
+          ...(formatPassword ? { password: formatPassword } : {}),
         }),
       });
       const json = (await res.json().catch(() => ({}))) as {
@@ -414,7 +418,8 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
       };
 
       if (res.status === 401 && json.requiresAuth) {
-        setFormatError('Password required — configure sudoers for passwordless format');
+        setFormatNeedsPassword(true);
+        setFormatError('Enter your sudo password to format this device');
         return;
       }
 
@@ -422,6 +427,8 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
 
       setFormatModal({ isOpen: false, device: null });
       setFormatLabel('');
+      setFormatPassword('');
+      setFormatNeedsPassword(false);
       await fetchStorage();
     } catch (e) {
       setFormatError((e as Error).message);
@@ -630,6 +637,32 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
                 />
               </div>
 
+              {formatNeedsPassword && (
+                <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                    Sudo Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showFormatPassword ? 'text' : 'password'}
+                      value={formatPassword}
+                      onChange={(e) => setFormatPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      autoFocus
+                      className="w-full px-4 py-3 pr-12 rounded-xl border-2 border-gray-200 focus:border-[#5D5FEF] focus:outline-none text-sm font-medium transition-colors"
+                      onKeyDown={(e) => { if (e.key === 'Enter' && formatPassword) handleFormat(); }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowFormatPassword(!showFormatPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                    >
+                      {showFormatPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {formatError && (
                 <div className="p-3 bg-red-50 border-2 border-red-200 rounded-xl">
                   <p className="text-sm text-red-700 font-medium">{formatError}</p>
@@ -641,6 +674,8 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
                   onClick={() => {
                     setFormatModal({ isOpen: false, device: null });
                     setFormatError(null);
+                    setFormatPassword('');
+                    setFormatNeedsPassword(false);
                   }}
                   disabled={formatting}
                   className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-gray-700 bg-white border-2 border-gray-200 hover:bg-gray-50 transition-all disabled:opacity-50"

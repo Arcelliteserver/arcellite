@@ -191,6 +191,8 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
         };
 
         const MAX_CONTINUATION_ITERATIONS = 15;
+        // Track already-executed discord_send actions to prevent duplicates
+        const executedDiscordSends = new Set<string>();
 
         for (let iteration = 0; iteration < MAX_CONTINUATION_ITERATIONS; iteration++) {
           const result = await chatWithAI(currentMessages, model, userEmail);
@@ -229,9 +231,27 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
               sendSSE('action', blockedResult);
               continue;
             }
+
+            // Deduplicate discord_send — skip if this exact send was already executed
+            if (action.type === 'discord_send') {
+              const dedupeKey = `${action.channel}|${action.message}|${action.fileUrl || ''}`;
+              if (executedDiscordSends.has(dedupeKey)) {
+                const skipResult = { success: true, message: `Already sent to Discord #${action.channel} — skipping duplicate.`, data: { type: 'discord_sent', channel: action.channel, message: action.message, duplicate: true } };
+                iterationResults.push(skipResult);
+                // Don't stream duplicate — just note it in results for the AI
+                continue;
+              }
+            }
+
             const actionResult = await executeAction(action, userEmail);
             iterationResults.push(actionResult);
             sendSSE('action', actionResult);
+
+            // Track successful discord sends
+            if (action.type === 'discord_send' && actionResult.success !== false) {
+              const dedupeKey = `${action.channel}|${action.message}|${action.fileUrl || ''}`;
+              executedDiscordSends.add(dedupeKey);
+            }
           }
 
           // If no actions were executed, AI has finished

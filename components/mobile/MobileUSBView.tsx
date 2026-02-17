@@ -66,6 +66,9 @@ const MobileUSBView: React.FC<{
   const [formatLabel, setFormatLabel] = useState('');
   const [formatting, setFormatting] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
+  const [formatPassword, setFormatPassword] = useState('');
+  const [formatNeedsPassword, setFormatNeedsPassword] = useState(false);
+  const [showFormatPassword, setShowFormatPassword] = useState(false);
 
   const fetchStorage = useCallback(async () => {
     try {
@@ -168,16 +171,20 @@ const MobileUSBView: React.FC<{
           device: formatModal.device.name,
           filesystem: formatFs,
           label: formatLabel,
+          ...(formatPassword ? { password: formatPassword } : {}),
         }),
       });
       const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; requiresAuth?: boolean };
       if (res.status === 401 && json.requiresAuth) {
-        setFormatError('Password required — configure sudoers for passwordless format');
+        setFormatNeedsPassword(true);
+        setFormatError('Enter your sudo password to format this device');
         return;
       }
       if (!res.ok) throw new Error(json.error || 'Format failed');
       setFormatModal({ isOpen: false, device: null });
       setFormatLabel('');
+      setFormatPassword('');
+      setFormatNeedsPassword(false);
       await fetchStorage();
     } catch (e) {
       setFormatError((e as Error).message);
@@ -285,7 +292,7 @@ const MobileUSBView: React.FC<{
                         </span>
                       )}
                     </div>
-                    <p className="text-[12px] font-medium text-gray-400">{dev.fsSizeHuman || dev.sizeHuman} · {dev.name}</p>
+                    <p className="text-[12px] font-medium text-gray-400">{dev.sizeHuman} · {dev.name}</p>
                   </div>
                   {/* Menu */}
                   <div className="relative">
@@ -431,12 +438,12 @@ const MobileUSBView: React.FC<{
       )}
       {/* Format Modal */}
       {formatModal.isOpen && formatModal.device && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => { if (!formatting) { setFormatModal({ isOpen: false, device: null }); setFormatError(null); } }}>
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => { if (!formatting) { setFormatModal({ isOpen: false, device: null }); setFormatError(null); setFormatPassword(''); setFormatNeedsPassword(false); } }}>
           <div className="w-full max-w-lg bg-white rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-[18px] font-extrabold text-gray-900">Format Device</h3>
               <button
-                onClick={() => { if (!formatting) { setFormatModal({ isOpen: false, device: null }); setFormatError(null); } }}
+                onClick={() => { if (!formatting) { setFormatModal({ isOpen: false, device: null }); setFormatError(null); setFormatPassword(''); setFormatNeedsPassword(false); } }}
                 className="p-2 rounded-xl bg-gray-100 text-gray-500 active:scale-95 touch-manipulation"
               >
                 <X className="w-4 h-4" />
@@ -475,6 +482,30 @@ const MobileUSBView: React.FC<{
                 />
               </div>
 
+              {formatNeedsPassword && (
+                <div>
+                  <label className="block text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-1.5">Sudo Password</label>
+                  <div className="relative">
+                    <input
+                      type={showFormatPassword ? 'text' : 'password'}
+                      value={formatPassword}
+                      onChange={(e) => setFormatPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      autoFocus
+                      className="w-full px-4 py-3.5 pr-12 rounded-2xl bg-gray-100 text-[15px] font-medium text-gray-900 placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#5D5FEF]/30"
+                      onKeyDown={(e) => { if (e.key === 'Enter' && formatPassword) handleFormat(); }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowFormatPassword(!showFormatPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400"
+                    >
+                      {showFormatPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {formatError && (
                 <div className="p-3 bg-red-50 border border-red-100 rounded-xl">
                   <p className="text-[12px] font-semibold text-red-600">{formatError}</p>
@@ -483,7 +514,7 @@ const MobileUSBView: React.FC<{
 
               <div className="flex gap-3 pt-1">
                 <button
-                  onClick={() => { setFormatModal({ isOpen: false, device: null }); setFormatError(null); }}
+                  onClick={() => { setFormatModal({ isOpen: false, device: null }); setFormatError(null); setFormatPassword(''); setFormatNeedsPassword(false); }}
                   disabled={formatting}
                   className="flex-1 py-3.5 bg-gray-100 text-gray-700 rounded-2xl text-[15px] font-bold disabled:opacity-50 active:scale-[0.98] touch-manipulation"
                 >

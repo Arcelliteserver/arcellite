@@ -1015,8 +1015,16 @@ export default defineConfig(({ mode }) => {
                         return;
                       }
 
+                      // Kill any processes using the device first
+                      try { runSudo(['fuser', '-mk', mountpoint]); } catch {}
+                      // Small delay to let processes release
+                      await new Promise(r => setTimeout(r, 500));
                       // Unmount using sudo umount
-                      const umountResult = runSudo(['umount', mountpoint]);
+                      let umountResult = runSudo(['umount', mountpoint]);
+                      // Try lazy unmount as fallback
+                      if (umountResult.status !== 0) {
+                        umountResult = runSudo(['umount', '-l', mountpoint]);
+                      }
 
                       if (umountResult.status !== 0) {
                         const errMsg = (umountResult.stderr || umountResult.stdout || '').trim();
@@ -1125,8 +1133,16 @@ export default defineConfig(({ mode }) => {
                       } catch {}
 
                       if (mountpoint) {
+                        // Kill any processes using the device first
+                        try { runSudo(['fuser', '-mk', mountpoint]); } catch {}
+                        // Small delay to let processes release
+                        await new Promise(r => setTimeout(r, 500));
                         // Unmount first
-                        const umountResult = runSudo(['umount', mountpoint]);
+                        let umountResult = runSudo(['umount', mountpoint]);
+                        if (umountResult.status !== 0) {
+                          // Try lazy unmount as fallback
+                          umountResult = runSudo(['umount', '-l', mountpoint]);
+                        }
                         if (umountResult.status !== 0) {
                           const errMsg = (umountResult.stderr || '').trim();
                           if (errMsg.includes('a password is required') || errMsg.includes('Sorry, try again') || errMsg.includes('incorrect password')) {
@@ -1137,6 +1153,8 @@ export default defineConfig(({ mode }) => {
                           }
                           throw new Error(errMsg || 'Failed to unmount before format');
                         }
+                        // Wait for device to settle after unmount
+                        await new Promise(r => setTimeout(r, 500));
                         // Clean up mount dir
                         try { runSudo(['rmdir', mountpoint]); } catch {}
                       }

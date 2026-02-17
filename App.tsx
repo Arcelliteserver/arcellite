@@ -39,6 +39,7 @@ import { AI_MODELS } from './constants';
 import AuthView from './components/auth/AuthView';
 import ConfirmModal from './components/common/ConfirmModal';
 import UploadProgress from './components/common/UploadProgress';
+import { unlockUploadAudio } from './components/common/UploadProgress';
 import Toast from './components/common/Toast';
 import type { ToastData } from './components/common/Toast';
 import type { UploadFileProgress } from './components/common/UploadProgress';
@@ -748,6 +749,9 @@ const App: React.FC = () => {
 
   const handleUpload = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
+
+    // Unlock audio for mobile browsers (must happen during user gesture)
+    unlockUploadAudio();
 
     const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'];
     const videoExts = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v'];

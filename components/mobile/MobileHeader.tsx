@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Bell, Search, X } from 'lucide-react';
 
 interface MobileHeaderProps {
@@ -21,6 +21,36 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
   showSearch = false,
 }) => {
   const [unreadCount, setUnreadCount] = useState(0);
+  const prevUnreadRef = useRef<number>(0);
+  const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
+  const isFirstFetchRef = useRef(true);
+
+  // Initialize notification sound
+  useEffect(() => {
+    notificationSoundRef.current = new Audio('/audio/notification.wav');
+    notificationSoundRef.current.volume = 0.5;
+
+    // Unlock audio on first user interaction (mobile browsers require this)
+    const unlockAudio = () => {
+      if (notificationSoundRef.current) {
+        notificationSoundRef.current.muted = true;
+        notificationSoundRef.current.play().then(() => {
+          notificationSoundRef.current!.pause();
+          notificationSoundRef.current!.muted = false;
+          notificationSoundRef.current!.currentTime = 0;
+        }).catch(() => {});
+      }
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('click', unlockAudio);
+    };
+    document.addEventListener('touchstart', unlockAudio, { once: true });
+    document.addEventListener('click', unlockAudio, { once: true });
+
+    return () => {
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('click', unlockAudio);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchCount = async () => {
@@ -28,12 +58,20 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
         const res = await fetch('/api/notifications/unread-count');
         if (res.ok) {
           const data = await res.json();
-          setUnreadCount(data.count || 0);
+          const count = data.count || 0;
+          // Play sound when new notifications arrive (not on initial load)
+          if (!isFirstFetchRef.current && count > prevUnreadRef.current && notificationSoundRef.current) {
+            notificationSoundRef.current.currentTime = 0;
+            notificationSoundRef.current.play().catch(() => {});
+          }
+          isFirstFetchRef.current = false;
+          prevUnreadRef.current = count;
+          setUnreadCount(count);
         }
       } catch {}
     };
     fetchCount();
-    const id = setInterval(fetchCount, 30000);
+    const id = setInterval(fetchCount, 10000);
     return () => clearInterval(id);
   }, []);
 
@@ -70,9 +108,7 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
         >
           <Bell className="w-[21px] h-[21px] text-gray-700" />
           {unreadCount > 0 && (
-            <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-[#5D5FEF] text-white text-[10px] font-bold rounded-full border-[1.5px] border-[#F7F7F7]">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
+            <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-[#5D5FEF] rounded-full animate-pulse shadow-sm shadow-[#5D5FEF]/50" />
           )}
         </button>
       </div>

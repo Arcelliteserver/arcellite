@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Upload, X, ChevronDown, ChevronUp, Check, AlertCircle, Loader2 } from 'lucide-react';
 
 export interface UploadFileProgress {
@@ -23,15 +23,46 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+// Lazy-init audio to work on mobile (must be created after user gesture)
+let uploadSound: HTMLAudioElement | null = null;
+function getUploadSound(): HTMLAudioElement {
+  if (!uploadSound) {
+    uploadSound = new Audio('/audio/upload.wav');
+    uploadSound.volume = 0.5;
+  }
+  return uploadSound;
+}
+
+// Call this during a user gesture (e.g. upload button tap) to unlock audio on mobile
+export function unlockUploadAudio() {
+  const snd = getUploadSound();
+  snd.muted = true;
+  snd.play().then(() => { snd.pause(); snd.muted = false; snd.currentTime = 0; }).catch(() => {});
+}
+
 const UploadProgress: React.FC<UploadProgressProps> = ({ files, visible, onDismiss }) => {
   const [minimized, setMinimized] = useState(false);
-
-  if (!visible || files.length === 0) return null;
+  const hasPlayedRef = useRef(false);
 
   const completedCount = files.filter(f => f.status === 'done').length;
   const errorCount = files.filter(f => f.status === 'error').length;
   const totalCount = files.length;
-  const allDone = completedCount + errorCount === totalCount;
+  const allDone = totalCount > 0 && completedCount + errorCount === totalCount;
+
+  // Play sound when all uploads complete
+  useEffect(() => {
+    if (allDone && visible && completedCount > 0 && !hasPlayedRef.current) {
+      hasPlayedRef.current = true;
+      const snd = getUploadSound();
+      snd.currentTime = 0;
+      snd.play().catch(() => {});
+    }
+    if (!visible || totalCount === 0) {
+      hasPlayedRef.current = false;
+    }
+  }, [allDone, visible, completedCount, totalCount]);
+
+  if (!visible || files.length === 0) return null;
   const activeFile = files.find(f => f.status === 'uploading');
   const overallProgress = totalCount > 0
     ? Math.round(files.reduce((sum, f) => sum + (f.status === 'done' ? 100 : f.status === 'error' ? 100 : f.progress), 0) / totalCount)

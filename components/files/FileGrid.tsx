@@ -319,23 +319,11 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
               <div className="relative w-full h-full transform transition-transform duration-500 md:group-hover:scale-105 flex items-center justify-center">
                 {isImage ? (
                   <img
-                    src={file.url || `https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=400&q=80`}
+                    src={file.url || `/images/photo_placeholder.png`}
                     alt={file.name}
                     className="w-full h-full object-cover"
-                    onLoad={() => {
-                      // Image loaded successfully
-                    }}
                     onError={(e) => {
-                      // Fallback to icon if image fails to load
-                      const target = e.currentTarget as HTMLImageElement;
-                      target.style.display = 'none';
-                      const parent = target.parentElement;
-                      if (parent && !parent.querySelector('svg')) {
-                        const iconDiv = document.createElement('div');
-                        iconDiv.className = 'w-8 h-8 text-gray-400';
-                        iconDiv.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
-                        parent.appendChild(iconDiv);
-                      }
+                      (e.currentTarget as HTMLImageElement).src = '/images/photo_placeholder.png';
                     }}
                   />
                 ) : isVideo ? (

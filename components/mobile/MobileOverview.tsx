@@ -11,9 +11,12 @@ import {
   Image as ImageIcon,
   Code,
   File,
+  Play,
 } from 'lucide-react';
 import DrawIcon from '../DrawIcon';
 import { FileItem } from '../../types';
+import { useVideoThumbnail } from '../files/useVideoThumbnail';
+import { usePdfThumbnail } from '../files/usePdfThumbnail';
 
 /* Custom SVG icons from assets/icons */
 const CableIcon: React.FC<{ className?: string; color?: string }> = ({ className, color = 'currentColor' }) => (
@@ -60,6 +63,38 @@ const getFileIconComponent = (ext: string) => {
   if (['js', 'ts', 'py', 'html', 'css', 'json', 'xml', 'yaml', 'sh'].includes(ext)) return Code;
   if (['pdf', 'doc', 'docx', 'txt', 'md', 'rtf', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'].includes(ext)) return FileText;
   return File;
+};
+
+const PDF_BOOK_EXTS = ['pdf', 'epub', 'djvu', 'mobi', 'azw3', 'fb2', 'cbz', 'cbr'];
+
+/** PDF thumbnail (left side of card) */
+const RecentPdfThumb: React.FC<{ file: FileItem; enabled: boolean }> = ({ file, enabled }) => {
+  const thumb = usePdfThumbnail(file.url, enabled);
+  if (thumb) return <img src={thumb} alt={file.name} className="w-full h-full object-cover" />;
+  return (
+    <div className="w-full h-full bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center">
+      <FileText className="w-6 h-6 text-red-400" />
+    </div>
+  );
+};
+
+/** Video thumbnail (left side of card) */
+const RecentVideoThumb: React.FC<{ url: string; name: string }> = ({ url, name }) => {
+  const thumbnail = useVideoThumbnail(url);
+  return (
+    <>
+      {thumbnail ? (
+        <img src={thumbnail} alt={name} className="w-full h-full object-cover" />
+      ) : (
+        <div className="w-full h-full bg-gray-700" />
+      )}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-7 h-7 rounded-full bg-white/90 flex items-center justify-center shadow">
+          <Play className="w-3 h-3 text-gray-800 ml-px" fill="currentColor" />
+        </div>
+      </div>
+    </>
+  );
 };
 
 const MobileOverview: React.FC<MobileOverviewProps> = ({
@@ -273,7 +308,7 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
         </div>
       )}
 
-      {/* ===== Recent Files — clean grid view ===== */}
+      {/* ===== Recent Files — horizontal cards ===== */}
       {recentFiles.length > 0 && (
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
@@ -289,42 +324,67 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
             {recentFiles.slice(0, 12).map((file) => {
               const ext = file.name.split('.').pop()?.toLowerCase() || '';
               const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic'].includes(ext);
+              const isVideo = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v'].includes(ext);
               const isAudioFile = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma', 'opus'].includes(ext);
+              const isPdfBook = PDF_BOOK_EXTS.includes(ext);
               const IconComp = getFileIconComponent(ext);
-              // Use the url property set by App.tsx (correct query-param format)
               const thumbnailUrl = isImage && file.url ? file.url : null;
+
+              // Friendly type label — specific for code languages
+              const typeLabel = isImage ? (ext === 'svg' ? 'SVG' : 'Image')
+                : isVideo ? 'Video'
+                : isAudioFile ? 'Music'
+                : isPdfBook ? (ext === 'pdf' ? 'PDF' : 'Book')
+                : ext === 'py' ? 'Python'
+                : ext === 'js' ? 'JavaScript'
+                : ext === 'ts' ? 'TypeScript'
+                : ext === 'html' ? 'HTML'
+                : ext === 'css' ? 'CSS'
+                : ext === 'json' ? 'JSON'
+                : ext === 'sh' ? 'Shell'
+                : ext === 'xml' ? 'XML'
+                : ext === 'yaml' || ext === 'yml' ? 'YAML'
+                : file.type === 'code' ? 'Code'
+                : file.type === 'archive' ? 'Archive'
+                : file.type === 'spreadsheet' ? 'Sheet'
+                : file.type === 'document' ? 'Document'
+                : 'File';
+
               return (
                 <button
                   key={file.id}
                   onClick={() => onFileClick(file)}
                   className="bg-white border border-gray-200/80 rounded-2xl shadow-sm active:scale-[0.97] transition-all overflow-hidden text-left touch-manipulation"
                 >
-                  {/* Thumbnail or icon area */}
-                  <div className="w-full h-[100px] bg-gray-50 flex items-center justify-center overflow-hidden">
-                    {thumbnailUrl ? (
+                  {/* Thumbnail */}
+                  <div className="relative w-full h-[110px] bg-gray-100 overflow-hidden">
+                    {isImage ? (
                       <img
-                        src={thumbnailUrl}
+                        src={thumbnailUrl || '/images/photo_placeholder.png'}
                         alt={file.name}
                         className="w-full h-full object-cover"
                         loading="lazy"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = '/images/photo_placeholder.png';
+                        }}
                       />
+                    ) : isVideo ? (
+                      <RecentVideoThumb url={file.url || ''} name={file.name} />
+                    ) : isPdfBook ? (
+                      <RecentPdfThumb file={file} enabled={pdfThumbnails} />
                     ) : isAudioFile ? (
-                      <img
-                        src="/images/music_placeholder.png"
-                        alt="Music"
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
+                      <img src="/images/music_placeholder.png" alt="Music" className="w-full h-full object-cover" loading="lazy" />
                     ) : (
-                      <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
-                        <IconComp className="w-6 h-6 text-gray-400" />
+                      <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                        <IconComp className="w-8 h-8 text-gray-300" />
                       </div>
                     )}
                   </div>
-                  {/* File info */}
-                  <div className="px-3 py-2.5">
-                    <p className="text-[13px] font-bold text-gray-900 truncate">{file.name}</p>
-                    <p className="text-[11px] font-medium text-gray-400 mt-0.5">
+                  {/* Info — 3 rows: icon, label, date+size */}
+                  <div className="px-3 py-2">
+                    <IconComp className="w-4 h-4 text-gray-400 mb-1" />
+                    <p className="text-[12px] font-bold text-gray-800">{typeLabel}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
                       {new Date(file.modifiedTimestamp).toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',

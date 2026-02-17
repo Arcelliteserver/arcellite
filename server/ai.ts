@@ -782,21 +782,23 @@ VERIFICATION (CRITICAL — DO NOT HALLUCINATE):
 CONNECTED APPS & DISCORD:
 - When the user asks "what are my connected apps", "show my integrations", "which apps are connected", etc., refer to the CONNECTED APPS section below and list them with their names, status, and details.
 - For Discord apps, you know the available channels. When the user asks to send a message to Discord, use the discord_send action.
-- When sending to Discord, choose the most appropriate channel based on the content:
-  - Text/general messages → "general" or "text"
-  - Images or visual content → "images"
-  - Documents, files, reports → "documents"
-  - Audio files → "audio"
-  - Calendar events → "calendar"
+- CRITICAL — AUTO-SELECT THE CHANNEL: You MUST automatically pick the best channel based on the content type. NEVER ask the user to choose a channel unless the content truly doesn't fit any category. Use these rules:
+  - Photos, images, screenshots, visual files (.jpg, .jpeg, .png, .gif, .webp, .svg) → ALWAYS use "images"
+  - Videos (.mp4, .mov, .avi, .mkv, .webm) → ALWAYS use "video"
+  - Audio files (.mp3, .wav, .flac, .aac) → ALWAYS use "audio"
   - Music-related → "music" or "spotify"
+  - Documents, PDFs, files, reports (.pdf, .doc, .docx, .xlsx, .txt) → ALWAYS use "documents"
+  - Calendar events → "calendar"
   - Task lists → "tasks"
   - Alerts or warnings → "alerts"
   - Debug/log info → "debug" or "logs"
-  - Video content → "video"
   - Email-related → "email"
   - Stock/finance → "stock"
   - Updates → "update"
-  - If unsure, ask the user which channel they want, listing the available ones as a bullet list with each channel on its own line using the # prefix (e.g. "- #general"). NEVER list channels as a comma-separated inline list. Always present them as a clean vertical bullet list.
+  - General text messages with no specific category → "general" or "text"
+  - Only ask the user if the message content is genuinely ambiguous and doesn't fit ANY of the categories above.
+- CRITICAL — SEND EACH FILE ONLY ONCE: When the user asks to send files to Discord, send exactly ONE discord_send action per file. NEVER duplicate the same file. If the user says "send my latest photo", send exactly 1 photo. If they say "send my latest 3 photos", send exactly 3. Count carefully and do NOT repeat.
+- CRITICAL — DO NOT RE-SEND ON CONTINUATION: When you receive [SYSTEM — ACTION RESULTS] showing that discord_send actions succeeded (✅), those messages are ALREADY delivered. Do NOT emit those discord_send actions again. Only emit NEW actions for files that haven't been sent yet.
 - You can also send files to Discord by including a fileUrl. Build the URL using the SERVER PUBLIC URL above:
   - Format: {SERVER_PUBLIC_URL}/api/files/serve?category={category}&path={url_encoded_path}
   - Example: for a file at category="general" path="books/MyBook.pdf", the fileUrl would be "${publicUrl}/api/files/serve?category=general&path=books%2FMyBook.pdf"
@@ -1725,7 +1727,7 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
           if (action.fileUrl) payload.fileUrl = action.fileUrl;
 
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
           const resp = await fetch(sendUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1756,8 +1758,10 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
             },
           };
         } catch (e) {
-          const errMsg = (e as Error).name === 'AbortError' ? 'Discord webhook timed out' : (e as Error).message;
-          return { success: false, message: `Discord send failed: ${errMsg}` };
+          const errMsg = (e as Error).name === 'AbortError'
+            ? 'Discord webhook timed out after 30 seconds. The webhook URL may be unreachable — check that your n8n/webhook server is running and accessible.'
+            : `Discord webhook connection failed: ${(e as Error).message}. Check that your webhook server is running.`;
+          return { success: false, message: errMsg };
         }
       }
 
