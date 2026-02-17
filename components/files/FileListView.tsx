@@ -118,7 +118,7 @@ const FileListView: React.FC<FileListViewProps> = ({ files, onFileClick, selecte
               onDragLeave={handleRowDragLeave}
               onDrop={(e) => handleRowDrop(e, file)}
               onClick={() => onFileClick(file)}
-              className={`flex items-center justify-between px-6 py-3.5 rounded-2xl transition-all cursor-pointer group border relative ${
+              className={`flex items-center justify-between px-6 py-3.5 rounded-2xl transition-all cursor-pointer group border relative touch-manipulation ${
                 dragOverId === file.id
                   ? 'bg-[#5D5FEF]/10 border-[#5D5FEF] ring-2 ring-[#5D5FEF]/30 shadow-lg'
                   : selectedFileId === file.id

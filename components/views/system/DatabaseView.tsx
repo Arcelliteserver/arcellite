@@ -232,6 +232,9 @@ const DatabaseDetailView: React.FC<{
   // Password visibility
   const [showPassword, setShowPassword] = useState(false);
 
+  // Public IP for global connection URLs
+  const [publicIp, setPublicIp] = useState<string>('');
+
   // Confirm
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -261,6 +264,14 @@ const DatabaseDetailView: React.FC<{
   React.useEffect(() => {
     loadTables();
   }, [loadTables]);
+
+  // Fetch public IP for global connection URLs
+  React.useEffect(() => {
+    fetch('/api/system/public-ip')
+      .then((r) => r.json())
+      .then((d) => { if (d.ip) setPublicIp(d.ip); })
+      .catch(() => { /* fallback stays empty */ });
+  }, []);
 
   const openTable = async (tableName: string) => {
     setSelectedTable(tableName);
@@ -392,9 +403,9 @@ const DatabaseDetailView: React.FC<{
   };
 
   const getGlobalConnectionUrl = () => {
-    if (!db.config) return '';
+    if (!db.config || !publicIp) return '';
     const scheme = db.type === 'mysql' ? 'mysql' : 'postgresql';
-    return `${scheme}://${db.config.username}:${db.config.password}@cloud.arcelliteserver.com:${db.config.port}/${db.config.database}`;
+    return `${scheme}://${db.config.username}:${db.config.password}@${publicIp}:${db.config.port}/${db.config.database}`;
   };
 
   const getJdbcUrl = () => {
@@ -405,9 +416,9 @@ const DatabaseDetailView: React.FC<{
   };
 
   const getGlobalJdbcUrl = () => {
-    if (!db.config) return '';
+    if (!db.config || !publicIp) return '';
     const scheme = db.type === 'mysql' ? 'mysql' : 'postgresql';
-    return `jdbc:${scheme}://cloud.arcelliteserver.com:${db.config.port}/${db.config.database}`;
+    return `jdbc:${scheme}://${publicIp}:${db.config.port}/${db.config.database}`;
   };
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -925,10 +936,11 @@ const DatabaseDetailView: React.FC<{
                     <div>
                       <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Global {db.type === 'mysql' ? 'MySQL' : 'PostgreSQL'} URL</label>
                       <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
-                        <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getGlobalConnectionUrl()}</code>
+                        <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getGlobalConnectionUrl() || 'Detecting public IP…'}</code>
                         <button
                           onClick={() => copyToClipboard(getGlobalConnectionUrl(), 'globalUrl')}
-                          className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+                          disabled={!publicIp}
+                          className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600 disabled:opacity-30"
                           title="Copy Global URL"
                         >
                           {copiedField === 'globalUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
@@ -951,10 +963,11 @@ const DatabaseDetailView: React.FC<{
                     <div>
                       <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">JDBC URL (Global)</label>
                       <div className="flex items-start sm:items-center gap-2 bg-gray-50 rounded-lg p-2.5 sm:p-3 border border-gray-100">
-                        <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getGlobalJdbcUrl()}</code>
+                        <code className="flex-1 text-[10px] sm:text-xs font-mono text-gray-800 break-all">{getGlobalJdbcUrl() || 'Detecting public IP…'}</code>
                         <button
                           onClick={() => copyToClipboard(getGlobalJdbcUrl(), 'globalJdbcUrl')}
-                          className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600"
+                          disabled={!publicIp}
+                          className="flex-shrink-0 p-1.5 hover:bg-gray-200 rounded-md transition-colors text-gray-400 hover:text-gray-600 disabled:opacity-30"
                           title="Copy Global JDBC URL"
                         >
                           {copiedField === 'globalJdbcUrl' ? <span className="text-green-500 text-xs font-bold">✓</span> : <Copy className="w-3.5 h-3.5" />}
@@ -1237,81 +1250,161 @@ const DatabaseView: React.FC = () => {
         </div>
       )}
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-3 gap-2.5 sm:gap-5 mb-6 sm:mb-8">
-        {/* Active Databases */}
-        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-2xl sm:rounded-3xl border border-emerald-200/60 p-4 sm:p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 sm:w-32 sm:h-32 bg-emerald-200/20 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="relative">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-emerald-500 shadow-lg shadow-emerald-500/25 flex items-center justify-center mb-3 sm:mb-4">
-              <Activity className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-            </div>
-            <p className="text-2xl sm:text-4xl font-black text-gray-900 leading-none mb-1">
-              {databases.filter((db) => db.status === 'running').length}
-            </p>
-            <p className="text-[10px] sm:text-xs font-bold text-emerald-600/80 uppercase tracking-wider">Active</p>
-            <div className="mt-2 sm:mt-3 flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[9px] sm:text-[10px] font-semibold text-emerald-500">
-                {databases.filter((db) => db.status === 'running').length === databases.length ? 'All running' : `${databases.filter((db) => db.status !== 'running').length} stopped`}
-              </span>
-            </div>
-          </div>
-        </div>
+      {/* Stats Dashboard */}
+      {(() => {
+        const activeCount = databases.filter(db => db.status === 'running').length;
+        const stoppedCount = databases.filter(db => db.status !== 'running').length;
+        const totalBytes = databases.reduce((acc, db: any) => acc + (db.sizeBytes || 0), 0);
+        const formatBytes = (bytes: number) => {
+          if (bytes === 0) return '0 B';
+          const k = 1024;
+          const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(k));
+          return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+        };
+        const pgCount = databases.filter(d => d.type === 'postgresql').length;
+        const myCount = databases.filter(d => d.type === 'mysql').length;
+        const sqCount = databases.filter(d => d.type === 'sqlite').length;
+        const largest = databases.length > 0
+          ? databases.reduce((max, db: any) => (db.sizeBytes || 0) > (max.sizeBytes || 0) ? db : max, databases[0])
+          : null;
+        const newest = databases.length > 0
+          ? databases.reduce((n, db) => new Date(db.created) > new Date(n.created) ? db : n, databases[0])
+          : null;
+        const totalTables = databases.reduce((acc, _db) => acc, 0);
+        const healthPercent = databases.length > 0 ? Math.round((activeCount / databases.length) * 100) : 0;
 
-        {/* Total Databases */}
-        <div className="bg-gradient-to-br from-violet-50 to-indigo-100/50 rounded-2xl sm:rounded-3xl border border-violet-200/60 p-4 sm:p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 sm:w-32 sm:h-32 bg-violet-200/20 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="relative">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-[#5D5FEF] shadow-lg shadow-[#5D5FEF]/25 flex items-center justify-center mb-3 sm:mb-4">
-              <Database className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            {/* Health & Status */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                  <Activity className="w-5 h-5 text-white" />
+                </div>
+                <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  healthPercent === 100 ? 'bg-emerald-100 text-emerald-700' : healthPercent > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {healthPercent === 100 ? 'Healthy' : healthPercent > 0 ? 'Partial' : 'Offline'}
+                </div>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{activeCount}<span className="text-lg text-gray-300 font-bold">/{databases.length}</span></p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Active Instances</p>
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-emerald-600">{activeCount} running</span>
+                </div>
+                {stoppedCount > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-gray-300" />
+                    <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">{stoppedCount} stopped</span>
+                  </div>
+                )}
+              </div>
             </div>
-            <p className="text-2xl sm:text-4xl font-black text-gray-900 leading-none mb-1">{databases.length}</p>
-            <p className="text-[10px] sm:text-xs font-bold text-violet-600/80 uppercase tracking-wider">Total</p>
-            <div className="mt-2 sm:mt-3 flex items-center gap-1 flex-wrap">
-              {(() => {
-                const pg = databases.filter(d => d.type === 'postgresql').length;
-                const my = databases.filter(d => d.type === 'mysql').length;
-                const sq = databases.filter(d => d.type === 'sqlite').length;
-                const parts: string[] = [];
-                if (pg) parts.push(`${pg} PG`);
-                if (my) parts.push(`${my} MySQL`);
-                if (sq) parts.push(`${sq} SQLite`);
-                return <span className="text-[9px] sm:text-[10px] font-semibold text-violet-500">{parts.join(' · ') || 'No databases'}</span>;
-              })()}
-            </div>
-          </div>
-        </div>
 
-        {/* Storage Used */}
-        <div className="bg-gradient-to-br from-blue-50 to-sky-100/50 rounded-2xl sm:rounded-3xl border border-blue-200/60 p-4 sm:p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 sm:w-32 sm:h-32 bg-blue-200/20 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="relative">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-blue-500 shadow-lg shadow-blue-500/25 flex items-center justify-center mb-3 sm:mb-4">
-              <HardDrive className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+            {/* Engines Breakdown */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
+                  <Database className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Engines</span>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{databases.length}</p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Total Databases</p>
+              <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+                {pgCount > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">PostgreSQL</span>
+                    <span className="text-[10px] sm:text-[11px] font-black text-violet-600 bg-violet-50 px-2 py-0.5 rounded-md">{pgCount}</span>
+                  </div>
+                )}
+                {myCount > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">MySQL</span>
+                    <span className="text-[10px] sm:text-[11px] font-black text-sky-600 bg-sky-50 px-2 py-0.5 rounded-md">{myCount}</span>
+                  </div>
+                )}
+                {sqCount > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">SQLite</span>
+                    <span className="text-[10px] sm:text-[11px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">{sqCount}</span>
+                  </div>
+                )}
+                {databases.length === 0 && (
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-gray-300">No databases yet</span>
+                )}
+              </div>
             </div>
-            <p className="text-2xl sm:text-4xl font-black text-gray-900 leading-none mb-1">
-              {(() => {
-                const totalBytes = databases.reduce((acc, db: any) => acc + (db.sizeBytes || 0), 0);
-                if (totalBytes === 0) return '0 B';
-                const k = 1024;
-                const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-                const i = Math.floor(Math.log(totalBytes) / Math.log(k));
-                return `${parseFloat((totalBytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-              })()}
-            </p>
-            <p className="text-[10px] sm:text-xs font-bold text-blue-600/80 uppercase tracking-wider">Storage</p>
-            <div className="mt-2 sm:mt-3">
-              <span className="text-[9px] sm:text-[10px] font-semibold text-blue-500">
-                {(() => {
-                  const largest = databases.reduce((max, db: any) => (db.sizeBytes || 0) > (max.sizeBytes || 0) ? db : max, databases[0]);
-                  return largest ? `Largest: ${largest.name}` : 'No data';
-                })()}
-              </span>
+
+            {/* Storage */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-cyan-600 flex items-center justify-center shadow-lg shadow-sky-500/25">
+                  <HardDrive className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Disk</span>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{formatBytes(totalBytes)}</p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Total Storage</p>
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                {largest ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Largest</span>
+                      <span className="text-[10px] sm:text-[11px] font-black text-sky-600 truncate max-w-[60%] text-right">{largest.name}</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-sky-400 to-cyan-500 transition-all duration-500"
+                        style={{ width: `${totalBytes > 0 ? Math.max(8, ((largest as any).sizeBytes || 0) / totalBytes * 100) : 0}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[9px] text-gray-400 font-semibold">
+                      <span>{formatBytes((largest as any).sizeBytes || 0)}</span>
+                      <span>{totalBytes > 0 ? Math.round(((largest as any).sizeBytes || 0) / totalBytes * 100) : 0}%</span>
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-gray-300">No data</span>
+                )}
+              </div>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                  <Server className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Info</span>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{healthPercent}<span className="text-lg text-gray-300 font-bold">%</span></p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Uptime</p>
+              <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+                {newest ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Newest</span>
+                      <span className="text-[10px] sm:text-[11px] font-black text-amber-600 truncate max-w-[60%] text-right">{newest.name}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Created</span>
+                      <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">
+                        {new Date(newest.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-gray-300">No databases</span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Database Instances */}
       <div className="mb-6">
@@ -1345,10 +1438,19 @@ const DatabaseView: React.FC = () => {
               const dbType = databaseTypes.find((t) => t.id === db.type);
               const isRunning = db.status === 'running';
               const isSystem = !!(db as any).isSystem;
+              const borderColor = db.type === 'postgresql' ? 'border-blue-400/50 hover:border-blue-500' :
+                                  db.type === 'mysql' ? 'border-orange-400/50 hover:border-orange-500' :
+                                  'border-gray-300/60 hover:border-gray-400';
+              const shadowColor = db.type === 'postgresql' ? 'hover:shadow-blue-500/10' :
+                                  db.type === 'mysql' ? 'hover:shadow-orange-500/10' :
+                                  'hover:shadow-gray-400/10';
+              const accentBg = db.type === 'postgresql' ? 'bg-blue-500' :
+                               db.type === 'mysql' ? 'bg-orange-500' :
+                               'bg-gray-400';
               return (
                 <div
                   key={db.id}
-                  className="bg-white rounded-2xl md:rounded-3xl border border-gray-100 overflow-hidden hover:shadow-2xl hover:shadow-[#5D5FEF]/8 hover:border-[#5D5FEF]/20 transition-all duration-300 cursor-pointer group"
+                  className={`bg-white rounded-2xl md:rounded-3xl border-2 ${borderColor} overflow-hidden hover:shadow-2xl ${shadowColor} transition-all duration-300 cursor-pointer group relative`}
                   onClick={() => setOpenDb(db)}
                 >
                   <div className="p-3.5 sm:p-5 md:p-6">

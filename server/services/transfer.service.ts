@@ -17,9 +17,15 @@ import { pool } from '../db/connection.js';
 import { createSession } from './auth.service.js';
 
 const homeDir = os.homedir();
-let baseDir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
-if (baseDir.startsWith('~/') || baseDir === '~') {
-  baseDir = path.join(homeDir, baseDir.slice(2));
+
+function getBaseDir(): string {
+  const cached = (globalThis as any).__arcellite_storage_path;
+  if (cached) return cached;
+  let dir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
+  if (dir.startsWith('~/') || dir === '~') {
+    dir = path.join(homeDir, dir.slice(2));
+  }
+  return dir;
 }
 
 const TRANSFER_DIR_NAME = '.arcellite-transfer';
@@ -318,7 +324,7 @@ export async function prepareTransferPackage(mountpoint: string): Promise<{ succ
     const exportCategories: CategoryProgress[] = [];
     let totalFiles = 0;
     for (const subdir of DATA_SUBDIRS) {
-      const catCount = countFiles(path.join(baseDir, subdir));
+      const catCount = countFiles(path.join(getBaseDir(), subdir));
       totalFiles += catCount;
       exportCategories.push({
         name: subdir,
@@ -339,7 +345,7 @@ export async function prepareTransferPackage(mountpoint: string): Promise<{ succ
     fs.mkdirSync(filesDestDir, { recursive: true });
 
     for (const subdir of DATA_SUBDIRS) {
-      const src = path.join(baseDir, subdir);
+      const src = path.join(getBaseDir(), subdir);
       const dest = path.join(filesDestDir, subdir);
       if (fs.existsSync(src)) {
         copyDirRecursive(src, dest, subdir);
@@ -362,7 +368,7 @@ export async function prepareTransferPackage(mountpoint: string): Promise<{ succ
       sourceArch: os.arch(),
       totalFiles,
       bytesWritten: currentProgress.bytesWritten,
-      dataDir: baseDir,
+      dataDir: getBaseDir(),
       userName: accountInfo.user?.first_name
         ? `${accountInfo.user.first_name} ${accountInfo.user.last_name || ''}`.trim()
         : accountInfo.user?.email || 'Unknown',
@@ -484,7 +490,7 @@ updateProgress({ percent: 8, message: 'Creating user account...' });
           oldUser.first_name || 'User',
           oldUser.last_name || '',
           oldUser.avatar_url || '',
-          baseDir,
+          getBaseDir(),
         ]
       );
       const newUser = userResult.rows[0];
@@ -652,7 +658,7 @@ updateProgress({ percent: 8, message: 'Creating user account...' });
 
         for (const subdir of DATA_SUBDIRS) {
           const src = path.join(srcFilesDir, subdir);
-          const dest = path.join(baseDir, subdir);
+          const dest = path.join(getBaseDir(), subdir);
           if (fs.existsSync(src)) {
             const catLabel = CATEGORY_LABELS[subdir] || subdir;
             updateProgress({ currentCategory: subdir, message: `Copying ${catLabel}...` });

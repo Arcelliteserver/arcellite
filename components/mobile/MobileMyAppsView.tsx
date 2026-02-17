@@ -26,6 +26,17 @@ interface AppChild {
   status: 'connected' | 'disconnected';
 }
 
+interface DiscordChannel {
+  id: string;
+  name: string;
+  type?: string;
+}
+
+interface DiscordWebhooks {
+  channelsUrl: string;
+  sendUrl: string;
+}
+
 interface AppConnection {
   id: string;
   name: string;
@@ -35,6 +46,8 @@ interface AppConnection {
   children?: AppChild[];
   files?: GoogleFile[];
   webhookUrl?: string;
+  discordWebhooks?: DiscordWebhooks;
+  discordChannels?: DiscordChannel[];
 }
 
 // No pre-filled apps — user must configure each app manually
@@ -87,7 +100,8 @@ const MobileMyAppsView: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0)
+          return parsed.map((a: any) => a.status === 'error' ? { ...a, status: 'disconnected', statusMessage: undefined } : a);
       } catch {}
     }
     return [];
@@ -109,6 +123,7 @@ const MobileMyAppsView: React.FC = () => {
   const [webhookUrl, setWebhookUrl] = useState('');
   const [dbCredentials, setDbCredentials] = useState({ host: '', port: '', username: '', password: '', database: '' });
   const [apiCredentials, setApiCredentials] = useState({ apiUrl: '', apiKey: '' });
+  const [discordWebhooks, setDiscordWebhooks] = useState<DiscordWebhooks>({ channelsUrl: '', sendUrl: '' });
   const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
   const [expandedFileCategories, setExpandedFileCategories] = useState<Set<string>>(new Set());
   const [collapsedConnectedApps, setCollapsedConnectedApps] = useState<Set<string>>(() => {
@@ -124,6 +139,10 @@ const MobileMyAppsView: React.FC = () => {
 
   // Full-page connect flow: null = main list, 'select' = pick app, 'configure' = enter creds, 'status' = result
   const [connectPage, setConnectPage] = useState<null | 'select' | 'configure' | 'status'>(null);
+  // Track whether we're modifying an existing app (vs adding new)
+  const [modifyingAppId, setModifyingAppId] = useState<string | null>(null);
+  // Deferred auto-connect: set an appId here, and a useEffect will call connectApp once the apps state is updated
+  const [pendingConnectId, setPendingConnectId] = useState<string | null>(null);
 
   /* ═══════ Helpers: server persistence ═══════ */
   const saveToServer = async (appsData: AppConnection[], idsData: Set<string>) => {
@@ -153,8 +172,9 @@ const MobileMyAppsView: React.FC = () => {
           if (!resp.ok) return;
           const data = await resp.json();
           if (data.apps && Array.isArray(data.apps) && data.apps.length > 0) {
-            setApps(data.apps);
-            localStorage.setItem('connectedApps', JSON.stringify(data.apps));
+            const cleaned = data.apps.map((a: any) => a.status === 'error' ? { ...a, status: 'disconnected', statusMessage: undefined } : a);
+            setApps(cleaned);
+            localStorage.setItem('connectedApps', JSON.stringify(cleaned));
           }
           if (data.connectedAppIds && Array.isArray(data.connectedAppIds)) {
             const ids = new Set<string>(data.connectedAppIds);
@@ -190,6 +210,14 @@ const MobileMyAppsView: React.FC = () => {
     window.dispatchEvent(new Event('apps-updated'));
     saveToServer(apps, connectedAppIds);
   }, [connectedAppIds]);
+
+  // Auto-connect a pending app after it's been added to state
+  useEffect(() => {
+    if (pendingConnectId && apps.some(a => a.id === pendingConnectId)) {
+      connectApp(pendingConnectId);
+      setPendingConnectId(null);
+    }
+  }, [apps, pendingConnectId]);
 
   /* ═══════ Handlers — IDENTICAL to desktop ═══════ */
   const fetchN8nWorkflows = async (apiUrl: string, apiKey: string, appId?: string) => {
@@ -245,6 +273,7 @@ const MobileMyAppsView: React.FC = () => {
 
   const isDatabaseApp = (id?: string) => id && (id === 'postgresql' || id === 'mysql' || id.startsWith('postgresql-') || id.startsWith('mysql-'));
   const isApiApp = (id?: string) => id && (id === 'n8n' || id === 'mcp' || id.startsWith('n8n-') || id.startsWith('mcp-'));
+  const isDiscordApp = (id?: string) => id === 'discord';
 
   const connectApp = async (appId: string) => {
     const app = apps.find(a => a.id === appId);
@@ -282,8 +311,44 @@ const MobileMyAppsView: React.FC = () => {
         setLoading(prev => ({ ...prev, [appId]: false }));
         return;
       }
+      // Discord apps: connect via channels webhook
+      if (isDiscordApp(appId) && app.discordWebhooks) {
+        const { channelsUrl, sendUrl } = app.discordWebhooks;
+        if (!channelsUrl) throw new Error('Discord Channels URL not configured');
+        if (!sendUrl) throw new Error('Discord Send URL not configured');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const response = await fetch('/api/apps/webhook-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhookUrl: channelsUrl }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) throw new Error(`Connection failed: ${response.status} ${response.statusText}`);
+        let data: any = {};
+        const responseText = await response.text();
+        if (responseText && responseText.trim()) { try { data = JSON.parse(responseText); } catch { data = {}; } }
+        if (Array.isArray(data) && data.length > 0) data = data[0];
+        let channels: DiscordChannel[] = [];
+        if (data.channels && Array.isArray(data.channels)) {
+          channels = data.channels.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+        } else if (Array.isArray(data)) {
+          channels = data.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+        }
+        setConnectedAppIds(prev => new Set([...prev, appId]));
+        setCollapsedConnectedApps(prev => new Set([...prev, appId]));
+        setApps(prevApps => prevApps.map(a => a.id === appId ? {
+          ...a, status: 'connected',
+          statusMessage: channels.length > 0 ? `${channels.length} channel(s) found` : 'Connected to Discord',
+          discordChannels: channels,
+        } : a));
+        setError(null);
+        setLoading(prev => ({ ...prev, [appId]: false }));
+        return;
+      }
       // Webhook apps
-      if (!app.webhookUrl) throw new Error(`${app.name} webhook not configured`);
+      if (!app.webhookUrl && !app.discordWebhooks) throw new Error(`${app.name} webhook not configured`);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
       const response = await fetch('/api/apps/webhook-proxy', {
@@ -294,7 +359,15 @@ const MobileMyAppsView: React.FC = () => {
       });
       clearTimeout(timeoutId);
       if (response.ok) {
-        let data = await response.json();
+        let data: any = {};
+        const responseText = await response.text();
+        if (responseText && responseText.trim()) {
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            data = {};
+          }
+        }
         if (Array.isArray(data) && data.length > 0) data = data[0];
         let files: GoogleFile[] = [];
         if (data.files && Array.isArray(data.files)) files = data.files;
@@ -331,24 +404,71 @@ const MobileMyAppsView: React.FC = () => {
   const handleRefresh = async () => {
     setRefreshing(true);
     setError(null);
-    const refreshPromises = Array.from(connectedAppIds).map(async (appId) => {
-      const app = apps.find(a => a.id === appId);
-      if (!app || !app.webhookUrl) return;
+    const appsToRefresh = apps.filter(a => a.status === 'connected' || a.status === 'error');
+    const refreshPromises = appsToRefresh.map(async (app) => {
+      const appId = app.id;
       try {
+        // Database apps
+        if (isDatabaseApp(appId) && (app as any).credentials) {
+          const creds = (app as any).credentials;
+          const databases = await fetchDatabases(appId, creds.host, creds.port, creds.username, creds.password, creds.database);
+          setConnectedAppIds(prev => new Set([...prev, appId]));
+          setApps(prevApps => prevApps.map(a => a.id === appId ? { ...a, status: 'connected' as const, statusMessage: `${databases.length} database(s) found`, files: databases.map((dbName: string) => ({ id: dbName, name: dbName, type: 'database' })) } : a));
+          return;
+        }
+        // API apps (n8n, MCP)
+        if (isApiApp(appId) && (app as any).apiCredentials) {
+          const apiCreds = (app as any).apiCredentials;
+          const workflows = await fetchN8nWorkflows(apiCreds.apiUrl, apiCreds.apiKey, appId);
+          const isMcp = appId === 'mcp' || appId.startsWith('mcp-');
+          setConnectedAppIds(prev => new Set([...prev, appId]));
+          setApps(prevApps => prevApps.map(a => a.id === appId ? { ...a, status: 'connected' as const, statusMessage: isMcp ? 'MCP Server Connected' : `${workflows.length} workflow(s) found`, files: !isMcp ? workflows.map((w: any) => ({ id: w.id, name: w.name, type: 'workflow', created: w.createdAt, modified: w.updatedAt })) : [] } : a));
+          return;
+        }
+        // Discord apps: refresh channels
+        if (isDiscordApp(appId) && (app as any).discordWebhooks?.channelsUrl) {
+          const response = await fetch('/api/apps/webhook-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ webhookUrl: (app as any).discordWebhooks.channelsUrl }),
+          });
+          if (response.ok) {
+            let data: any = {};
+            const responseText = await response.text();
+            if (responseText && responseText.trim()) { try { data = JSON.parse(responseText); } catch { data = {}; } }
+            if (Array.isArray(data) && data.length > 0) data = data[0];
+            let channels: DiscordChannel[] = [];
+            if (data.channels && Array.isArray(data.channels)) {
+              channels = data.channels.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+            } else if (Array.isArray(data)) {
+              channels = data.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+            }
+            setConnectedAppIds(prev => new Set([...prev, appId]));
+            setApps(prevApps => prevApps.map(a => a.id === appId ? { ...a, status: 'connected' as const, statusMessage: channels.length > 0 ? `${channels.length} channel(s) found` : 'Connected to Discord', discordChannels: channels } : a));
+          }
+          return;
+        }
+        // Webhook apps
+        if (!app.webhookUrl) return;
         const response = await fetch('/api/apps/webhook-proxy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ webhookUrl: app.webhookUrl }),
         });
         if (response.ok) {
-          let data = await response.json();
+          let data: any = {};
+          const responseText = await response.text();
+          if (responseText && responseText.trim()) {
+            try { data = JSON.parse(responseText); } catch { data = {}; }
+          }
           if (Array.isArray(data) && data.length > 0) data = data[0];
           let files: GoogleFile[] = [];
           if (data.files && Array.isArray(data.files)) files = data.files;
           else if (data.items && Array.isArray(data.items)) files = data.items;
           else if (data.data && Array.isArray(data.data)) files = data.data;
           else if (Array.isArray(data)) files = data;
-          setApps(prevApps => prevApps.map(a => a.id === appId && a.status === 'connected' ? { ...a, files } : a));
+          setConnectedAppIds(prev => new Set([...prev, appId]));
+          setApps(prevApps => prevApps.map(a => a.id === appId ? { ...a, status: 'connected' as const, statusMessage: 'Successfully connected', files } : a));
         }
       } catch {}
     });
@@ -371,13 +491,132 @@ const MobileMyAppsView: React.FC = () => {
   const handleAddApp = async () => {
     if (!selectedNewApp) return;
     setError(null);
-    if (['postgresql', 'mysql'].includes(selectedNewApp.id)) {
+
+    // Determine the base app type for validation (handles multi-instance IDs like n8n-2)
+    const baseId = selectedNewApp.id.replace(/-\d+$/, '');
+
+    if (isDatabaseApp(selectedNewApp.id)) {
       if (!dbCredentials.host || !dbCredentials.port || !dbCredentials.username || !dbCredentials.database) { setError('Please fill in all required database credentials'); return; }
-    } else if (['n8n', 'mcp'].includes(selectedNewApp.id)) {
+    } else if (isApiApp(selectedNewApp.id)) {
       if (!apiCredentials.apiUrl.trim() || !apiCredentials.apiKey.trim()) { setError(`Please enter both ${selectedNewApp.name} API URL and API Key`); return; }
+    } else if (isDiscordApp(selectedNewApp.id)) {
+      if (!discordWebhooks.channelsUrl.trim() || !discordWebhooks.sendUrl.trim()) { setError('Please enter both the Channels URL and Send Message URL'); return; }
     } else {
       if (!webhookUrl.trim()) { setError('Please enter a webhook URL'); return; }
     }
+
+    // When modifying, update the existing app in-place
+    if (modifyingAppId) {
+      const appId = modifyingAppId;
+      const appExistsInState = apps.some(a => a.id === appId);
+
+      if (!appExistsInState) {
+        // App not in state yet (e.g. pressed Connect/Modify on an unconnected app from ALL_POSSIBLE_APPS).
+        // Create it as a new app, then auto-connect.
+        const meta = ALL_POSSIBLE_APPS.find(m => m.id === appId || m.id === baseId);
+        const newApp: AppConnection = {
+          id: appId,
+          name: meta?.name || selectedNewApp.name,
+          icon: meta?.icon || selectedNewApp.icon,
+          status: 'disconnected',
+          children: (meta as any)?.children,
+          webhookUrl: !isDatabaseApp(appId) && !isApiApp(appId) && !isDiscordApp(appId) ? webhookUrl.trim() : undefined,
+        };
+        if (isDatabaseApp(appId)) (newApp as any).credentials = { ...dbCredentials };
+        else if (isApiApp(appId)) (newApp as any).apiCredentials = { ...apiCredentials };
+        else if (isDiscordApp(appId)) newApp.discordWebhooks = { ...discordWebhooks };
+        setApps(prev => [...prev, newApp]);
+        // Clear modifyingAppId so status page works correctly
+        setModifyingAppId(null);
+        // Set loading immediately so status page shows "Connecting..." not "Failed" briefly
+        setLoading(prev => ({ ...prev, [appId]: true }));
+        // Trigger auto-connect after state update via useEffect
+        setPendingConnectId(appId);
+        return;
+      }
+
+      // Update credentials on the existing app
+      setApps(prev => prev.map(app => {
+        if (app.id !== appId) return app;
+        const updated = { ...app };
+        if (isDatabaseApp(appId)) (updated as any).credentials = { ...dbCredentials };
+        else if (isApiApp(appId)) (updated as any).apiCredentials = { ...apiCredentials };
+        else if (isDiscordApp(appId)) updated.discordWebhooks = { ...discordWebhooks };
+        else updated.webhookUrl = webhookUrl.trim();
+        return updated;
+      }));
+
+      // Re-connect with new credentials
+      if (isApiApp(appId)) {
+        setLoading(prev => ({ ...prev, [appId]: true }));
+        try {
+          const workflows = await fetchN8nWorkflows(apiCredentials.apiUrl, apiCredentials.apiKey, baseId);
+          setConnectedAppIds(prev => new Set([...prev, appId]));
+          const isMcp = baseId === 'mcp';
+          setApps(prevApps => prevApps.map(app => app.id === appId ? {
+            ...app, status: 'connected',
+            statusMessage: isMcp ? 'MCP Server Connected' : `${workflows.length} workflow(s) found`,
+            files: !isMcp ? workflows.map((w: any) => ({ id: w.id, name: w.name, type: 'workflow', created: w.createdAt, modified: w.updatedAt })) : [],
+          } : app));
+        } catch (err: any) {
+          setApps(prevApps => prevApps.map(app => app.id === appId ? { ...app, status: 'error', statusMessage: `Failed: ${err.message}` } : app));
+          setError(`${selectedNewApp.name}: ${err.message}`);
+        } finally { setLoading(prev => ({ ...prev, [appId]: false })); }
+      } else if (isDatabaseApp(appId)) {
+        setLoading(prev => ({ ...prev, [appId]: true }));
+        try {
+          const databases = await fetchDatabases(baseId, dbCredentials.host, dbCredentials.port, dbCredentials.username, dbCredentials.password, dbCredentials.database);
+          setConnectedAppIds(prev => new Set([...prev, appId]));
+          setApps(prevApps => prevApps.map(app => app.id === appId ? {
+            ...app, status: 'connected', statusMessage: `${databases.length} database(s) found`,
+            files: databases.map((dbName: string) => ({ id: dbName, name: dbName, type: 'database' })),
+          } : app));
+        } catch (err: any) {
+          setApps(prevApps => prevApps.map(app => app.id === appId ? { ...app, status: 'error', statusMessage: `Failed: ${err.message}` } : app));
+          setError(`${selectedNewApp.name}: ${err.message}`);
+        } finally { setLoading(prev => ({ ...prev, [appId]: false })); }
+      } else if (isDiscordApp(appId)) {
+        setLoading(prev => ({ ...prev, [appId]: true }));
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 15000);
+          const response = await fetch('/api/apps/webhook-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ webhookUrl: discordWebhooks.channelsUrl }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (!response.ok) throw new Error(`Connection failed: ${response.status} ${response.statusText}`);
+          let data: any = {};
+          const responseText = await response.text();
+          if (responseText && responseText.trim()) { try { data = JSON.parse(responseText); } catch { data = {}; } }
+          if (Array.isArray(data) && data.length > 0) data = data[0];
+          let channels: DiscordChannel[] = [];
+          if (data.channels && Array.isArray(data.channels)) {
+            channels = data.channels.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+          } else if (Array.isArray(data)) {
+            channels = data.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+          }
+          setConnectedAppIds(prev => new Set([...prev, appId]));
+          setApps(prevApps => prevApps.map(app => app.id === appId ? {
+            ...app, status: 'connected',
+            statusMessage: channels.length > 0 ? `${channels.length} channel(s) found` : 'Connected to Discord',
+            discordChannels: channels,
+          } : app));
+        } catch (err: any) {
+          const errorMessage = err.name === 'AbortError' ? 'Connection timeout' : (err.message || 'Unknown error');
+          setApps(prevApps => prevApps.map(app => app.id === appId ? { ...app, status: 'error', statusMessage: errorMessage } : app));
+          setError(`Discord: ${errorMessage}`);
+        } finally { setLoading(prev => ({ ...prev, [appId]: false })); }
+      } else {
+        // Plain webhook app — just reconnect
+        connectApp(appId);
+      }
+      return;
+    }
+
+    // ── Adding a new app ──
     const mainApps = ['google-drive', 'microsoft-onedrive', 'slack'];
     const allowMultiple = ['n8n', 'mcp'];
     if (!mainApps.includes(selectedNewApp.id) && !allowMultiple.includes(selectedNewApp.id) && apps.some(a => a.id === selectedNewApp.id)) {
@@ -390,19 +629,20 @@ const MobileMyAppsView: React.FC = () => {
       const existingCount = apps.filter(a => a.id.startsWith(`${selectedNewApp.id}-`) || a.id === selectedNewApp.id).length;
       if (existingCount > 0) { appId = `${selectedNewApp.id}-${existingCount + 1}`; displayName = `${selectedNewApp.name} ${existingCount + 1}`; }
     }
-    const newApp: AppConnection = { id: appId, name: displayName, icon: selectedNewApp.icon, status: 'disconnected', webhookUrl: !['postgresql', 'mysql', 'n8n'].includes(selectedNewApp.id) ? webhookUrl.trim() : undefined };
-    if (['postgresql', 'mysql'].includes(selectedNewApp.id)) (newApp as any).credentials = dbCredentials;
-    else if (['n8n', 'mcp'].includes(selectedNewApp.id)) (newApp as any).apiCredentials = apiCredentials;
+    const newApp: AppConnection = { id: appId, name: displayName, icon: selectedNewApp.icon, status: 'disconnected', webhookUrl: !isDatabaseApp(selectedNewApp.id) && !isApiApp(selectedNewApp.id) && !isDiscordApp(selectedNewApp.id) ? webhookUrl.trim() : undefined };
+    if (isDatabaseApp(selectedNewApp.id)) (newApp as any).credentials = dbCredentials;
+    else if (isApiApp(selectedNewApp.id)) (newApp as any).apiCredentials = apiCredentials;
+    else if (isDiscordApp(selectedNewApp.id)) newApp.discordWebhooks = { ...discordWebhooks };
     setApps(prev => [...prev, newApp]);
 
     // Auto-connect n8n/MCP
-    if (['n8n', 'mcp'].includes(selectedNewApp.id)) {
+    if (isApiApp(selectedNewApp.id)) {
       setLoading(prev => ({ ...prev, [appId]: true }));
       try {
         const workflows = await fetchN8nWorkflows(apiCredentials.apiUrl, apiCredentials.apiKey, selectedNewApp.id);
         setConnectedAppIds(prev => new Set([...prev, appId]));
         setCollapsedConnectedApps(prev => new Set([...prev, appId]));
-        const isMcp = selectedNewApp.id === 'mcp';
+        const isMcp = baseId === 'mcp';
         setApps(prevApps => prevApps.map(app => app.id === appId ? {
           ...app, status: 'connected',
           statusMessage: isMcp ? 'MCP Server Connected' : `${workflows.length} workflow(s) found`,
@@ -415,7 +655,7 @@ const MobileMyAppsView: React.FC = () => {
       } finally { setLoading(prev => ({ ...prev, [appId]: false })); }
     }
     // Auto-connect databases
-    if (['postgresql', 'mysql'].includes(selectedNewApp.id)) {
+    if (isDatabaseApp(selectedNewApp.id)) {
       setLoading(prev => ({ ...prev, [appId]: true }));
       try {
         const databases = await fetchDatabases(selectedNewApp.id, dbCredentials.host, dbCredentials.port, dbCredentials.username, dbCredentials.password, dbCredentials.database);
@@ -431,10 +671,54 @@ const MobileMyAppsView: React.FC = () => {
         setError(`${selectedNewApp.name}: ${err.message}`);
       } finally { setLoading(prev => ({ ...prev, [appId]: false })); }
     }
-    setSelectedNewApp(null);
-    setWebhookUrl('');
-    setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
-    setApiCredentials({ apiUrl: '', apiKey: '' });
+    // Auto-connect Discord
+    if (isDiscordApp(selectedNewApp.id)) {
+      setLoading(prev => ({ ...prev, [appId]: true }));
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const response = await fetch('/api/apps/webhook-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhookUrl: discordWebhooks.channelsUrl }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) throw new Error(`Connection failed: ${response.status} ${response.statusText}`);
+        let data: any = {};
+        const responseText = await response.text();
+        if (responseText && responseText.trim()) { try { data = JSON.parse(responseText); } catch { data = {}; } }
+        if (Array.isArray(data) && data.length > 0) data = data[0];
+        let channels: DiscordChannel[] = [];
+        if (data.channels && Array.isArray(data.channels)) {
+          channels = data.channels.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+        } else if (Array.isArray(data)) {
+          channels = data.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+        }
+        setConnectedAppIds(prev => new Set([...prev, appId]));
+        setCollapsedConnectedApps(prev => new Set([...prev, appId]));
+        setApps(prevApps => prevApps.map(app => app.id === appId ? {
+          ...app, status: 'connected',
+          statusMessage: channels.length > 0 ? `${channels.length} channel(s) found` : 'Connected to Discord',
+          discordChannels: channels,
+        } : app));
+        setError(null);
+      } catch (err: any) {
+        const errorMessage = err.name === 'AbortError' ? 'Connection timeout' : (err.message || 'Unknown error');
+        setApps(prevApps => prevApps.map(app => app.id === appId ? { ...app, status: 'error', statusMessage: errorMessage } : app));
+        setError(`Discord: ${errorMessage}`);
+      } finally { setLoading(prev => ({ ...prev, [appId]: false })); }
+    }
+
+    // Only reset form if no auto-connect happened (plain webhook apps)
+    const isAutoConnect = isDatabaseApp(selectedNewApp.id) || isApiApp(selectedNewApp.id) || isDiscordApp(selectedNewApp.id);
+    if (!isAutoConnect) {
+      setSelectedNewApp(null);
+      setWebhookUrl('');
+      setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
+      setApiCredentials({ apiUrl: '', apiKey: '' });
+      setDiscordWebhooks({ channelsUrl: '', sendUrl: '' });
+    }
   };
 
   /* ═══════ Helpers — identical to desktop ═══════ */
@@ -442,7 +726,7 @@ const MobileMyAppsView: React.FC = () => {
     const mainApps = ['google-drive', 'microsoft-onedrive', 'slack'];
     return ALL_POSSIBLE_APPS.filter(app => mainApps.includes(app.id) || !apps.some(a => a.id === app.id));
   };
-  const hasCredentials = (app: AppConnection) => !!((app as any).webhookUrl || (app as any).credentials || (app as any).apiCredentials);
+  const hasCredentials = (app: AppConnection) => !!((app as any).webhookUrl || (app as any).credentials || (app as any).apiCredentials || (app as any).discordWebhooks?.channelsUrl);
   const formatFileSize = (bytes: number) => { if (!bytes) return 'Unknown'; const mb = bytes / 1024 / 1024; return mb >= 1 ? `${mb.toFixed(2)} MB` : `${(bytes / 1024).toFixed(2)} KB`; };
   const formatDate = (dateString?: string) => { if (!dateString) return ''; try { return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } };
   const getFileIcon = (fileType?: string): string => {
@@ -461,9 +745,11 @@ const MobileMyAppsView: React.FC = () => {
   const resetConnectPage = () => {
     setConnectPage(null);
     setSelectedNewApp(null);
+    setModifyingAppId(null);
     setWebhookUrl('');
     setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
     setApiCredentials({ apiUrl: '', apiKey: '' });
+    setDiscordWebhooks({ channelsUrl: '', sendUrl: '' });
     setError(null);
   };
 
@@ -472,12 +758,13 @@ const MobileMyAppsView: React.FC = () => {
      ═══════════════════════════════════════════════════════ */
   if (connectPage) {
     return (
-      <div className="w-full animate-in fade-in duration-200">
+      <div className="w-full">
         {/* ── Connect page header ── */}
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => {
-              if (connectPage === 'configure') { setConnectPage('select'); setSelectedNewApp(null); setError(null); }
+              if (connectPage === 'configure' && modifyingAppId) { resetConnectPage(); }
+              else if (connectPage === 'configure') { setConnectPage('select'); setSelectedNewApp(null); setError(null); }
               else if (connectPage === 'status') resetConnectPage();
               else resetConnectPage();
             }}
@@ -488,12 +775,12 @@ const MobileMyAppsView: React.FC = () => {
           <div className="flex-1">
             <h2 className="text-[20px] font-extrabold text-gray-900">
               {connectPage === 'select' && 'Connect App'}
-              {connectPage === 'configure' && 'Configure'}
+              {connectPage === 'configure' && (modifyingAppId ? 'Modify' : 'Configure')}
               {connectPage === 'status' && 'Connection Status'}
             </h2>
             <p className="text-[11px] text-gray-400 font-medium">
               {connectPage === 'select' && 'Choose an application'}
-              {connectPage === 'configure' && selectedNewApp && `Set up ${selectedNewApp.name}`}
+              {connectPage === 'configure' && selectedNewApp && `${modifyingAppId ? 'Update' : 'Set up'} ${selectedNewApp.name}`}
               {connectPage === 'status' && 'Connection result'}
             </p>
           </div>
@@ -547,13 +834,31 @@ const MobileMyAppsView: React.FC = () => {
               <div>
                 <p className="text-[15px] font-bold text-gray-900">{selectedNewApp.name}</p>
                 <p className="text-[11px] text-gray-400 font-medium">
-                  {isDatabaseApp(selectedNewApp.id) ? 'Database credentials' : isApiApp(selectedNewApp.id) ? 'API credentials' : 'Webhook configuration'}
+                  {isDatabaseApp(selectedNewApp.id) ? 'Database credentials' : isApiApp(selectedNewApp.id) ? 'API credentials' : isDiscordApp(selectedNewApp.id) ? 'Webhook configuration' : 'Webhook configuration'}
                 </p>
               </div>
             </div>
 
+            {/* Discord Webhook URLs */}
+            {isDiscordApp(selectedNewApp.id) && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[12px] font-bold text-gray-600 mb-2 block">Channels URL</label>
+                  <input type="text" value={discordWebhooks.channelsUrl} onChange={(e) => setDiscordWebhooks(prev => ({ ...prev, channelsUrl: e.target.value }))} placeholder="https://n8n.example.com/webhook/discord-channels"
+                    className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 font-mono text-[13px] shadow-sm" autoFocus />
+                  <p className="text-[10px] text-gray-400 mt-1.5">GET endpoint that returns your Discord server channels</p>
+                </div>
+                <div>
+                  <label className="text-[12px] font-bold text-gray-600 mb-2 block">Send Message URL</label>
+                  <input type="text" value={discordWebhooks.sendUrl} onChange={(e) => setDiscordWebhooks(prev => ({ ...prev, sendUrl: e.target.value }))} placeholder="https://n8n.example.com/webhook/discord-send"
+                    className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 font-mono text-[13px] shadow-sm" />
+                  <p className="text-[10px] text-gray-400 mt-1.5">POST endpoint to send messages to a Discord channel</p>
+                </div>
+              </div>
+            )}
+
             {/* Webhook URL */}
-            {!isDatabaseApp(selectedNewApp.id) && !isApiApp(selectedNewApp.id) && (
+            {!isDatabaseApp(selectedNewApp.id) && !isApiApp(selectedNewApp.id) && !isDiscordApp(selectedNewApp.id) && (
               <div>
                 <label className="text-[12px] font-bold text-gray-600 mb-2 block">Webhook URL</label>
                 <input type="text" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://n8n.example.com/webhook/..."
@@ -623,11 +928,12 @@ const MobileMyAppsView: React.FC = () => {
               disabled={
                 isDatabaseApp(selectedNewApp?.id) ? !dbCredentials.host || !dbCredentials.port || !dbCredentials.username || !dbCredentials.database
                 : isApiApp(selectedNewApp?.id) ? !apiCredentials.apiUrl.trim() || !apiCredentials.apiKey.trim()
+                : isDiscordApp(selectedNewApp?.id) ? !discordWebhooks.channelsUrl.trim() || !discordWebhooks.sendUrl.trim()
                 : !webhookUrl.trim()
               }
               className="w-full py-3.5 bg-[#5D5FEF] text-white rounded-2xl text-[14px] font-bold shadow-lg shadow-[#5D5FEF]/25 disabled:opacity-40 active:scale-[0.98] transition-all touch-manipulation flex items-center justify-center gap-2"
             >
-              Connect <ArrowRight className="w-4 h-4" />
+              {modifyingAppId ? 'Save & Reconnect' : 'Connect'} <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         )}
@@ -713,7 +1019,7 @@ const MobileMyAppsView: React.FC = () => {
      MAIN APPS LIST (default view)
      ═══════════════════════════════════════════════════════ */
   return (
-    <div className="w-full animate-in fade-in duration-300">
+    <div className="w-full">
       {/* ── Header with accent bar ── */}
       <div className="flex items-center justify-between mb-5">
         <div className="relative">
@@ -722,7 +1028,7 @@ const MobileMyAppsView: React.FC = () => {
         </div>
         <button
           onClick={handleRefresh}
-          disabled={refreshing || connectedAppIds.size === 0}
+          disabled={refreshing || apps.length === 0}
           className="flex items-center gap-1.5 px-3 py-2 bg-white text-gray-500 rounded-xl text-[10px] font-bold uppercase tracking-wider border border-gray-200 active:scale-95 transition-all disabled:opacity-40 shadow-sm"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
@@ -831,10 +1137,13 @@ const MobileMyAppsView: React.FC = () => {
                     </button>
                     <button
                       onClick={() => {
+                        setModifyingAppId(app.id);
                         setSelectedNewApp({ id: app.id, name: app.name, icon: app.icon });
                         setWebhookUrl((app as any).webhookUrl || '');
                         if ((app as any).credentials) setDbCredentials((app as any).credentials);
                         if ((app as any).apiCredentials) setApiCredentials((app as any).apiCredentials);
+                        if ((app as any).discordWebhooks) setDiscordWebhooks((app as any).discordWebhooks);
+                        setError(null);
                         setConnectPage('configure');
                       }}
                       className="flex-1 px-3 py-2 bg-[#5D5FEF]/10 text-[#5D5FEF] rounded-xl text-[11px] font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-[#5D5FEF]/20"
@@ -851,16 +1160,19 @@ const MobileMyAppsView: React.FC = () => {
                         const hasConfig = !!(
                           app.webhookUrl ||
                           (app as any).credentials ||
-                          (app as any).apiCredentials
+                          (app as any).apiCredentials ||
+                          (app as any).discordWebhooks?.channelsUrl
                         );
                         if (hasConfig) {
                           handleConnect(app.id);
                         } else {
                           // Open configure page so user can enter config first
+                          setModifyingAppId(app.id);
                           setSelectedNewApp({ id: app.id, name: app.name, icon: app.icon });
                           setWebhookUrl('');
                           setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
                           setApiCredentials({ apiUrl: '', apiKey: '' });
+                          if ((app as any).discordWebhooks) setDiscordWebhooks((app as any).discordWebhooks);
                           setError(null);
                           setConnectPage('configure');
                         }
@@ -876,10 +1188,13 @@ const MobileMyAppsView: React.FC = () => {
                     </button>
                     <button
                       onClick={() => {
+                        setModifyingAppId(app.id);
                         setSelectedNewApp({ id: app.id, name: app.name, icon: app.icon });
                         setWebhookUrl((app as any).webhookUrl || '');
                         if ((app as any).credentials) setDbCredentials((app as any).credentials);
                         if ((app as any).apiCredentials) setApiCredentials((app as any).apiCredentials);
+                        if ((app as any).discordWebhooks) setDiscordWebhooks((app as any).discordWebhooks);
+                        setError(null);
                         setConnectPage('configure');
                       }}
                       className="px-3 py-2 bg-[#5D5FEF]/10 text-[#5D5FEF] rounded-xl text-[11px] font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-[#5D5FEF]/20"
@@ -912,8 +1227,28 @@ const MobileMyAppsView: React.FC = () => {
               </div>
             )}
 
+            {/* ── Discord Channels (expanded only) ── */}
+            {app.status === 'connected' && isDiscordApp(app.id) && (app as any).discordChannels && (app as any).discordChannels.length > 0 && !collapsedConnectedApps.has(app.id) && (
+              <div className="px-4 pb-4 border-t border-gray-50">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-3 mb-2">
+                  Channels ({(app as any).discordChannels.length})
+                </p>
+                <div className="space-y-2">
+                  {(app as any).discordChannels.map((ch: any, i: number) => (
+                    <div key={ch.id || i} className="flex items-center gap-3 p-3 bg-[#5865F2]/5 rounded-xl border border-[#5865F2]/10">
+                      <div className="w-8 h-8 rounded-lg bg-[#5865F2]/10 border border-[#5865F2]/20 flex items-center justify-center flex-shrink-0">
+                        <span className="text-[14px] font-bold text-[#5865F2]">#</span>
+                      </div>
+                      <p className="text-[13px] font-bold text-gray-900 truncate flex-1">{ch.name}</p>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* ── Files/Workflows (expanded only) ── */}
-            {app.status === 'connected' && app.files && app.files.length > 0 && !collapsedConnectedApps.has(app.id) && (
+            {app.status === 'connected' && !isDiscordApp(app.id) && app.files && app.files.length > 0 && !collapsedConnectedApps.has(app.id) && (
               <div className="px-4 pb-4 border-t border-gray-50">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-3 mb-2">
                   {app.id.startsWith('n8n') || app.id.startsWith('mcp') ? 'Workflows' : 'Files'} ({app.files.length})
@@ -1010,7 +1345,7 @@ const MobileMyAppsView: React.FC = () => {
             )}
 
             {/* Empty state */}
-            {app.status === 'connected' && (!app.files || app.files.length === 0) && !app.id.startsWith('mcp') && !collapsedConnectedApps.has(app.id) && (
+            {app.status === 'connected' && !isDiscordApp(app.id) && (!app.files || app.files.length === 0) && !app.id.startsWith('mcp') && !collapsedConnectedApps.has(app.id) && (
               <div className="px-4 pb-4 border-t border-gray-50">
                 <div className="flex flex-col items-center py-8">
                   <img src={app.icon} alt={app.name} className="w-10 h-10 object-contain opacity-30 mb-2" />

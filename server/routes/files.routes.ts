@@ -47,6 +47,12 @@ async function getBaseDir(): Promise<string> {
 
 /** Synchronous fallback for non-async contexts */
 function getBaseDirSync(): string {
+  // Always prefer the globalThis cache (set by transfer and startup) over local cache
+  const globalCached = (globalThis as any).__arcellite_storage_path;
+  if (globalCached) {
+    _cachedBaseDir = globalCached;
+    return globalCached;
+  }
   if (_cachedBaseDir) return _cachedBaseDir;
   let dir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
   if (dir.startsWith('~/') || dir === '~') {

@@ -1,9 +1,11 @@
 /**
  * Shared storage detection (df + lsblk). Used by server and Vite dev middleware.
  * Linux; includes removable (RM=1) and SCSI/USB disks (sd*) so external portables show.
+ * Also detects SD cards (mmcblk* with MMC_TYPE=SD) and excludes internal eMMC (MMC_TYPE=MMC).
  */
 
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
 
 export interface RootStorageInfo {
   totalBytes: number;
@@ -15,7 +17,7 @@ export interface RootStorageInfo {
   availableHuman: string;
 }
 
-export type RemovableDeviceType = 'usb' | 'portable';
+export type RemovableDeviceType = 'usb' | 'portable' | 'sd_card' | 'emmc';
 
 export interface RemovableDeviceInfo {
   name: string;
@@ -59,7 +61,24 @@ function formatBytes(bytes: number): string {
 
 const PORTABLE_SIZE_THRESHOLD_BYTES = 100 * 1024 * 1024 * 1024; // 100 GB
 
-function deviceType(model: string, sizeBytes: number): RemovableDeviceType {
+/**
+ * Read the MMC_TYPE from /sys/block/<name>/device/uevent.
+ * Returns 'SD' for SD cards, 'MMC' for internal eMMC, or null if unknown.
+ */
+function getMmcType(diskName: string): string | null {
+  try {
+    const uevent = readFileSync(`/sys/block/${diskName}/device/uevent`, 'utf8');
+    const match = uevent.match(/^MMC_TYPE=(.+)$/m);
+    return match ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function deviceType(model: string, sizeBytes: number, diskName?: string): RemovableDeviceType {
+  if (diskName && diskName.startsWith('mmcblk')) {
+    return getMmcType(diskName) === 'SD' ? 'sd_card' : 'emmc';
+  }
   if (model.toLowerCase().includes('portable') || sizeBytes >= PORTABLE_SIZE_THRESHOLD_BYTES) return 'portable';
   return 'usb';
 }
@@ -133,7 +152,9 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
       if (!name || name.startsWith('loop')) continue;
       const removable = disk.rm === true || disk.rm === '1';
       const isSd = name.startsWith('sd');
-      if (!removable && !isSd) continue;
+      // Include all mmcblk devices (SD cards + eMMC) except boot partitions
+      const isMmcblk = name.startsWith('mmcblk') && !name.includes('boot');
+      if (!removable && !isSd && !isMmcblk) continue;
 
       // Skip disks that contain the root filesystem or system partitions
       const isSystemDisk = (d: LsblkDisk): boolean => {
@@ -144,8 +165,8 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
         }
         return false;
       };
-      // For non-removable sd* disks, skip if they contain system partitions
-      if (isSd && !removable && isSystemDisk(disk)) continue;
+      // For non-removable sd* or mmcblk* disks, skip if they contain system partitions
+      if ((isSd || isMmcblk) && !removable && isSystemDisk(disk)) continue;
       // Also skip even removable-flagged disks if they host / or /boot
       if (removable && isSystemDisk(disk)) {
         // Check more narrowly: only skip if it has root (/) or /boot mounts
@@ -202,17 +223,6 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
         }
       }
 
-      // Auto-mount if not mounted and partition exists
-      if (!mountpoint && partitionName) {
-        const mountDir = `/media/arcellite/${partitionName}`;
-        try {
-          execSync(`mkdir -p '${mountDir}' && mount '/dev/${partitionName}' '${mountDir}'`, { stdio: 'ignore' });
-          mountpoint = mountDir;
-        } catch (e) {
-          // Ignore mount errors
-        }
-      }
-
       // Final guard: skip system/boot mountpoints that slipped through
       if (mountpoint && ['/', '/boot', '/boot/efi', '/boot/firmware', '/efi', '/home', '/var', '/usr', '/tmp'].includes(mountpoint)) continue;
       // Skip vfat EFI partitions (even if we didn't catch them above)
@@ -237,11 +247,23 @@ export function getRemovableDevices(): RemovableDeviceInfo[] {
         fsAvailHuman: fsAvail ? String(fsAvail).trim() : undefined,
         fsSizeHuman: fsSize ? String(fsSize).trim() : undefined,
         fsUsedPercent: mountpoint ? fsUsedPercent : undefined,
-        deviceType: deviceType(model, sizeBytes),
+        deviceType: deviceType(model, sizeBytes, name),
       });
     }
   } catch (e) {
     console.error('getRemovableDevices error', (e as Error).message);
   }
+
+  // Sort: eMMC (built-in) first, then USB, then SD cards
+  const typeOrder: Record<string, number> = { emmc: 0, usb: 1, portable: 2, sd_card: 3 };
+  list.sort((a, b) => (typeOrder[a.deviceType] ?? 9) - (typeOrder[b.deviceType] ?? 9));
+
+  // Set friendly names for eMMC devices
+  for (const dev of list) {
+    if (dev.deviceType === 'emmc') {
+      dev.model = 'Built-in Storage';
+    }
+  }
+
   return list;
 }

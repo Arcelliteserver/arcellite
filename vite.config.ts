@@ -34,6 +34,15 @@ export default defineConfig(({ mode }) => {
                 console.log('[Server] Initial setup required - no users found');
               } else {
                 console.log('[Server] Database initialized with existing users');
+                // Pre-populate the global storage path cache from DB so getBaseDir() works immediately
+                try {
+                  const authSvc = await import('./server/services/auth.service.js');
+                  const storagePath = await authSvc.getActiveStoragePath();
+                  (globalThis as any).__arcellite_storage_path = storagePath;
+                  console.log(`[Server] Active storage path: ${storagePath}`);
+                } catch (e) {
+                  console.warn('[Server] Could not read storage path from DB, using env default');
+                }
               }
 
               // Clean up expired sessions every hour
@@ -152,6 +161,11 @@ export default defineConfig(({ mode }) => {
               if (url === '/api/auth/reset-settings' && req.method === 'POST') {
                 const authRoutes = await import('./server/routes/auth.routes.js');
                 authRoutes.handleResetSettings(req, res);
+                return;
+              }
+              if (url === '/api/auth/transfer-storage' && req.method === 'POST') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleTransferStorage(req, res);
                 return;
               }
               if (url === '/api/auth/activity' && req.method === 'GET') {
@@ -398,6 +412,24 @@ export default defineConfig(({ mode }) => {
                     res.setHeader('Content-Type', 'application/json');
                     res.end(JSON.stringify({ error: String((e as Error).message) }));
                   }
+                }).catch((e) => {
+                  res.statusCode = 500;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ error: String((e as Error).message) }));
+                });
+                return;
+              }
+
+              if (url === '/api/system/public-ip') {
+                import('./server/stats.ts').then(({ getPublicIp }) => {
+                  getPublicIp().then((ip) => {
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({ ip }));
+                  }).catch((e) => {
+                    res.statusCode = 500;
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({ error: String((e as Error).message) }));
+                  });
                 }).catch((e) => {
                   res.statusCode = 500;
                   res.setHeader('Content-Type', 'application/json');
@@ -791,14 +823,6 @@ export default defineConfig(({ mode }) => {
                         return;
                       }
 
-                      // Always require sudo password — no passwordless attempts
-                      if (!sudoPassword) {
-                        res.statusCode = 401;
-                        res.setHeader('Content-Type', 'application/json');
-                        res.end(JSON.stringify({ error: 'Password required', requiresAuth: true }));
-                        return;
-                      }
-
                       const partition = getFirstPartition(device);
                       if (!partition) {
                         res.statusCode = 400;
@@ -818,6 +842,28 @@ export default defineConfig(({ mode }) => {
                           return;
                         }
                       } catch {}
+
+                      // Helper: run sudo command — tries passwordless (-n) first, falls back to password via stdin
+                      const runSudo = (args: string[]): { status: number | null; stderr: string; stdout: string } => {
+                        // Try passwordless sudo first (uses /etc/sudoers.d/arcellite-mount rules)
+                        const noPassResult = spawnSync('sudo', ['-n', ...args], {
+                          encoding: 'utf8',
+                          timeout: 60000,
+                          maxBuffer: 10 * 1024 * 1024,
+                        });
+                        if (noPassResult.status === 0) return noPassResult;
+                        // If passwordless failed and we have a password, try with it
+                        if (sudoPassword) {
+                          const passResult = spawnSync('sudo', ['-S', ...args], {
+                            input: sudoPassword + '\n',
+                            encoding: 'utf8',
+                            timeout: 60000,
+                            maxBuffer: 10 * 1024 * 1024,
+                          });
+                          return passResult;
+                        }
+                        return noPassResult;
+                      };
 
                       // Get volume label or UUID for a nicer mount directory name
                       let volumeLabel = '';
@@ -843,18 +889,10 @@ export default defineConfig(({ mode }) => {
                       const mountDir = `/media/arcellite/${mountName}`;
 
                       // Fix parent directory permissions so arcellite user can access
-                      spawnSync('sudo', ['-S', 'chmod', '755', '/media/arcellite'], {
-                        input: sudoPassword + '\n',
-                        encoding: 'utf8',
-                        timeout: 5000,
-                      });
+                      runSudo(['chmod', '755', '/media/arcellite']);
 
                       // Create mount dir with sudo
-                      const mkdirResult = spawnSync('sudo', ['-S', 'mkdir', '-p', mountDir], {
-                        input: sudoPassword + '\n',
-                        encoding: 'utf8',
-                        timeout: 10000,
-                      });
+                      const mkdirResult = runSudo(['mkdir', '-p', mountDir]);
                       if (mkdirResult.status !== 0) {
                         const errMsg = (mkdirResult.stderr || '').trim();
                         if (errMsg.includes('Sorry, try again') || errMsg.includes('incorrect password')) {
@@ -863,16 +901,17 @@ export default defineConfig(({ mode }) => {
                           res.end(JSON.stringify({ error: 'Incorrect password', requiresAuth: true }));
                           return;
                         }
+                        if (errMsg.includes('a password is required')) {
+                          res.statusCode = 401;
+                          res.setHeader('Content-Type', 'application/json');
+                          res.end(JSON.stringify({ error: 'Password required', requiresAuth: true }));
+                          return;
+                        }
                         throw new Error(errMsg || 'Failed to create mount directory');
                       }
 
                       // Mount the partition using sudo mount
-                      const mountResult = spawnSync('sudo', ['-S', 'mount', `-o`, `uid=1000,gid=1000,dmask=022,fmask=133`, `/dev/${partition}`, mountDir], {
-                        input: sudoPassword + '\n',
-                        encoding: 'utf8',
-                        timeout: 60000,
-                        maxBuffer: 10 * 1024 * 1024,
-                      });
+                      const mountResult = runSudo(['mount', `-o`, `uid=1000,gid=1000,dmask=022,fmask=133`, `/dev/${partition}`, mountDir]);
 
                       if (mountResult.status !== 0) {
                         const errMsg = (mountResult.stderr || mountResult.stdout || '').trim();
@@ -889,21 +928,12 @@ export default defineConfig(({ mode }) => {
                         }
                         // If uid/gid mount options fail (e.g. ext4), retry without them
                         if (errMsg.includes('bad option') || errMsg.includes('unrecognized mount option')) {
-                          const retryResult = spawnSync('sudo', ['-S', 'mount', `/dev/${partition}`, mountDir], {
-                            input: sudoPassword + '\n',
-                            encoding: 'utf8',
-                            timeout: 60000,
-                            maxBuffer: 10 * 1024 * 1024,
-                          });
+                          const retryResult = runSudo(['mount', `/dev/${partition}`, mountDir]);
                           if (retryResult.status !== 0) {
                             throw new Error((retryResult.stderr || '').trim() || 'Mount failed');
                           }
                           // For native Linux filesystems, chown the mount point
-                          spawnSync('sudo', ['-S', 'chown', '-R', 'arcellite:arcellite', mountDir], {
-                            input: sudoPassword + '\n',
-                            encoding: 'utf8',
-                            timeout: 15000,
-                          });
+                          runSudo(['chown', '-R', 'arcellite:arcellite', mountDir]);
                         } else {
                           throw new Error(errMsg || 'Mount failed');
                         }
@@ -943,13 +973,24 @@ export default defineConfig(({ mode }) => {
                         return;
                       }
 
-                      // Always require sudo password
-                      if (!sudoPassword) {
-                        res.statusCode = 401;
-                        res.setHeader('Content-Type', 'application/json');
-                        res.end(JSON.stringify({ error: 'Password required', requiresAuth: true }));
-                        return;
-                      }
+                      // Helper: run sudo command — tries passwordless (-n) first, falls back to password
+                      const runSudo = (args: string[]): { status: number | null; stderr: string; stdout: string } => {
+                        const noPassResult = spawnSync('sudo', ['-n', ...args], {
+                          encoding: 'utf8',
+                          timeout: 60000,
+                          maxBuffer: 10 * 1024 * 1024,
+                        });
+                        if (noPassResult.status === 0) return noPassResult;
+                        if (sudoPassword) {
+                          return spawnSync('sudo', ['-S', ...args], {
+                            input: sudoPassword + '\n',
+                            encoding: 'utf8',
+                            timeout: 60000,
+                            maxBuffer: 10 * 1024 * 1024,
+                          });
+                        }
+                        return noPassResult;
+                      };
 
                       const partition = getFirstPartition(device);
                       if (!partition) {
@@ -975,12 +1016,7 @@ export default defineConfig(({ mode }) => {
                       }
 
                       // Unmount using sudo umount
-                      const umountResult = spawnSync('sudo', ['-S', 'umount', mountpoint], {
-                        input: sudoPassword + '\n',
-                        encoding: 'utf8',
-                        timeout: 60000,
-                        maxBuffer: 10 * 1024 * 1024,
-                      });
+                      const umountResult = runSudo(['umount', mountpoint]);
 
                       if (umountResult.status !== 0) {
                         const errMsg = (umountResult.stderr || umountResult.stdout || '').trim();
@@ -988,6 +1024,12 @@ export default defineConfig(({ mode }) => {
                           res.statusCode = 401;
                           res.setHeader('Content-Type', 'application/json');
                           res.end(JSON.stringify({ error: 'Incorrect password', requiresAuth: true }));
+                          return;
+                        }
+                        if (errMsg.includes('a password is required')) {
+                          res.statusCode = 401;
+                          res.setHeader('Content-Type', 'application/json');
+                          res.end(JSON.stringify({ error: 'Password required', requiresAuth: true }));
                           return;
                         }
                         if (errMsg.includes('not mounted') || errMsg.includes('not found')) {
@@ -1000,15 +1042,143 @@ export default defineConfig(({ mode }) => {
 
                       // Clean up mount directory
                       try {
-                        spawnSync('sudo', ['-S', 'rmdir', mountpoint], {
-                          input: sudoPassword + '\n',
-                          encoding: 'utf8',
-                          timeout: 5000,
-                        });
+                        runSudo(['rmdir', mountpoint]);
                       } catch {}
 
                       res.setHeader('Content-Type', 'application/json');
                       res.end(JSON.stringify({ ok: true }));
+                    } catch (e) {
+                      const msg = (e as Error).message || String(e);
+                      res.statusCode = 500;
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: msg }));
+                    }
+                  }).catch((e) => {
+                    res.statusCode = 500;
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({ error: String((e as Error).message) }));
+                  });
+                });
+                return;
+              }
+
+              if (url === '/api/system/format' && req.method === 'POST') {
+                const chunks: Buffer[] = [];
+                req.on('data', (c: Buffer) => chunks.push(c));
+                req.on('end', () => {
+                  Promise.all([import('./server/storage.ts'), import('child_process')]).then(async ([{ getFirstPartition }, { spawnSync, execSync }]) => {
+                    try {
+                      const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+                      const device = (body.device as string)?.trim();
+                      const fsType = (body.filesystem as string)?.trim() || 'exfat';
+                      const label = (body.label as string)?.trim() || '';
+                      const sudoPassword = (body.password as string) || '';
+
+                      if (!device || !/^[a-z0-9]+$/.test(device)) {
+                        res.statusCode = 400;
+                        res.setHeader('Content-Type', 'application/json');
+                        res.end(JSON.stringify({ error: 'Missing or invalid device name' }));
+                        return;
+                      }
+
+                      const allowedFs = ['vfat', 'ext4', 'exfat', 'ntfs'];
+                      if (!allowedFs.includes(fsType)) {
+                        res.statusCode = 400;
+                        res.setHeader('Content-Type', 'application/json');
+                        res.end(JSON.stringify({ error: `Unsupported filesystem: ${fsType}. Allowed: ${allowedFs.join(', ')}` }));
+                        return;
+                      }
+
+                      // Helper: run sudo command — tries passwordless (-n) first, falls back to password
+                      const runSudo = (args: string[], timeout = 120000): { status: number | null; stderr: string; stdout: string } => {
+                        const noPassResult = spawnSync('sudo', ['-n', ...args], {
+                          encoding: 'utf8',
+                          timeout,
+                          maxBuffer: 10 * 1024 * 1024,
+                        });
+                        if (noPassResult.status === 0) return noPassResult;
+                        if (sudoPassword) {
+                          return spawnSync('sudo', ['-S', ...args], {
+                            input: sudoPassword + '\n',
+                            encoding: 'utf8',
+                            timeout,
+                            maxBuffer: 10 * 1024 * 1024,
+                          });
+                        }
+                        return noPassResult;
+                      };
+
+                      const partition = getFirstPartition(device);
+                      if (!partition) {
+                        res.statusCode = 400;
+                        res.setHeader('Content-Type', 'application/json');
+                        res.end(JSON.stringify({ error: 'No partition found to format' }));
+                        return;
+                      }
+
+                      // Check if mounted — must unmount first
+                      let mountpoint = '';
+                      try {
+                        const lsblkOut = execSync(`lsblk -J -o NAME,MOUNTPOINT /dev/${partition}`, { encoding: 'utf8', timeout: 5000 });
+                        const lsblkData = JSON.parse(lsblkOut) as { blockdevices?: Array<{ mountpoint?: string }> };
+                        mountpoint = lsblkData.blockdevices?.[0]?.mountpoint || '';
+                      } catch {}
+
+                      if (mountpoint) {
+                        // Unmount first
+                        const umountResult = runSudo(['umount', mountpoint]);
+                        if (umountResult.status !== 0) {
+                          const errMsg = (umountResult.stderr || '').trim();
+                          if (errMsg.includes('a password is required') || errMsg.includes('Sorry, try again') || errMsg.includes('incorrect password')) {
+                            res.statusCode = 401;
+                            res.setHeader('Content-Type', 'application/json');
+                            res.end(JSON.stringify({ error: 'Password required', requiresAuth: true }));
+                            return;
+                          }
+                          throw new Error(errMsg || 'Failed to unmount before format');
+                        }
+                        // Clean up mount dir
+                        try { runSudo(['rmdir', mountpoint]); } catch {}
+                      }
+
+                      // Wipe existing filesystem signatures
+                      runSudo(['wipefs', '-a', `/dev/${partition}`]);
+
+                      // Format the partition
+                      const mkfsArgs: string[] = [];
+                      if (fsType === 'vfat') {
+                        mkfsArgs.push('mkfs.vfat', '-F', '32');
+                        if (label) mkfsArgs.push('-n', label.substring(0, 11).toUpperCase());
+                        mkfsArgs.push(`/dev/${partition}`);
+                      } else if (fsType === 'ext4') {
+                        mkfsArgs.push('mkfs.ext4', '-F');
+                        if (label) mkfsArgs.push('-L', label.substring(0, 16));
+                        mkfsArgs.push(`/dev/${partition}`);
+                      } else if (fsType === 'exfat') {
+                        mkfsArgs.push('mkfs.exfat');
+                        if (label) mkfsArgs.push('-L', label.substring(0, 15));
+                        mkfsArgs.push(`/dev/${partition}`);
+                      } else if (fsType === 'ntfs') {
+                        mkfsArgs.push('mkfs.ntfs', '-f');
+                        if (label) mkfsArgs.push('-L', label.substring(0, 32));
+                        mkfsArgs.push(`/dev/${partition}`);
+                      }
+
+                      const formatResult = runSudo(mkfsArgs, 300000);
+
+                      if (formatResult.status !== 0) {
+                        const errMsg = (formatResult.stderr || formatResult.stdout || '').trim();
+                        if (errMsg.includes('a password is required') || errMsg.includes('Sorry, try again') || errMsg.includes('incorrect password')) {
+                          res.statusCode = 401;
+                          res.setHeader('Content-Type', 'application/json');
+                          res.end(JSON.stringify({ error: 'Password required', requiresAuth: true }));
+                          return;
+                        }
+                        throw new Error(errMsg || 'Format failed');
+                      }
+
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ ok: true, message: `Formatted /dev/${partition} as ${fsType}` }));
                     } catch (e) {
                       const msg = (e as Error).message || String(e);
                       res.statusCode = 500;
@@ -1517,13 +1687,16 @@ export default defineConfig(({ mode }) => {
                     const user = await authService.validateSession(sessionToken);
                     if (!user) { res.statusCode = 401; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Invalid session' })); return; }
                     const { pool } = await import('./server/db/connection.js');
-                    // Upsert — one row per user for the full myapps state
-                    const existing = await pool.query(`SELECT id FROM connected_apps WHERE user_id = $1 AND app_type = 'myapps_state'`, [user.id]);
-                    if (existing.rows.length > 0) {
-                      await pool.query(`UPDATE connected_apps SET config = $1, updated_at = NOW() WHERE user_id = $2 AND app_type = 'myapps_state'`, [JSON.stringify(body), user.id]);
-                    } else {
-                      await pool.query(`INSERT INTO connected_apps (user_id, app_type, app_name, config) VALUES ($1, 'myapps_state', 'My Apps State', $2)`, [user.id, JSON.stringify(body)]);
-                    }
+                    // Atomic upsert — one row per user for the full myapps state
+                    // First ensure unique index exists (idempotent)
+                    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_connected_apps_user_myapps ON connected_apps (user_id, app_type) WHERE app_type = 'myapps_state'`).catch(() => {});
+                    await pool.query(
+                      `INSERT INTO connected_apps (user_id, app_type, app_name, config)
+                       VALUES ($1, 'myapps_state', 'My Apps State', $2)
+                       ON CONFLICT (user_id, app_type) WHERE app_type = 'myapps_state'
+                       DO UPDATE SET config = $2, updated_at = NOW()`,
+                      [user.id, JSON.stringify(body)]
+                    );
                     res.statusCode = 200; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ success: true }));
                   } catch (e) { res.statusCode = 500; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: String(e) })); }
                 });
@@ -1571,7 +1744,19 @@ export default defineConfig(({ mode }) => {
                       proxyRes.on('end', () => {
                         res.statusCode = proxyRes.statusCode || 200;
                         res.setHeader('Content-Type', 'application/json');
-                        res.end(data);
+                        // If response body is empty, return a valid JSON object so clients don't crash on .json()
+                        if (!data || !data.trim()) {
+                          res.end(JSON.stringify({ success: true, files: [], message: 'Webhook reachable (empty response)' }));
+                        } else {
+                          // Validate it's actually JSON before forwarding
+                          try {
+                            JSON.parse(data);
+                            res.end(data);
+                          } catch {
+                            // Non-JSON response — wrap it
+                            res.end(JSON.stringify({ success: true, files: [], rawResponse: data.substring(0, 500) }));
+                          }
+                        }
                       });
                     });
                     proxyReq.on('error', (err: Error) => { res.statusCode = 502; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: `Webhook unreachable: ${err.message}` })); });

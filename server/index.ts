@@ -11,6 +11,7 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { getRootStorage, getRemovableDevices, getFirstPartition } from './storage.js';
 import { ensureBaseExists, listDir, listExternal, mkdir, getBaseDir } from './files.js';
+import { getPublicIp } from './stats.js';
 // Note: use .js extension so compiled output (dist/storage.js, dist/files.js) is resolved
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -194,6 +195,15 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/api/files/list-external') {
     handleFilesListExternal(req, res, url);
+    return;
+  }
+  if (pathname === '/api/system/public-ip') {
+    try {
+      const ip = await getPublicIp();
+      sendJson(res, 200, { ip });
+    } catch (e) {
+      sendJson(res, 500, { error: String((e as Error).message) });
+    }
     return;
   }
   if (pathname === '/api/system/mount') {

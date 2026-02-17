@@ -122,6 +122,10 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
     onDelete,
   } = props;
 
+  // USB drive file viewer state
+  const [usbSelectedFile, setUsbSelectedFile] = useState<FileItem | null>(null);
+  const [usbFiles, setUsbFiles] = useState<FileItem[]>([]);
+
   // Mobile tab state — maps to bottom nav
   const [mobileTab, setMobileTab] = useState<MobileTab>('overview');
   // Sub-page within "More" (reuses desktop views)
@@ -438,7 +442,12 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
               />
             )}
             {subPage === 'drive' && mountedDevice && (
-              <MountedDeviceView device={mountedDevice} onFileSelect={() => {}} selectedFile={null} />
+              <MountedDeviceView
+                device={mountedDevice}
+                onFileSelect={(file: any) => setUsbSelectedFile(file)}
+                onFilesLoaded={(files: any[]) => setUsbFiles(files)}
+                selectedFile={usbSelectedFile}
+              />
             )}
             {subPage === 'settings' && (
               <AccountSettingsView
@@ -535,6 +544,33 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
           onClose={onDeselectFile}
           onDelete={onDelete}
           onFileChange={(f) => onFileClick(f)}
+        />
+      )}
+
+      {/* USB Drive File Viewer Overlay */}
+      {usbSelectedFile && !usbSelectedFile.isFolder && subPage === 'drive' && (
+        <MobileFileViewer
+          file={usbSelectedFile}
+          files={usbFiles}
+          onClose={() => setUsbSelectedFile(null)}
+          onDelete={async (file) => {
+            try {
+              const res = await fetch('/api/files/delete-external', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: file.url?.split('path=')[1] ? decodeURIComponent(file.url.split('path=')[1]) : '' }),
+              });
+              if (res.ok) {
+                setUsbSelectedFile(null);
+                showToast('File deleted', 'success');
+              } else {
+                showToast('Delete failed', 'error');
+              }
+            } catch {
+              showToast('Delete failed', 'error');
+            }
+          }}
+          onFileChange={(f) => setUsbSelectedFile(f)}
         />
       )}
     </div>

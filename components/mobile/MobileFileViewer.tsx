@@ -12,6 +12,8 @@ import {
   Check,
   Info,
   Loader2,
+  Play,
+  Pause,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { FileItem } from '../../types';
@@ -147,6 +149,9 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
   const [casting, setCasting] = useState(false);
   const [castSuccess, setCastSuccess] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Touch/swipe state
   const touchStartX = useRef(0);
@@ -169,6 +174,67 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
 
   // Determine clean title
   const cleanTitle = file.name.replace(/^\d{13}_/, '').replace(/_/g, ' ');
+
+  // Media Session API — notification-area controls for audio playback
+  useEffect(() => {
+    if (!isAudio || !('mediaSession' in navigator)) return;
+
+    const artworkUrl = `${window.location.origin}/images/music_placeholder.png`;
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: cleanTitle,
+      artist: 'Arcellite',
+      album: 'My Music',
+      artwork: [
+        { src: artworkUrl, sizes: '512x512', type: 'image/png' },
+        { src: artworkUrl, sizes: '256x256', type: 'image/png' },
+        { src: artworkUrl, sizes: '128x128', type: 'image/png' },
+        { src: artworkUrl, sizes: '96x96', type: 'image/png' },
+      ],
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      audioRef.current?.play();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      audioRef.current?.pause();
+    });
+    navigator.mediaSession.setActionHandler('stop', () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    });
+    navigator.mediaSession.setActionHandler('seekbackward', () => {
+      if (audioRef.current) {
+        audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
+      }
+    });
+    navigator.mediaSession.setActionHandler('seekforward', () => {
+      if (audioRef.current) {
+        audioRef.current.currentTime = Math.min(
+          audioRef.current.duration || 0,
+          audioRef.current.currentTime + 10
+        );
+      }
+    });
+
+    return () => {
+      // Clear handlers on unmount or file change
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.setActionHandler('play', null);
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('stop', null);
+      navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
+    };
+  }, [isAudio, file.id, cleanTitle]);
+
+  // Update media session playback state
+  useEffect(() => {
+    if (!isAudio || !('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = audioPlaying ? 'playing' : 'paused';
+  }, [isAudio, audioPlaying]);
 
   // Auto-hide controls after 3s
   useEffect(() => {
@@ -283,21 +349,44 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
     }
   };
 
+  // Copy to clipboard helper (works on HTTP too)
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return true; } catch {}
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '-9999px';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
   // Share
   const handleShare = async () => {
     const shareUrl = getFileUrl();
     if (navigator.share) {
       try {
         await navigator.share({ title: cleanTitle, url: shareUrl });
+        return;
       } catch {
-        // cancelled
+        // cancelled or failed — fall through to copy
       }
-    } else {
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-      } catch {
-        // fallback failed
-      }
+    }
+    const ok = await copyToClipboard(shareUrl);
+    if (ok) {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
     }
   };
 
@@ -480,9 +569,40 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
             </div>
           )
         ) : isAudio ? (
-          <div className="flex flex-col items-center gap-6 px-8 w-full">
-            <div className="w-40 h-40 rounded-[2.5rem] bg-white/5 border border-white/10 flex items-center justify-center">
-              <FileIcon type={file.type} className="w-20 h-20 text-violet-400" />
+          <div className="flex flex-col items-center gap-6 px-8 w-full" onClick={(e) => e.stopPropagation()}>
+            {/* Music artwork / placeholder with play button */}
+            <div className="relative w-56 h-56 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-violet-500/20 border border-white/10 group">
+              <img
+                src="/images/music_placeholder.png"
+                alt="Music"
+                className="w-full h-full object-cover"
+              />
+              {/* Play/Pause overlay */}
+              {file.url && (
+                <button
+                  onClick={() => {
+                    if (!audioRef.current) return;
+                    if (audioPlaying) {
+                      audioRef.current.pause();
+                    } else {
+                      audioRef.current.play();
+                    }
+                  }}
+                  className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${
+                    audioPlaying ? 'bg-black/10' : 'bg-black/30'
+                  }`}
+                >
+                  <div className={`w-16 h-16 rounded-full backdrop-blur flex items-center justify-center shadow-xl transition-all ${
+                    audioPlaying ? 'bg-white/70 scale-90' : 'bg-white/90 scale-100'
+                  }`}>
+                    {audioPlaying ? (
+                      <Pause className="w-7 h-7 text-violet-600" />
+                    ) : (
+                      <Play className="w-7 h-7 text-violet-600 ml-1" />
+                    )}
+                  </div>
+                </button>
+              )}
             </div>
             <div className="text-center">
               <p className="text-white font-bold text-lg mb-1">{cleanTitle}</p>
@@ -490,9 +610,14 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
             </div>
             {file.url && (
               <audio
+                ref={audioRef}
                 src={file.url}
                 controls
                 className="w-full max-w-sm"
+                preload="metadata"
+                onPlay={() => setAudioPlaying(true)}
+                onPause={() => setAudioPlaying(false)}
+                onEnded={() => setAudioPlaying(false)}
                 onClick={(e) => e.stopPropagation()}
               />
             )}
@@ -553,16 +678,24 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
             </div>
           )}
 
+          {/* Link copied feedback */}
+          {linkCopied && (
+            <div className="mb-3 flex items-center gap-2 bg-green-500/90 text-white px-4 py-2.5 rounded-xl animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <Check className="w-4 h-4 flex-shrink-0" />
+              <span className="text-sm font-bold">Link copied to clipboard!</span>
+            </div>
+          )}
+
           {/* Action buttons */}
           <div className="flex items-center justify-around py-3">
             <button
               onClick={(e) => { e.stopPropagation(); handleShare(); }}
               className="flex flex-col items-center gap-1.5 active:scale-90 transition-all"
             >
-              <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center">
-                <Share2 className="w-5 h-5 text-white" />
+              <div className={`w-12 h-12 rounded-2xl backdrop-blur flex items-center justify-center ${linkCopied ? 'bg-green-500' : 'bg-white/10'}`}>
+                {linkCopied ? <Check className="w-5 h-5 text-white" /> : <Share2 className="w-5 h-5 text-white" />}
               </div>
-              <span className="text-[10px] font-bold text-white/70">Share</span>
+              <span className="text-[10px] font-bold text-white/70">{linkCopied ? 'Copied!' : 'Share'}</span>
             </button>
 
             <button

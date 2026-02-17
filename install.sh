@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────
-#  Arcellite — Automated Installer
+#  Arcellite — Automated Installer (Open-Source Edition)
 #  Sets up Node.js, PostgreSQL, MySQL/MariaDB, SQLite, data
 #  directories, .env, and builds the application so it's ready to run.
 #
 #  Usage:   chmod +x install.sh && ./install.sh
 #  Tested:  Ubuntu 22.04/24.04, Debian 12, Raspberry Pi OS (64-bit)
+#
+#  After install: open http://<your-ip>:3000 in your browser
+#  API keys (AI, etc.) are configured in the web UI → Settings
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -15,6 +18,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 info()    { echo -e "${CYAN}[INFO]${NC}  $*"; }
@@ -29,6 +33,12 @@ if [[ ! -f "package.json" ]] || ! grep -q '"arcellite"' package.json 2>/dev/null
 fi
 
 PROJECT_DIR="$(pwd)"
+ARCELLITE_USER="$(whoami)"
+
+echo -e "\n${BOLD}${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}${CYAN}║        Arcellite — Self-Hosted Personal Cloud        ║${NC}"
+echo -e "${BOLD}${CYAN}║              Automated Installer v2.0                ║${NC}"
+echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${NC}\n"
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -58,6 +68,19 @@ install_pkg() {
     sudo pacman -S --noconfirm "$pkg" >/dev/null 2>&1
   fi
 }
+
+# ── curl (required for Node.js install, public IP detection, etc.) ──
+if ! command -v curl &>/dev/null; then
+  info "Installing curl..."
+  if [[ "$PKG_MGR" == "apt" ]]; then
+    sudo apt-get update -qq >/dev/null 2>&1
+    sudo apt-get install -y curl >/dev/null 2>&1
+  elif [[ "$PKG_MGR" == "dnf" ]]; then
+    sudo dnf install -y curl >/dev/null 2>&1
+  elif [[ "$PKG_MGR" == "pacman" ]]; then
+    sudo pacman -S --noconfirm curl >/dev/null 2>&1
+  fi
+fi
 
 # ── Node.js ──────────────────────────────────────────────────────────
 if command -v node &>/dev/null; then
@@ -126,11 +149,9 @@ fi
 
 # ── Storage: Auto-expand LVM if unused space exists ──
 if command -v vgs &>/dev/null && command -v lvextend &>/dev/null; then
-  # Check if any volume group has free space (> 1GB)
   VG_FREE=$(sudo vgs --noheadings --nosuffix --units g -o vg_free 2>/dev/null | head -1 | tr -d ' ')
-  VG_FREE_INT=${VG_FREE%%.*}  # truncate to integer
+  VG_FREE_INT=${VG_FREE%%.*}
   if [[ -n "$VG_FREE_INT" ]] && [[ "$VG_FREE_INT" -gt 1 ]] 2>/dev/null; then
-    # Find the root LV
     ROOT_LV=$(df / --output=source | tail -1)
     if [[ "$ROOT_LV" == /dev/mapper/* ]] || [[ "$ROOT_LV" == /dev/dm-* ]]; then
       info "Detected ~${VG_FREE_INT}GB unused disk space — auto-expanding root filesystem..."
@@ -143,8 +164,203 @@ if command -v vgs &>/dev/null && command -v lvextend &>/dev/null; then
     success "Disk fully allocated"
   fi
 else
-  # No LVM — standard partition, nothing to do
   :
+fi
+
+
+# ── Removable storage support (USB drives, SD cards) ────────────────
+step "1b/9  Setting up removable storage support"
+
+# Install udisks2
+if command -v udisksctl &>/dev/null; then
+  success "udisks2 already installed"
+else
+  info "Installing udisks2 (for removable device management)..."
+  if [[ "$PKG_MGR" == "apt" ]]; then
+    sudo apt-get install -y udisks2 >/dev/null 2>&1
+  elif [[ "$PKG_MGR" == "dnf" ]]; then
+    sudo dnf install -y udisks2 >/dev/null 2>&1
+  elif [[ "$PKG_MGR" == "pacman" ]]; then
+    sudo pacman -S --noconfirm udisks2 >/dev/null 2>&1
+  fi
+  if command -v udisksctl &>/dev/null; then
+    success "udisks2 installed"
+  else
+    warn "Could not install udisks2. Removable storage mounting may not work."
+  fi
+fi
+
+# Ensure lsblk available
+if command -v lsblk &>/dev/null; then
+  success "lsblk available (util-linux)"
+else
+  info "Installing util-linux..."
+  install_pkg util-linux
+  success "util-linux installed"
+fi
+
+# Install filesystem formatting tools
+info "Checking filesystem format tools..."
+MISSING_FS_TOOLS=()
+command -v mkfs.vfat  &>/dev/null || MISSING_FS_TOOLS+=("dosfstools")
+command -v mkfs.ext4  &>/dev/null || MISSING_FS_TOOLS+=("e2fsprogs")
+command -v mkfs.exfat &>/dev/null || MISSING_FS_TOOLS+=("exfatprogs")
+command -v mkfs.ntfs  &>/dev/null || MISSING_FS_TOOLS+=("ntfs-3g")
+
+if [[ ${#MISSING_FS_TOOLS[@]} -gt 0 ]]; then
+  info "Installing filesystem tools: ${MISSING_FS_TOOLS[*]}..."
+  if [[ "$PKG_MGR" == "apt" ]]; then
+    sudo apt-get install -y "${MISSING_FS_TOOLS[@]}" >/dev/null 2>&1
+  elif [[ "$PKG_MGR" == "dnf" ]]; then
+    sudo dnf install -y "${MISSING_FS_TOOLS[@]}" >/dev/null 2>&1
+  elif [[ "$PKG_MGR" == "pacman" ]]; then
+    sudo pacman -S --noconfirm "${MISSING_FS_TOOLS[@]}" >/dev/null 2>&1
+  fi
+  success "Filesystem format tools installed"
+else
+  success "All filesystem format tools available"
+fi
+
+# Create mount directory for removable devices
+MOUNT_BASE="/media/arcellite"
+if [[ ! -d "$MOUNT_BASE" ]]; then
+  sudo mkdir -p "$MOUNT_BASE"
+  sudo chown "${ARCELLITE_USER}:${ARCELLITE_USER}" "$MOUNT_BASE"
+  sudo chmod 755 "$MOUNT_BASE"
+  success "Mount directory created at ${MOUNT_BASE}"
+else
+  success "Mount directory ${MOUNT_BASE} exists"
+fi
+
+# Set up polkit rule so current user can mount/unmount without password
+POLKIT_RULES_DIR=""
+if [[ -d "/etc/polkit-1/rules.d" ]]; then
+  POLKIT_RULES_DIR="/etc/polkit-1/rules.d"
+elif [[ -d "/etc/polkit-1/localauthority/50-local.d" ]]; then
+  POLKIT_RULES_DIR="/etc/polkit-1/localauthority/50-local.d"
+fi
+
+if [[ -n "$POLKIT_RULES_DIR" ]] && [[ -d "/etc/polkit-1/rules.d" ]]; then
+  POLKIT_FILE="/etc/polkit-1/rules.d/10-arcellite-udisks.rules"
+  if [[ ! -f "$POLKIT_FILE" ]]; then
+    info "Creating polkit rule for passwordless mount/unmount..."
+    sudo tee "$POLKIT_FILE" > /dev/null <<POLKITEOF
+// Allow the Arcellite user to mount/unmount filesystems via udisks2
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.udisks2.filesystem-mount" ||
+         action.id == "org.freedesktop.udisks2.filesystem-mount-other-seat" ||
+         action.id == "org.freedesktop.udisks2.filesystem-mount-system" ||
+         action.id == "org.freedesktop.udisks2.filesystem-unmount-others" ||
+         action.id == "org.freedesktop.udisks2.filesystem-fstab" ||
+         action.id == "org.freedesktop.udisks2.power-off-drive" ||
+         action.id == "org.freedesktop.udisks2.power-off-drive-other-seat") &&
+        subject.user == "${ARCELLITE_USER}") {
+        return polkit.Result.YES;
+    }
+});
+POLKITEOF
+    success "Polkit rule created (passwordless mount for ${ARCELLITE_USER})"
+  else
+    success "Polkit rule already exists"
+  fi
+elif [[ -n "$POLKIT_RULES_DIR" ]]; then
+  POLKIT_FILE="${POLKIT_RULES_DIR}/10-arcellite-udisks.pkla"
+  if [[ ! -f "$POLKIT_FILE" ]]; then
+    info "Creating polkit rule (pkla format)..."
+    sudo tee "$POLKIT_FILE" > /dev/null <<PKLAEOF
+[Allow arcellite to mount/unmount]
+Identity=unix-user:${ARCELLITE_USER}
+Action=org.freedesktop.udisks2.filesystem-mount;org.freedesktop.udisks2.filesystem-mount-other-seat;org.freedesktop.udisks2.filesystem-mount-system;org.freedesktop.udisks2.filesystem-unmount-others;org.freedesktop.udisks2.power-off-drive;org.freedesktop.udisks2.power-off-drive-other-seat
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes
+PKLAEOF
+    success "Polkit rule created (pkla format)"
+  else
+    success "Polkit rule already exists"
+  fi
+else
+  warn "Could not find polkit rules directory. Mount permissions may need manual setup."
+fi
+
+# Add user to device groups
+for grp in disk plugdev; do
+  if getent group "$grp" &>/dev/null; then
+    if ! groups "$ARCELLITE_USER" 2>/dev/null | grep -qw "$grp"; then
+      sudo usermod -aG "$grp" "$ARCELLITE_USER" 2>/dev/null || true
+      info "Added ${ARCELLITE_USER} to '${grp}' group"
+    fi
+  fi
+done
+success "User groups configured for device access"
+
+# Set up passwordless sudo for mount/unmount commands
+SUDOERS_FILE="/etc/sudoers.d/arcellite-mount"
+if [[ ! -f "$SUDOERS_FILE" ]]; then
+  info "Creating sudoers rule for passwordless mount/unmount..."
+  MOUNT_BIN=$(which mount)
+  UMOUNT_BIN=$(which umount)
+  MKDIR_BIN=$(which mkdir)
+  RMDIR_BIN=$(which rmdir)
+  CHMOD_BIN=$(which chmod)
+  CHOWN_BIN=$(which chown)
+  WIPEFS_BIN=$(which wipefs 2>/dev/null || echo "/usr/sbin/wipefs")
+  MKFS_VFAT_BIN=$(which mkfs.vfat 2>/dev/null || echo "/usr/sbin/mkfs.vfat")
+  MKFS_EXT4_BIN=$(which mkfs.ext4 2>/dev/null || echo "/usr/sbin/mkfs.ext4")
+  MKFS_EXFAT_BIN=$(which mkfs.exfat 2>/dev/null || echo "/usr/sbin/mkfs.exfat")
+  MKFS_NTFS_BIN=$(which mkfs.ntfs 2>/dev/null || echo "/usr/sbin/mkfs.ntfs")
+  sudo tee "$SUDOERS_FILE" > /dev/null <<SUDOEOF
+# Arcellite: Allow mounting/unmounting removable devices without password
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MOUNT_BIN} /dev/* /media/arcellite/*
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MOUNT_BIN} -o * /dev/* /media/arcellite/*
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${UMOUNT_BIN} /media/arcellite/*
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MKDIR_BIN} -p /media/arcellite/*
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${RMDIR_BIN} /media/arcellite/*
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${CHMOD_BIN} 755 /media/arcellite
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${CHOWN_BIN} -R ${ARCELLITE_USER}\:${ARCELLITE_USER} /media/arcellite/*
+
+# Arcellite: Allow formatting removable devices without password
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${WIPEFS_BIN} -a /dev/*
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MKFS_VFAT_BIN} *
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MKFS_EXT4_BIN} *
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MKFS_EXFAT_BIN} *
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MKFS_NTFS_BIN} *
+SUDOEOF
+  sudo chmod 440 "$SUDOERS_FILE"
+  if sudo visudo -c -f "$SUDOERS_FILE" >/dev/null 2>&1; then
+    success "Sudoers rule created"
+  else
+    warn "Sudoers file validation failed — removing invalid file"
+    sudo rm -f "$SUDOERS_FILE"
+  fi
+else
+  success "Sudoers mount rule already exists"
+fi
+
+# Detect available storage devices (informational)
+info "Detected storage devices:"
+if command -v lsblk &>/dev/null; then
+  while IFS= read -r line; do
+    dev_name=$(echo "$line" | awk '{print $1}')
+    dev_size=$(echo "$line" | awk '{print $2}')
+    dev_type=$(echo "$line" | awk '{print $3}')
+    if [[ "$dev_type" != "disk" ]]; then continue; fi
+    if [[ "$dev_name" == loop* ]] || [[ "$dev_name" == *boot* ]]; then continue; fi
+    if [[ "$dev_name" == nvme* ]]; then
+      info "  /dev/${dev_name}: ${dev_size} NVMe SSD"
+    elif [[ "$dev_name" == mmcblk* ]]; then
+      MMC_DEV_TYPE=$(cat "/sys/block/${dev_name}/device/uevent" 2>/dev/null | grep -oP 'MMC_TYPE=\K.*' || echo "unknown")
+      if [[ "$MMC_DEV_TYPE" == "SD" ]]; then
+        info "  /dev/${dev_name}: ${dev_size} SD Card (removable)"
+      elif [[ "$MMC_DEV_TYPE" == "MMC" ]]; then
+        info "  /dev/${dev_name}: ${dev_size} eMMC (internal)"
+      else
+        info "  /dev/${dev_name}: ${dev_size} MMC device"
+      fi
+    elif [[ "$dev_name" == sd* ]]; then
+      info "  /dev/${dev_name}: ${dev_size} USB/SCSI device"
+    fi
+  done < <(lsblk -nd -o NAME,SIZE,TYPE 2>/dev/null)
 fi
 
 
@@ -184,7 +400,6 @@ else
   if systemctl is-active --quiet postgresql 2>/dev/null; then
     success "PostgreSQL service started"
   else
-    # Try starting individual clusters (Ubuntu/Debian can have multiple)
     for cluster_dir in /etc/postgresql/*/main; do
       if [[ -d "$cluster_dir" ]]; then
         PG_CLUSTER_VER=$(echo "$cluster_dir" | grep -oP '\d+')
@@ -196,12 +411,12 @@ else
     if systemctl is-active --quiet postgresql 2>/dev/null; then
       success "PostgreSQL service started"
     else
-      warn "Could not start PostgreSQL via systemd. It may be managed differently on your system."
+      warn "Could not start PostgreSQL via systemd. It may be managed differently."
     fi
   fi
 fi
 
-# Detect PostgreSQL port — try common ports and multiple methods
+# Detect PostgreSQL port
 PG_PORT=""
 for port in 5432 5433 5434; do
   if sudo -u postgres psql -p "$port" -c "SELECT 1" &>/dev/null 2>&1; then
@@ -210,7 +425,6 @@ for port in 5432 5433 5434; do
   fi
 done
 
-# If we couldn't connect via peer auth, try checking listening ports
 if [[ -z "$PG_PORT" ]]; then
   for port in 5432 5433 5434; do
     if ss -tlnp 2>/dev/null | grep -q ":${port}\b" || netstat -tlnp 2>/dev/null | grep -q ":${port}\b"; then
@@ -235,11 +449,9 @@ DB_PASSWORD=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd 
 # ── Create database user and database ────────────────────────────────
 info "Creating database user '${DB_USER}'..."
 sudo -u postgres psql -p "$PG_PORT" -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" 2>/dev/null | grep -q 1 && {
-  # User exists — update password
   sudo -u postgres psql -p "$PG_PORT" -c "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}' CREATEDB;" >/dev/null 2>&1
   success "Database user '${DB_USER}' updated"
 } || {
-  # Create user
   sudo -u postgres psql -p "$PG_PORT" -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}' CREATEDB;" >/dev/null 2>&1
   success "Database user '${DB_USER}' created"
 }
@@ -252,29 +464,25 @@ else
   success "Database '${DB_NAME}' created"
 fi
 
-# Grant privileges
 sudo -u postgres psql -p "$PG_PORT" -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" >/dev/null 2>&1
 
-# Ensure password auth works (pg_hba.conf) — configure for BOTH local and TCP
+# ── Configure pg_hba.conf for password auth ──────────────────────────
 PG_HBA=$(sudo -u postgres psql -p "$PG_PORT" -t -c "SHOW hba_file" 2>/dev/null | xargs)
 if [[ -n "$PG_HBA" ]] && [[ -f "$PG_HBA" ]]; then
   HBA_CHANGED=false
 
-  # 1. Add TCP (host) entry for 127.0.0.1 with md5/scram auth
+  # TCP entry for localhost (127.0.0.1)
   if ! sudo grep -qE "^host\s+all\s+${DB_USER}\s+127\.0\.0\.1" "$PG_HBA" 2>/dev/null; then
-    info "Adding TCP auth entry for ${DB_USER} in pg_hba.conf..."
-    # Add before any existing host entries, or at the end of the file
+    info "Adding TCP auth entry for ${DB_USER} (localhost)..."
     if sudo grep -qE "^host\s" "$PG_HBA" 2>/dev/null; then
-      # Insert before first host line
       sudo sed -i "0,/^host\s/s//host    all    ${DB_USER}    127.0.0.1\/32    md5\n&/" "$PG_HBA" 2>/dev/null || true
     else
-      # Append to end
       echo "host    all    ${DB_USER}    127.0.0.1/32    md5" | sudo tee -a "$PG_HBA" >/dev/null 2>&1
     fi
     HBA_CHANGED=true
   fi
 
-  # 2. Add TCP (host) entry for ::1 (IPv6 localhost) with md5 auth
+  # TCP entry for IPv6 localhost (::1)
   if ! sudo grep -qE "^host\s+all\s+${DB_USER}\s+::1" "$PG_HBA" 2>/dev/null; then
     if sudo grep -qE "^host\s" "$PG_HBA" 2>/dev/null; then
       sudo sed -i "0,/^host\s/s//host    all    ${DB_USER}    ::1\/128    md5\n&/" "$PG_HBA" 2>/dev/null || true
@@ -284,7 +492,14 @@ if [[ -n "$PG_HBA" ]] && [[ -f "$PG_HBA" ]]; then
     HBA_CHANGED=true
   fi
 
-  # 3. Add local (Unix socket) entry with md5 auth
+  # TCP entry for LAN / remote access (all networks, password-protected)
+  if ! sudo grep -qE "^host\s+all\s+${DB_USER}\s+0\.0\.0\.0/0" "$PG_HBA" 2>/dev/null; then
+    info "Adding remote access auth entry for ${DB_USER} (all networks)..."
+    echo "host    all    ${DB_USER}    0.0.0.0/0    scram-sha-256" | sudo tee -a "$PG_HBA" >/dev/null 2>&1
+    HBA_CHANGED=true
+  fi
+
+  # Unix socket entry
   if ! sudo grep -qE "^local\s+all\s+${DB_USER}\s+md5" "$PG_HBA" 2>/dev/null; then
     if sudo grep -qE "^local\s+all\s+all\s+peer" "$PG_HBA" 2>/dev/null; then
       sudo sed -i "/^local\s\+all\s\+all\s\+peer/i local   all   ${DB_USER}   md5" "$PG_HBA" 2>/dev/null || true
@@ -299,28 +514,39 @@ if [[ -n "$PG_HBA" ]] && [[ -f "$PG_HBA" ]]; then
     sudo systemctl reload postgresql >/dev/null 2>&1 || \
       sudo -u postgres pg_ctl reload -D "$(sudo -u postgres psql -p "$PG_PORT" -t -c "SHOW data_directory" 2>/dev/null | xargs)" 2>/dev/null || true
     sleep 2
-    success "PostgreSQL auth configured for password login (TCP + socket)"
+    success "PostgreSQL auth configured (local + LAN + remote)"
   else
     success "PostgreSQL auth already configured"
   fi
 else
-  warn "Could not locate pg_hba.conf — you may need to configure auth manually"
+  warn "Could not locate pg_hba.conf — configure auth manually"
 fi
 
-# Also ensure PostgreSQL is listening on 127.0.0.1 (not just Unix socket)
+# ── Configure listen_addresses for network access ────────────────────
 PG_CONF=$(sudo -u postgres psql -p "$PG_PORT" -t -c "SHOW config_file" 2>/dev/null | xargs)
 if [[ -n "$PG_CONF" ]] && [[ -f "$PG_CONF" ]]; then
   LISTEN_ADDR=$(sudo -u postgres psql -p "$PG_PORT" -t -c "SHOW listen_addresses" 2>/dev/null | xargs)
-  if [[ "$LISTEN_ADDR" == "" ]] || [[ "$LISTEN_ADDR" == "''" ]]; then
-    info "Enabling TCP listening on localhost..."
-    sudo sed -i "s/^#\?\s*listen_addresses\s*=.*/listen_addresses = 'localhost'/" "$PG_CONF" 2>/dev/null || true
-    sudo systemctl restart postgresql >/dev/null 2>&1 || true
-    sleep 3
-    success "PostgreSQL now listening on localhost"
+  if [[ "$LISTEN_ADDR" != "*" ]]; then
+    info "Setting listen_addresses = '*' for LAN/remote database access..."
+    sudo sed -i "s/^#\?\s*listen_addresses\s*=.*/listen_addresses = '*'/" "$PG_CONF" 2>/dev/null || true
+    # Verify the change was applied
+    if sudo grep -q "^listen_addresses = '\*'" "$PG_CONF" 2>/dev/null; then
+      sudo systemctl restart postgresql >/dev/null 2>&1 || true
+      sleep 3
+      success "PostgreSQL now listening on all interfaces (LAN + remote)"
+    else
+      # If sed didn't match (no existing line), append it
+      echo "listen_addresses = '*'" | sudo tee -a "$PG_CONF" >/dev/null 2>&1
+      sudo systemctl restart postgresql >/dev/null 2>&1 || true
+      sleep 3
+      success "PostgreSQL now listening on all interfaces (LAN + remote)"
+    fi
+  else
+    success "PostgreSQL already listening on all interfaces"
   fi
 fi
 
-# Verify connection — prefer TCP (127.0.0.1) which works everywhere
+# Verify connection
 DB_HOST="127.0.0.1"
 if PGPASSWORD="${DB_PASSWORD}" psql -h 127.0.0.1 -p "$PG_PORT" -U "${DB_USER}" -d "${DB_NAME}" -c "SELECT 1" &>/dev/null 2>&1; then
   success "Database connection verified (TCP 127.0.0.1:${PG_PORT})"
@@ -329,7 +555,7 @@ elif PGPASSWORD="${DB_PASSWORD}" psql -h localhost -p "$PG_PORT" -U "${DB_USER}"
   success "Database connection verified (TCP localhost:${PG_PORT})"
   DB_HOST="localhost"
 elif PGPASSWORD="${DB_PASSWORD}" psql -h /var/run/postgresql -p "$PG_PORT" -U "${DB_USER}" -d "${DB_NAME}" -c "SELECT 1" &>/dev/null 2>&1; then
-  success "Database connection verified (Unix socket /var/run/postgresql)"
+  success "Database connection verified (Unix socket)"
   DB_HOST="/var/run/postgresql"
 elif PGPASSWORD="${DB_PASSWORD}" psql -h /tmp -p "$PG_PORT" -U "${DB_USER}" -d "${DB_NAME}" -c "SELECT 1" &>/dev/null 2>&1; then
   success "Database connection verified (Unix socket /tmp)"
@@ -351,7 +577,6 @@ fi
 # ═════════════════════════════════════════════════════════════════════
 step "3/9  Setting up MySQL / MariaDB"
 
-# MySQL credentials (generated once)
 MYSQL_USER="arcellite_user"
 MYSQL_PASSWORD=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n' | head -c 32)
 MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n' | head -c 32)
@@ -378,6 +603,7 @@ else
 fi
 
 # Ensure MySQL/MariaDB service is running
+MYSQL_SERVICE=""
 for svc in mariadb mysql mysqld; do
   if systemctl list-unit-files "${svc}.service" &>/dev/null 2>&1; then
     MYSQL_SERVICE="$svc"
@@ -396,20 +622,16 @@ else
   if systemctl is-active --quiet "$MYSQL_SERVICE" 2>/dev/null; then
     success "${MYSQL_SERVICE} service started"
   else
-    warn "Could not start MySQL/MariaDB. You may need to start it manually."
+    warn "Could not start MySQL/MariaDB. Start it manually."
   fi
 fi
 
-# Create MySQL user and set root password
+# Create MySQL user
 info "Configuring MySQL user '${MYSQL_USER}'..."
-
-# Try root access via sudo (default MariaDB unix_socket auth)
 if sudo mysql -e "SELECT 1" &>/dev/null 2>&1; then
-  # Set root password for TCP access
   sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';" 2>/dev/null || \
   sudo mysql -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${MYSQL_ROOT_PASSWORD}');" 2>/dev/null || true
 
-  # Create application user
   sudo mysql -e "CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'localhost' IDENTIFIED BY '${MYSQL_PASSWORD}';" 2>/dev/null || true
   sudo mysql -e "CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'127.0.0.1' IDENTIFIED BY '${MYSQL_PASSWORD}';" 2>/dev/null || true
   sudo mysql -e "GRANT ALL PRIVILEGES ON \`arcellite\_%\`.* TO '${MYSQL_USER}'@'localhost';" 2>/dev/null || true
@@ -417,9 +639,7 @@ if sudo mysql -e "SELECT 1" &>/dev/null 2>&1; then
   sudo mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
   success "MySQL user '${MYSQL_USER}' configured"
 else
-  warn "Could not access MySQL as root. You may need to configure the MySQL user manually:"
-  warn "  CREATE USER '${MYSQL_USER}'@'localhost' IDENTIFIED BY '<password>';"
-  warn "  GRANT ALL PRIVILEGES ON \`arcellite_%\`.* TO '${MYSQL_USER}'@'localhost';"
+  warn "Could not access MySQL as root. Configure the MySQL user manually."
 fi
 
 # Verify MySQL connection
@@ -435,8 +655,6 @@ fi
 # ═════════════════════════════════════════════════════════════════════
 step "4/9  Setting up SQLite"
 
-# SQLite uses sql.js (pure JavaScript, no system packages needed)
-# Just need to ensure the data directory exists
 info "SQLite uses sql.js (pure JS) — no system packages required"
 success "SQLite support ready (databases stored in ~/arcellite-data/databases/sqlite/)"
 
@@ -469,6 +687,9 @@ step "6/9  Generating environment configuration"
 
 SESSION_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | xxd -p | tr -d '\n' | head -c 64)
 
+# Detect LAN IP
+LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+
 if [[ -f ".env" ]]; then
   warn ".env already exists — backing up to .env.backup"
   cp .env ".env.backup.$(date +%Y%m%d%H%M%S)"
@@ -480,37 +701,48 @@ cat > .env <<EOF
 # Generated by install.sh on $(date -u +"%Y-%m-%d %H:%M UTC")
 # ─────────────────────────────────────────────────────────────
 
-# PostgreSQL Database (primary — used for auth, sessions, app data)
+# ── PostgreSQL (primary — auth, sessions, app data, user DBs) ──
 DB_HOST=${DB_HOST}
 DB_PORT=${PG_PORT}
 DB_NAME=${DB_NAME}
 DB_USER=${DB_USER}
 DB_PASSWORD=${DB_PASSWORD}
 
-# MySQL / MariaDB (for user-created MySQL databases)
+# ── MySQL / MariaDB (for user-created MySQL databases) ──
 MYSQL_HOST=${MYSQL_HOST}
 MYSQL_PORT=${MYSQL_PORT}
 MYSQL_USER=${MYSQL_USER}
 MYSQL_PASSWORD=${MYSQL_PASSWORD}
-MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
 
-# SQLite (file-based, stored in ARCELLITE_DATA/databases/sqlite/)
-# No credentials needed — managed automatically by sql.js
-
-# Application
+# ── Application ──
+PORT=3000
 SESSION_SECRET=${SESSION_SECRET}
 NODE_ENV=production
 
-# Data directory (where files, photos, videos, music are stored)
+# Data directory (files, photos, videos, music are stored here)
 ARCELLITE_DATA=~/arcellite-data
 
-# Email (optional — for account verification codes)
-# Configure with your SMTP provider (Gmail, Mailgun, etc.)
+# ── Network (optional) ──
+# Your public URL — set only if using a custom domain
+# Example: https://cloud.yourdomain.com
+# ARCELLITE_PUBLIC_URL=
+
+# Public IP/hostname for global database connection URLs (auto-detected if empty)
+# Override if your server is behind NAT and you know your public IP
+# ARCELLITE_DB_HOST=
+
+# ── Email (optional — for account verification & notifications) ──
+# Configure with your SMTP provider (Gmail, Mailgun, SendGrid, etc.)
 # SMTP_HOST=smtp.gmail.com
 # SMTP_PORT=587
 # SMTP_USER=your-email@gmail.com
 # SMTP_PASSWORD=your-app-password
 # SMTP_FROM=Arcellite <your-email@gmail.com>
+
+# ── AI API Keys ──
+# API keys are managed through the web UI: Settings → AI Models
+# No env vars needed — just add keys in the UI after first login.
+# Supported providers: DeepSeek, OpenAI, Anthropic, Google Gemini, and more.
 EOF
 
 chmod 600 .env
@@ -522,7 +754,7 @@ success ".env generated with secure credentials"
 # ═════════════════════════════════════════════════════════════════════
 step "7/9  Installing npm dependencies"
 
-npm install --production=false 2>&1 | tail -1
+npm install --production=false 2>&1 | tail -3
 success "npm packages installed"
 
 
@@ -532,11 +764,11 @@ success "npm packages installed"
 step "8/9  Building Arcellite"
 
 info "Building frontend..."
-npm run build 2>&1 | tail -1
+npm run build 2>&1 | tail -3
 success "Frontend built"
 
 info "Compiling server..."
-npm run build:server 2>&1 | tail -1
+npm run build:server 2>&1 | tail -3
 success "Server compiled"
 
 
@@ -545,7 +777,6 @@ success "Server compiled"
 # ═════════════════════════════════════════════════════════════════════
 step "9/9  Setting up PM2 process manager"
 
-# Install PM2 globally
 if command -v pm2 &>/dev/null; then
   success "PM2 already installed ($(pm2 -v))"
 else
@@ -610,56 +841,84 @@ if [[ -n "$PM2_STARTUP" ]]; then
   eval "$PM2_STARTUP" >/dev/null 2>&1 || true
   success "PM2 auto-start configured (survives reboots)"
 else
-  # Try without capturing
   pm2 startup systemd >/dev/null 2>&1 || true
   success "PM2 startup configured"
 fi
 
-# Open firewall port if ufw is active
+
+# ═════════════════════════════════════════════════════════════════════
+#  Firewall — open required ports
+# ═════════════════════════════════════════════════════════════════════
 if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "active"; then
+  info "Configuring firewall (ufw)..."
+
+  # Port 3000 — Arcellite web app
   if ! sudo ufw status | grep -q "3000/tcp"; then
     sudo ufw allow 3000/tcp comment "Arcellite" >/dev/null 2>&1
-    success "Firewall: port 3000 opened"
+    success "Firewall: port 3000 opened (Arcellite web app)"
+  else
+    success "Firewall: port 3000 already open"
+  fi
+
+  # Port 80 — HTTP (for reverse proxy / Cloudflare Tunnel)
+  if ! sudo ufw status | grep -q "80/tcp"; then
+    sudo ufw allow 80/tcp comment "HTTP" >/dev/null 2>&1
+    success "Firewall: port 80 opened (HTTP)"
+  else
+    success "Firewall: port 80 already open"
+  fi
+
+  # PostgreSQL port — for remote/global database access via DataGrip, DBeaver, etc.
+  if ! sudo ufw status | grep -q "${PG_PORT}/tcp"; then
+    sudo ufw allow "${PG_PORT}/tcp" comment "PostgreSQL" >/dev/null 2>&1
+    success "Firewall: port ${PG_PORT} opened (PostgreSQL)"
+  else
+    success "Firewall: port ${PG_PORT} already open"
   fi
 fi
 
-INSTALL_SERVICE="Y"
-
 
 # ═════════════════════════════════════════════════════════════════════
-#  Done
+#  Done!
 # ═════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}${BOLD}  Arcellite installed successfully!${NC}"
-echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}${BOLD}║        Arcellite installed successfully!             ║${NC}"
+echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${BOLD}Quick start:${NC}"
-echo -e "    App URL:      ${CYAN}http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):3000${NC}"
-echo -e "    Development:  ${CYAN}npm run dev${NC}"
+echo -e "  ${BOLD}Open in your browser:${NC}"
+echo -e "    Local:  ${CYAN}http://localhost:3000${NC}"
+echo -e "    LAN:    ${CYAN}http://${LAN_IP}:3000${NC}"
 echo ""
-echo -e "  ${BOLD}Defaults:${NC}"
-echo -e "    Server:       http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):3000"
-echo -e "    Data dir:     ${DATA_DIR}"
+echo -e "  ${BOLD}Data directory:${NC}  ${DATA_DIR}"
 echo ""
 echo -e "  ${BOLD}Databases:${NC}"
-echo -e "    PostgreSQL:   port ${PG_PORT} (app DB + user databases)"
-echo -e "    MySQL:        port ${MYSQL_PORT} (user databases)"
-echo -e "    SQLite:       ${DATA_DIR}/databases/sqlite/ (file-based)"
+echo -e "    PostgreSQL:  port ${PG_PORT}  ${DIM}(app DB + user databases)${NC}"
+echo -e "    MySQL:       port ${MYSQL_PORT}  ${DIM}(user databases)${NC}"
+echo -e "    SQLite:      ${DIM}file-based, no port needed${NC}"
 echo ""
-echo -e "  ${BOLD}What's next:${NC}"
-echo -e "    1. Open the URL above in your browser"
+echo -e "  ${BOLD}Getting started:${NC}"
+echo -e "    1. Open ${CYAN}http://${LAN_IP}:3000${NC} in your browser"
 echo -e "    2. Complete the setup wizard (create your admin account)"
-echo -e "    3. Start uploading files and using the AI assistant"
+echo -e "    3. Go to ${BOLD}Settings > AI Models${NC} to add your API keys"
+echo -e "       ${DIM}(DeepSeek, OpenAI, Anthropic, Google Gemini, etc.)${NC}"
+echo -e "    4. Start uploading files and using the AI assistant!"
 echo ""
-if [[ "$INSTALL_SERVICE" =~ ^[Yy]$ ]]; then
 echo -e "  ${BOLD}PM2 commands:${NC}"
 echo -e "    Status:   ${CYAN}pm2 status${NC}"
 echo -e "    Logs:     ${CYAN}pm2 logs arcellite${NC}"
 echo -e "    Restart:  ${CYAN}pm2 restart arcellite${NC}"
-echo -e "    Monitor:  ${CYAN}pm2 monit${NC}"
+echo -e "    Stop:     ${CYAN}pm2 stop arcellite${NC}"
 echo ""
-fi
-echo -e "  ${BOLD}Config:${NC}  ${PROJECT_DIR}/.env"
-echo -e "  ${BOLD}Docs:${NC}    https://github.com/ArcelliteProject/arcellite"
+echo -e "  ${BOLD}Remote database access:${NC}"
+echo -e "    Connect from DataGrip/DBeaver using the connection"
+echo -e "    URLs shown in the ${BOLD}Database > Info${NC} tab in the web UI."
+echo -e "    For access outside your LAN, forward port ${PG_PORT} on your router."
+echo ""
+echo -e "  ${BOLD}Custom domain (optional):${NC}"
+echo -e "    Use a reverse proxy (Nginx/Caddy) or Cloudflare Tunnel to"
+echo -e "    access Arcellite from a domain like cloud.yourdomain.com."
+echo -e "    Then set ${CYAN}ARCELLITE_PUBLIC_URL${NC} in .env and restart."
+echo ""
+echo -e "  ${BOLD}Configuration:${NC}  ${PROJECT_DIR}/.env"
 echo ""

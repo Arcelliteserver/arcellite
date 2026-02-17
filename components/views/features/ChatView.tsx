@@ -1,7 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, ArrowRight, RotateCcw, CheckCircle, XCircle, FolderPlus, Trash2, Database, FileText, Sparkles, Folder, File, ExternalLink, Image as ImageIcon, Film, Music, BookOpen, FileArchive, Table, Settings, FileCode, Mail, MessageSquare, Plus, Clock, ChevronLeft, X } from 'lucide-react';
-import DrawIcon from '../../DrawIcon';
+import { Send, Loader2, ArrowRight, RotateCcw, CheckCircle, XCircle, FolderPlus, Trash2, Database, FileText, Sparkles, Folder, File, ExternalLink, Image as ImageIcon, Film, Music, BookOpen, FileArchive, Table, Settings, FileCode, Mail, MessageSquare, Plus, Clock, ChevronLeft, X, Cloud } from 'lucide-react';
 import { usePdfThumbnail } from '../../files/usePdfThumbnail';
 
 /** Strip download-site tags like "(z-lib.org)", "(libgen)", "(Anna's Archive)" etc. from file names */
@@ -380,10 +379,10 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
   };
 
   const suggestions = [
-    { text: 'Create a new folder called "Projects"', icon: FolderPlus },
-    { text: 'What files do I have?', icon: FileText },
-    { text: 'Organize my Files — move code to codes folder', icon: ArrowRight },
-    { text: 'Clean up my trash', icon: Trash2 },
+    { text: 'Create a new database for my app', icon: Database, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'hover:border-violet-400 hover:shadow-violet-200/60' },
+    { text: 'Organize my files into folders', icon: FolderPlus, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'hover:border-violet-400 hover:shadow-violet-200/60' },
+    { text: 'Send my latest photos to Discord', icon: Send, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'hover:border-violet-400 hover:shadow-violet-200/60' },
+    { text: 'Find all PDF documents in my files', icon: FileText, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'hover:border-violet-400 hover:shadow-violet-200/60' },
   ];
 
   /** Render markdown-lite content: bold, code, lists */
@@ -467,7 +466,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
     return <div className="space-y-1">{elements}</div>;
   };
 
-  /** Render inline formatting: **bold**, `code`, *italic* */
+  /** Render inline formatting: **bold**, `code`, *italic*, #channel */
   const renderInline = (text: string): React.ReactNode => {
     const parts: React.ReactNode[] = [];
     let remaining = text;
@@ -480,12 +479,15 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
       const codeMatch = remaining.match(/`(.*?)`/);
       // Italic *text* (not preceded by *)
       const italicMatch = remaining.match(/(?<!\*)\*(?!\*)(.*?)\*(?!\*)/);
+      // #channel-name
+      const channelMatch = remaining.match(/#([a-zA-Z][a-zA-Z0-9_-]*)/);
 
       // Find earliest match
       const matches = [
         boldMatch ? { type: 'bold', match: boldMatch, idx: remaining.indexOf(boldMatch[0]) } : null,
         codeMatch ? { type: 'code', match: codeMatch, idx: remaining.indexOf(codeMatch[0]) } : null,
         italicMatch ? { type: 'italic', match: italicMatch, idx: remaining.indexOf(italicMatch[0]) } : null,
+        channelMatch ? { type: 'channel', match: channelMatch, idx: remaining.indexOf(channelMatch[0]) } : null,
       ].filter(Boolean).sort((a, b) => a!.idx - b!.idx);
 
       if (matches.length === 0) {
@@ -510,6 +512,12 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         );
       } else if (first.type === 'italic') {
         parts.push(<em key={keyIdx++} className="italic">{first.match![1]}</em>);
+      } else if (first.type === 'channel') {
+        parts.push(
+          <span key={keyIdx++} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-[#5D5FEF]/10 text-[#5D5FEF] rounded-md text-[12px] font-bold">
+            <span className="opacity-60">#</span>{first.match![1]}
+          </span>
+        );
       }
 
       remaining = remaining.slice(first.idx + first.match![0].length);
@@ -743,6 +751,35 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
               </div>
             </div>
             <div className="w-8 h-8 rounded-full flex items-center justify-center bg-blue-50 text-blue-400 flex-shrink-0">
+              <CheckCircle className="w-4 h-4" />
+            </div>
+          </div>
+        )}
+
+        {/* Discord sent card */}
+        {action.success && action.data?.type === 'discord_sent' && (
+          <div className="p-3 bg-white border border-[#5865F2]/20 rounded-2xl flex items-center gap-4 shadow-sm">
+            <div className="w-14 h-14 rounded-xl bg-[#5865F2]/10 flex items-center justify-center flex-shrink-0 border border-[#5865F2]/20">
+              <MessageSquare className="w-6 h-6 text-[#5865F2]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[14px] font-bold text-gray-800 leading-tight">
+                #{action.data.channel}
+              </p>
+              <p className="text-[12px] text-gray-500 truncate mt-0.5">{action.data.message}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-[9px] font-black text-[#5865F2] uppercase tracking-widest">Discord</span>
+                <span className="w-1 h-1 bg-gray-200 rounded-full" />
+                <span className="text-[10px] font-medium text-gray-400">Message Sent</span>
+                {action.data.fileUrl && (
+                  <>
+                    <span className="w-1 h-1 bg-gray-200 rounded-full" />
+                    <span className="text-[9px] font-bold text-gray-300">+ File</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-[#5865F2]/10 text-[#5865F2] flex-shrink-0">
               <CheckCircle className="w-4 h-4" />
             </div>
           </div>
@@ -997,7 +1034,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         {/* Standard action result card — only show if no specialized card rendered above */}
         {(() => {
           const hasSpecialCard = action.data?.type && [
-            'image', 'file_list', 'file_list_all', 'file_created', 'file_preview', 'email_sent',
+            'image', 'file_list', 'file_list_all', 'file_created', 'file_preview', 'email_sent', 'discord_sent',
             'database_created', 'database_deleted', 'table_created', 'database_list',
             'trash_list', 'organize_result', 'query_result',
           ].includes(action.data.type);
@@ -1030,7 +1067,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         {blocks.map((block, idx) => {
           if (block.type === 'text' && block.text) {
             return (
-              <div key={`block-${idx}`} className="px-5 sm:px-7 py-4 sm:py-5 rounded-[2rem] rounded-tl-none text-[14px] sm:text-[15px] leading-relaxed font-medium shadow-sm border bg-white text-gray-700 border-gray-100">
+              <div key={`block-${idx}`} className="text-[14px] sm:text-[15px] leading-relaxed font-medium text-gray-700">
                 {renderContent(block.text)}
               </div>
             );
@@ -1151,7 +1188,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
             <div className="flex flex-col items-center justify-center min-h-[60vh] sm:min-h-[65vh] text-center space-y-8 sm:space-y-10">
               <div className="max-w-xl px-2">
                 <div className="w-16 sm:w-20 h-16 sm:h-20 bg-[#5D5FEF]/10 rounded-[2.5rem] flex items-center justify-center mx-auto mb-4 sm:mb-8 border border-[#5D5FEF]/20">
-                  <DrawIcon color="#5D5FEF" size={40} />
+                  <Cloud className="w-10 h-10 text-[#5D5FEF] fill-[#5D5FEF]/10" strokeWidth={2.5} />
                 </div>
                 <h3 className="text-2xl sm:text-3xl font-black text-gray-900 mb-2 sm:mb-3 tracking-tight">
                   Organic Assistance
@@ -1161,20 +1198,21 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-2 gap-2 sm:gap-4 w-full max-w-3xl px-2 sm:px-0">
+              <div className="grid grid-cols-2 md:grid-cols-2 gap-3 sm:gap-4 w-full max-w-3xl px-2 sm:px-0">
                 {suggestions.map((item, i) => {
                   const Icon = item.icon;
                   return (
                     <button
                       key={i}
                       onClick={() => setInput(item.text)}
-                      className="flex items-center gap-3 p-3 sm:p-5 bg-white border border-gray-100 rounded-lg sm:rounded-2xl text-left hover:border-[#5D5FEF]/40 hover:bg-[#5D5FEF]/5 hover:shadow-xl hover:shadow-[#5D5FEF]/10 transition-all group active:scale-95"
+                      className={`flex flex-col gap-3 p-4 sm:p-6 ${item.bg} border ${item.border} rounded-2xl sm:rounded-3xl text-left ${item.hover} hover:shadow-xl transition-all group active:scale-[0.97] duration-200`}
                     >
-                      <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-gray-300 group-hover:text-[#5D5FEF] flex-shrink-0 transition-colors" />
-                      <span className="text-[11px] sm:text-[14px] font-bold text-gray-600 group-hover:text-[#5D5FEF] flex-1 line-clamp-2">
+                      <div className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-gradient-to-br ${item.gradient} flex items-center justify-center shadow-lg`}>
+                        <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                      </div>
+                      <span className="text-[12px] sm:text-[15px] font-bold text-gray-700 leading-snug">
                         {item.text}
                       </span>
-                      <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-300 group-hover:text-[#5D5FEF] group-hover:translate-x-1 transition-all flex-shrink-0" />
                     </button>
                   );
                 })}
@@ -1190,69 +1228,72 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
 
           {/* Messages */}
           {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex gap-3 sm:gap-5 animate-in fade-in slide-in-from-bottom-6 duration-700 ${
-                msg.role === 'user' ? 'flex-row-reverse' : ''
-              }`}
-            >
-              {/* Avatar */}
-              <div
-                className={`w-9 h-9 sm:w-10 sm:h-10 rounded-[1rem] flex items-center justify-center flex-shrink-0 overflow-hidden shadow-sm ${
-                  msg.role === 'user'
-                    ? 'bg-white border border-gray-100'
-                    : 'bg-[#5D5FEF] shadow-lg shadow-[#5D5FEF]/20'
-                }`}
-              >
-                {msg.role === 'user' ? (
-                  user?.avatarUrl ? (
-                    <img src={user.avatarUrl} alt="You" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-[#5D5FEF] to-[#5D5FEF]/70 flex items-center justify-center">
-                      <span className="text-white font-black text-sm">{user?.firstName?.[0]?.toUpperCase() || 'U'}</span>
-                    </div>
-                  )
-                ) : (
-                  <DrawIcon color="#FFFFFF" size={20} />
-                )}
-              </div>
-
-              {/* Message */}
-              <div className="max-w-[85%] sm:max-w-[80%]">
-                {msg.role === 'user' ? (
-                  <div className="px-5 sm:px-7 py-4 sm:py-5 rounded-[2rem] rounded-tr-none text-[14px] sm:text-[15px] leading-relaxed font-medium shadow-sm border bg-[#5D5FEF] text-white border-transparent">
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
+            <div key={i} className="animate-in fade-in slide-in-from-bottom-6 duration-700">
+              {msg.role === 'user' ? (
+                /* ── User message: keep original bubble design ── */
+                <div className="flex gap-3 sm:gap-5 flex-row-reverse">
+                  {/* Avatar */}
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-[1rem] flex items-center justify-center flex-shrink-0 overflow-hidden shadow-sm bg-white border border-gray-100">
+                    {user?.avatarUrl ? (
+                      <img src={user.avatarUrl} alt="You" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-[#5D5FEF] to-[#5D5FEF]/70 flex items-center justify-center">
+                        <span className="text-white font-black text-sm">{user?.firstName?.[0]?.toUpperCase() || 'U'}</span>
+                      </div>
+                    )}
                   </div>
-                ) : msg.blocks && msg.blocks.length > 0 ? (
-                  renderBlocks(msg.blocks)
-                ) : (
-                  <>
-                    <div className="px-5 sm:px-7 py-4 sm:py-5 rounded-[2rem] rounded-tl-none text-[14px] sm:text-[15px] leading-relaxed font-medium shadow-sm border bg-white text-gray-700 border-gray-100">
-                      {renderContent(msg.content)}
+                  <div className="max-w-[85%] sm:max-w-[80%]">
+                    <div className="px-5 sm:px-7 py-4 sm:py-5 rounded-[2rem] rounded-tr-none text-[14px] sm:text-[15px] leading-relaxed font-medium shadow-sm border bg-[#5D5FEF] text-white border-transparent">
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
                     </div>
-                    {msg.actions && msg.actions.length > 0 && renderActions(msg.actions)}
-                  </>
-                )}
-
-                {/* Timestamp */}
-                <p className={`text-[9px] font-bold text-gray-300 mt-1.5 ${msg.role === 'user' ? 'text-right' : ''}`}>
-                  {formatTime(msg.timestamp)}
-                </p>
-              </div>
+                    <p className="text-[9px] font-bold text-gray-300 mt-1.5 text-right">
+                      {formatTime(msg.timestamp)}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* ── AI message: floating style, no container ── */
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-6 h-6 flex items-center justify-center">
+                      <Cloud className="w-5 h-5 text-[#5D5FEF] fill-[#5D5FEF]/10" strokeWidth={2.5} />
+                    </div>
+                    <span className="text-[13px] font-semibold text-gray-400">Arcellite</span>
+                  </div>
+                  <div className="max-w-full text-[14px] sm:text-[15px] leading-relaxed font-medium text-gray-700">
+                    {msg.blocks && msg.blocks.length > 0 ? (
+                      renderBlocks(msg.blocks)
+                    ) : (
+                      <>
+                        {renderContent(msg.content)}
+                        {msg.actions && msg.actions.length > 0 && renderActions(msg.actions)}
+                      </>
+                    )}
+                  </div>
+                  <p className="text-[9px] font-bold text-gray-300 mt-1.5">
+                    {formatTime(msg.timestamp)}
+                  </p>
+                </div>
+              )}
             </div>
           ))}
 
           {/* Loading indicator */}
           {isLoading && (
-            <div className="flex gap-3 sm:gap-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-[1rem] bg-[#5D5FEF] flex items-center justify-center animate-pulse shadow-lg shadow-[#5D5FEF]/20">
-                <DrawIcon color="#FFFFFF" size={20} />
-              </div>
-              <div className="px-5 sm:px-7 py-4 sm:py-5 bg-white rounded-[2rem] rounded-tl-none border border-gray-100 shadow-sm flex items-center gap-4">
-                <Loader2 className="w-4 h-4 text-[#5D5FEF] animate-spin" />
-                <span className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">
-                  {isStreaming ? 'Executing...' : 'Thinking...'}
-                </span>
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex gap-3 sm:gap-4">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-[1rem] flex items-center justify-center flex-shrink-0 bg-[#5D5FEF]/5 border border-[#5D5FEF]/10 animate-pulse">
+                  <Cloud className="w-5 h-5 sm:w-6 sm:h-6 text-[#5D5FEF] fill-[#5D5FEF]/10" strokeWidth={2.5} />
+                </div>
+                <div>
+                  <span className="text-[12px] font-semibold text-gray-400 mb-1.5 block">Arcellite</span>
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="w-4 h-4 text-[#5D5FEF] animate-spin" />
+                    <span className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">
+                      {isStreaming ? 'Executing...' : 'Thinking...'}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           )}

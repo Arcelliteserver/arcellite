@@ -37,17 +37,22 @@ const APIKeysView: React.FC<APIKeysViewProps> = ({ showToast }) => {
     setProviderKeys(initial);
   };
 
-  // Load saved keys on mount
+  // Load saved keys on mount and mark providers with keys as connected
   useEffect(() => {
     fetch('/api/ai/keys/load')
       .then((r) => r.json())
       .then((data) => {
         if (data.ok && data.keys) {
           const initial: Record<string, ProviderAPIKey> = {};
+          const alreadyConnected = new Set<string>();
           Object.keys(modelsByProvider).forEach((provider) => {
             initial[provider] = { provider, key: data.keys[provider] || '', isVisible: false };
+            if (data.keys[provider]) {
+              alreadyConnected.add(provider);
+            }
           });
           setProviderKeys(initial);
+          setConnectedProviders(alreadyConnected);
         } else {
           initEmpty();
         }

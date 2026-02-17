@@ -110,6 +110,19 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   const [transferMessage, setTransferMessage] = useState('');
   const [transferStatus, setTransferStatus] = useState<any>(null);
   const [showTransferConfirm, setShowTransferConfirm] = useState(false);
+  // USB storage selection modal state
+  const [showStorageModal, setShowStorageModal] = useState(false);
+  const [storageDrives, setStorageDrives] = useState<RemovableDeviceInfo[]>([]);
+  const [storageDrivesLoading, setStorageDrivesLoading] = useState(false);
+  const [selectedStorageDrive, setSelectedStorageDrive] = useState<RemovableDeviceInfo | null>(null);
+  const [currentStoragePath, setCurrentStoragePath] = useState<string>('');
+  // Transfer progress state
+  const [storageTransferring, setStorageTransferring] = useState(false);
+  const [storageTransferPercent, setStorageTransferPercent] = useState(0);
+  const [storageTransferMessage, setStorageTransferMessage] = useState('');
+  const [storageTransferDone, setStorageTransferDone] = useState(false);
+  const [storageTransferError, setStorageTransferError] = useState<string | null>(null);
+  const [storageTransferTotal, setStorageTransferTotal] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const activeModelData = AI_MODELS.find(m => m.id === selectedModel) || AI_MODELS[0];
@@ -151,11 +164,18 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
       setNotifications(s.notificationsEnabled);
       setAutoMirroring(s.autoMirroring);
       setVaultLockdown(s.vaultLockdown);
-      setStorageDevice(s.storageDevice === 'external' ? 'external' : 'builtin');
+      // Determine actual storage type from user's storagePath, not just the preference
+      if (user?.storagePath) {
+        setCurrentStoragePath(user.storagePath);
+        const isExternal = user.storagePath.startsWith('/media/') || user.storagePath.startsWith('/mnt/');
+        setStorageDevice(isExternal ? 'external' : 'builtin');
+      } else {
+        setStorageDevice(s.storageDevice === 'external' ? 'external' : 'builtin');
+      }
     } catch (err) {
       // Silent — defaults remain
     }
-  }, []);
+  }, [user?.storagePath]);
 
   useEffect(() => {
     loadDevices();
@@ -193,12 +213,126 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   };
 
   const changeStorageDevice = async (device: 'builtin' | 'external') => {
-    setStorageDevice(device);
-    try {
-      await authApi.updateSettings({ storageDevice: device });
-    } catch (err) {
-      setStorageDevice(device === 'builtin' ? 'external' : 'builtin'); // Revert on failure
+    if (device === 'external') {
+      // Open USB selection modal
+      setShowStorageModal(true);
+      setStorageDrivesLoading(true);
+      setSelectedStorageDrive(null);
+      setStorageTransferDone(false);
+      setStorageTransferError(null);
+      try {
+        const res = await fetch('/api/system/storage');
+        const data = await res.json();
+        if (data.removable && data.removable.length > 0) {
+          // Only show mounted drives
+          const mounted = data.removable.filter((d: RemovableDeviceInfo) => d.mountpoint);
+          setStorageDrives(mounted);
+          // Auto-select a drive if current path matches one
+          if (currentStoragePath) {
+            const match = mounted.find((d: RemovableDeviceInfo) => currentStoragePath.startsWith(d.mountpoint));
+            if (match) setSelectedStorageDrive(match);
+          }
+        } else {
+          setStorageDrives([]);
+        }
+      } catch {
+        setStorageDrives([]);
+      } finally {
+        setStorageDrivesLoading(false);
+      }
+    } else {
+      // Switch to built-in — show modal with transfer progress
+      setShowStorageModal(true);
+      setSelectedStorageDrive(null);
+      setStorageDrives([]);
+      setStorageDrivesLoading(false);
+      setStorageTransferDone(false);
+      setStorageTransferError(null);
+      // Start transfer immediately to built-in
+      startStorageTransfer('~/arcellite-data');
     }
+  };
+
+  const startStorageTransfer = async (newPath: string) => {
+    setStorageTransferring(true);
+    setStorageTransferPercent(0);
+    setStorageTransferMessage('Preparing transfer...');
+    setStorageTransferDone(false);
+    setStorageTransferError(null);
+    setStorageTransferTotal(0);
+
+    try {
+      const token = localStorage.getItem('sessionToken');
+      const response = await fetch('/api/auth/transfer-storage', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ newPath }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Transfer request failed');
+      }
+
+      // Read SSE stream
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response stream');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let eventName = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventName = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (eventName === 'progress') {
+                setStorageTransferPercent(data.percent || 0);
+                setStorageTransferMessage(data.message || '');
+                if (data.totalFiles !== undefined) setStorageTransferTotal(data.totalFiles);
+              } else if (eventName === 'done') {
+                setStorageTransferDone(true);
+                setStorageTransferPercent(100);
+                setStorageTransferMessage('Transfer complete!');
+                setStorageTransferTotal(data.totalFiles || 0);
+                // Update local state
+                const isExternal = newPath.startsWith('/media/') || newPath.startsWith('/mnt/');
+                setStorageDevice(isExternal ? 'external' : 'builtin');
+                setCurrentStoragePath(newPath);
+                if (onUserUpdate && user) {
+                  onUserUpdate({ ...user, storagePath: newPath });
+                }
+              } else if (eventName === 'error') {
+                setStorageTransferError(data.error || 'Transfer failed');
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+      }
+    } catch (err: any) {
+      setStorageTransferError(err.message || 'Transfer failed');
+    } finally {
+      setStorageTransferring(false);
+    }
+  };
+
+  const confirmStorageDriveSelection = async () => {
+    if (!selectedStorageDrive) return;
+    const newPath = selectedStorageDrive.mountpoint + '/arcellite-data';
+    startStorageTransfer(newPath);
   };
 
   const handleEditProfile = () => {
@@ -271,6 +405,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
       setAutoMirroring(true);
       setVaultLockdown(true);
       setStorageDevice('builtin');
+      setCurrentStoragePath('~/arcellite-data');
       setShowResetSettingsConfirm(false);
       setDangerZoneSuccess('All preferences have been restored to factory defaults.');
       setTimeout(() => setDangerZoneSuccess(null), 5000);
@@ -794,10 +929,15 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                     {storageDevice === 'builtin' ? (
                       <HardDrive className="w-4 h-4 md:w-5 md:h-5" />
                     ) : (
-                      <Zap className="w-4 h-4 md:w-5 md:h-5" />
+                      <Usb className="w-4 h-4 md:w-5 md:h-5" />
                     )}
                   </div>
-                  <span className="text-sm md:text-[15px] font-bold text-gray-700">Storage Device</span>
+                  <div className="text-left">
+                    <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Storage Device</span>
+                    {currentStoragePath && (
+                      <span className="text-[10px] md:text-[11px] text-gray-400 font-medium font-mono">{currentStoragePath}</span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 px-1 py-1 bg-white rounded-xl border border-gray-100">
                   <button
@@ -1468,6 +1608,153 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                 Start Transfer
               </button>
             </div>
+          </div>
+        </div>
+      , document.body)}
+
+      {/* Storage Transfer Modal */}
+      {showStorageModal && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4" onClick={() => !storageTransferring && setShowStorageModal(false)}>
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 md:p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+
+            {/* ── Transfer Progress View ── */}
+            {(storageTransferring || storageTransferDone || storageTransferError) ? (
+              <div className="text-center">
+                {storageTransferDone ? (
+                  <>
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-green-500/10 mb-5">
+                      <CheckCircle className="w-8 h-8 text-green-500" />
+                    </div>
+                    <h3 className="text-lg font-black text-[#111111] mb-1">Transfer Complete</h3>
+                    <p className="text-sm text-gray-400 font-medium mb-2">
+                      {storageTransferTotal > 0
+                        ? `${storageTransferTotal} file${storageTransferTotal !== 1 ? 's' : ''} moved successfully`
+                        : 'Storage switched successfully'}
+                    </p>
+                    <p className="text-xs text-gray-300 font-mono mb-6">{currentStoragePath}</p>
+                    <button
+                      onClick={() => { setShowStorageModal(false); setStorageTransferDone(false); }}
+                      className="w-full py-3 bg-[#5D5FEF] text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-[#4D4FCF] transition-all shadow-lg shadow-[#5D5FEF]/20"
+                    >
+                      Done
+                    </button>
+                  </>
+                ) : storageTransferError ? (
+                  <>
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-red-500/10 mb-5">
+                      <AlertTriangle className="w-8 h-8 text-red-500" />
+                    </div>
+                    <h3 className="text-lg font-black text-[#111111] mb-1">Transfer Failed</h3>
+                    <p className="text-sm text-red-400 font-medium mb-6">{storageTransferError}</p>
+                    <button
+                      onClick={() => { setShowStorageModal(false); setStorageTransferError(null); }}
+                      className="w-full py-3 bg-[#F5F5F7] text-gray-700 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-gray-200 transition-all"
+                    >
+                      Close
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#5D5FEF]/10 mb-5">
+                      <ArrowRightLeft className="w-8 h-8 text-[#5D5FEF] animate-pulse" />
+                    </div>
+                    <h3 className="text-lg font-black text-[#111111] mb-1">Transferring Files</h3>
+                    <p className="text-sm text-gray-400 font-medium mb-6">Do not disconnect drives or close this page</p>
+
+                    {/* Progress bar */}
+                    <div className="w-full bg-gray-100 rounded-full h-3 mb-3 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#5D5FEF] to-[#7B7DFF] rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${storageTransferPercent}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs text-gray-400 font-medium truncate max-w-[70%]">{storageTransferMessage}</p>
+                      <span className="text-xs font-black text-[#5D5FEF]">{storageTransferPercent}%</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              /* ── Drive Selection View ── */
+              <>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h3 className="text-lg font-black text-[#111111]">Select USB Drive</h3>
+                    <p className="text-xs text-gray-400 font-medium mt-0.5">All files will be transferred to the selected drive</p>
+                  </div>
+                  <button
+                    onClick={() => setShowStorageModal(false)}
+                    className="w-8 h-8 rounded-xl bg-[#F5F5F7] flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-all"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+                  {storageDrivesLoading && (
+                    <div className="flex items-center justify-center gap-2 py-8 text-gray-400">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span className="text-sm font-medium">Detecting external drives...</span>
+                    </div>
+                  )}
+
+                  {!storageDrivesLoading && storageDrives.length === 0 && (
+                    <div className="text-center py-8">
+                      <Usb className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+                      <p className="text-sm text-gray-400 font-medium">No external drives detected</p>
+                      <p className="text-xs text-gray-300 mt-1">Connect a USB drive and try again</p>
+                    </div>
+                  )}
+
+                  {!storageDrivesLoading && storageDrives.map((drive) => (
+                    <button
+                      key={drive.mountpoint}
+                      type="button"
+                      onClick={() => setSelectedStorageDrive(drive)}
+                      className={`w-full text-left rounded-2xl p-5 border-2 transition-all ${
+                        selectedStorageDrive?.mountpoint === drive.mountpoint
+                          ? 'border-[#5D5FEF] bg-[#5D5FEF]/5'
+                          : 'border-gray-100 bg-[#F5F5F7] hover:border-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                          selectedStorageDrive?.mountpoint === drive.mountpoint ? 'bg-[#5D5FEF]' : 'bg-gray-300'
+                        }`}>
+                          <Usb className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-black text-[#111111] text-sm">{drive.label || drive.model || drive.name}</h4>
+                          <p className="text-xs text-gray-400 font-medium mt-0.5">
+                            {drive.sizeHuman} &middot; {drive.mountpoint}
+                          </p>
+                        </div>
+                        {selectedStorageDrive?.mountpoint === drive.mountpoint && (
+                          <CheckCircle className="w-5 h-5 text-[#5D5FEF] flex-shrink-0" />
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mt-6">
+                  <button
+                    onClick={() => setShowStorageModal(false)}
+                    className="py-3 bg-[#F5F5F7] text-gray-700 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-gray-200 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmStorageDriveSelection}
+                    disabled={!selectedStorageDrive}
+                    className="py-3 bg-[#5D5FEF] text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-[#4D4FCF] transition-all shadow-lg shadow-[#5D5FEF]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    Transfer
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       , document.body)}

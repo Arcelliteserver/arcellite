@@ -1152,3 +1152,182 @@ export async function handleUpdateIpAllowlist(req: IncomingMessage, res: ServerR
     sendJson(res, 500, { error: error.message || 'Failed to update IP allowlist' });
   }
 }
+
+// ── Helper: recursively count files ──────────────────────────────────────────
+function countFilesRecursive(dir: string): number {
+  if (!fs.existsSync(dir)) return 0;
+  let count = 0;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      count += countFilesRecursive(path.join(dir, entry.name));
+    } else {
+      count++;
+    }
+  }
+  return count;
+}
+
+// ── Helper: recursively move all contents from src to dest ───────────────────
+function moveContentsRecursive(
+  srcDir: string, destDir: string,
+  onProgress: (file: string) => void
+): void {
+  if (!fs.existsSync(srcDir)) return;
+  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+  const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(srcDir, entry.name);
+    const destPath = path.join(destDir, entry.name);
+
+    if (entry.isDirectory()) {
+      moveContentsRecursive(srcPath, destPath, onProgress);
+      // Remove the now-empty source dir
+      try { fs.rmdirSync(srcPath); } catch { /* not empty yet or permission issue */ }
+    } else {
+      // Move file: try rename first (instant if same filesystem), fall back to copy+delete
+      try {
+        fs.renameSync(srcPath, destPath);
+      } catch {
+        fs.copyFileSync(srcPath, destPath);
+        fs.unlinkSync(srcPath);
+      }
+      onProgress(entry.name);
+    }
+  }
+}
+
+/**
+ * POST /api/auth/transfer-storage
+ * Transfer (move) all files from current storage path to a new one.
+ * Uses SSE to stream progress back to the client.
+ */
+export async function handleTransferStorage(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    const user = await authService.validateSession(authHeader.substring(7));
+    if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    const { newPath } = await parseBody(req);
+    if (!newPath || typeof newPath !== 'string') {
+      sendJson(res, 400, { error: 'newPath is required' });
+      return;
+    }
+
+    // Resolve current storage path
+    const os = await import('os');
+    const currentStoragePath = await authService.getActiveStoragePath();
+    let resolvedNew = newPath;
+    if (resolvedNew.startsWith('~/') || resolvedNew === '~') {
+      resolvedNew = path.join(os.homedir(), resolvedNew.slice(1));
+    }
+
+    // Don't transfer to same location
+    if (path.resolve(currentStoragePath) === path.resolve(resolvedNew)) {
+      sendJson(res, 400, { error: 'New path is the same as current storage path' });
+      return;
+    }
+
+    // Set up SSE
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const sendSSE = (event: string, data: any) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      // 1. Create directories at new path
+      sendSSE('progress', { phase: 'preparing', message: 'Creating directories...', percent: 0 });
+      const dirs = ['files', 'photos', 'videos', 'music', 'shared', 'databases', 'databases/sqlite', '.trash'];
+      for (const sub of dirs) {
+        const dir = path.join(resolvedNew, sub);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      }
+
+      // 2. Count total files to move
+      sendSSE('progress', { phase: 'counting', message: 'Counting files...', percent: 5 });
+      const totalFiles = countFilesRecursive(currentStoragePath);
+
+      if (totalFiles === 0) {
+        // No files to transfer, just update the path
+        sendSSE('progress', { phase: 'updating', message: 'Updating storage path...', percent: 90 });
+      } else {
+        // 3. Move files with progress
+        let movedCount = 0;
+        sendSSE('progress', { phase: 'transferring', message: `Transferring ${totalFiles} files...`, percent: 10, totalFiles });
+
+        moveContentsRecursive(currentStoragePath, resolvedNew, (fileName) => {
+          movedCount++;
+          const percent = Math.round(10 + (movedCount / totalFiles) * 75);
+          if (movedCount % 5 === 0 || movedCount === totalFiles) {
+            sendSSE('progress', { phase: 'transferring', message: `Moving: ${fileName}`, percent, movedCount, totalFiles });
+          }
+        });
+
+        // 4. Clean up empty old directory
+        sendSSE('progress', { phase: 'cleanup', message: 'Cleaning up old storage...', percent: 88 });
+        try {
+          // Remove remaining empty dirs from old path
+          const removeEmptyDirs = (dir: string) => {
+            if (!fs.existsSync(dir)) return;
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.isDirectory()) {
+                removeEmptyDirs(path.join(dir, entry.name));
+              }
+            }
+            // Re-read after recursive cleanup
+            const remaining = fs.readdirSync(dir);
+            if (remaining.length === 0) {
+              try { fs.rmdirSync(dir); } catch { /* ok */ }
+            }
+          };
+          removeEmptyDirs(currentStoragePath);
+        } catch (e) {
+          console.error('[Storage] Cleanup warning:', e);
+        }
+      }
+
+      // 5. Update DB storage_path
+      sendSSE('progress', { phase: 'updating', message: 'Updating storage configuration...', percent: 92 });
+      await authService.updateUserProfile(user.id, { storagePath: newPath });
+
+      // 6. Update global cache
+      (globalThis as any).__arcellite_storage_path = resolvedNew;
+
+      // 7. Update storageDevice preference
+      const isExternal = resolvedNew.startsWith('/media/') || resolvedNew.startsWith('/mnt/');
+      await authService.updateUserSettings(user.id, { storageDevice: isExternal ? 'external' : 'builtin' });
+
+      sendSSE('progress', { phase: 'done', message: 'Transfer complete!', percent: 100, totalFiles });
+      sendSSE('done', { success: true, newPath: resolvedNew, totalFiles });
+
+      authService.logActivity(user.id, 'storage', `Storage transferred to: ${newPath} (${totalFiles} files moved)`).catch(() => {});
+      authService.createNotification(
+        user.id,
+        'Storage Transferred',
+        `Your files have been moved to ${isExternal ? 'external USB' : 'built-in'} storage. ${totalFiles} files transferred.`,
+        'success'
+      ).catch(() => {});
+    } catch (transferError: any) {
+      console.error('[Storage] Transfer error:', transferError);
+      sendSSE('error', { error: transferError.message || 'Transfer failed' });
+    }
+
+    res.end();
+  } catch (error: any) {
+    console.error('[Auth] Transfer storage error:', error);
+    if (!res.headersSent) {
+      sendJson(res, 500, { error: error.message || 'Failed to transfer storage' });
+    }
+  }
+}

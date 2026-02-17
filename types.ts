@@ -9,7 +9,7 @@ export interface RootStorageInfo {
   availableHuman: string;
 }
 
-export type RemovableDeviceType = 'usb' | 'portable';
+export type RemovableDeviceType = 'usb' | 'portable' | 'sd_card' | 'emmc';
 
 export interface RemovableDeviceInfo {
   name: string;
@@ -99,7 +99,7 @@ export interface VaultAnalytics {
 }
 
 export type FileType = 'folder' | 'document' | 'image' | 'video' | 'audio' | 'pdf' | 'book' | 'archive' | 'code' | 'spreadsheet' | 'data' | 'config';
-export type FileCategory = 'media' | 'video_vault' | 'general' | 'shared' | 'trash' | 'music';
+export type FileCategory = 'media' | 'video_vault' | 'general' | 'shared' | 'trash' | 'music' | 'external';
 
 export interface FileItem {
   id: string;

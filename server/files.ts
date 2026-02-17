@@ -15,7 +15,7 @@ const CATEGORY_DIR: Record<string, string> = {
 };
 
 export function getBaseDir(): string {
-  // Use cached user storage path if available
+  // Use cached user storage path if available (set on startup and after transfer)
   const cached = (globalThis as any).__arcellite_storage_path;
   if (cached) return cached;
   let dir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
@@ -23,7 +23,22 @@ export function getBaseDir(): string {
   if (dir.startsWith('~/') || dir === '~') {
     dir = path.join(os.homedir(), dir.slice(2));
   }
+  // Async: try to populate cache from DB so future calls use the correct path
+  refreshStoragePathCache().catch(() => {});
   return dir;
+}
+
+/** Refresh the global storage path cache from the database */
+export async function refreshStoragePathCache(): Promise<void> {
+  try {
+    const authSvc = await import('./services/auth.service.js');
+    const storagePath = await authSvc.getActiveStoragePath();
+    if (storagePath) {
+      (globalThis as any).__arcellite_storage_path = storagePath;
+    }
+  } catch {
+    // DB not ready — will use env fallback
+  }
 }
 
 function getCategoryDir(category: string): string {

@@ -380,3 +380,42 @@ export function getSystemStats(): SystemStats {
     };
   }
 }
+
+/* ── Public IP (for global database connection URLs) ── */
+let cachedPublicIp: string | null = null;
+let cacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+export async function getPublicIp(): Promise<string> {
+  // 1) Env var override (user-set static IP / hostname)
+  const envHost = process.env.ARCELLITE_DB_HOST;
+  if (envHost) return envHost;
+
+  // 2) Return cached value if fresh
+  if (cachedPublicIp && Date.now() - cacheTime < CACHE_TTL) {
+    return cachedPublicIp;
+  }
+
+  // 3) Auto-detect via external service
+  try {
+    const ip = execSync('/usr/bin/curl -s --max-time 5 ifconfig.me 2>/dev/null || /usr/bin/curl -s --max-time 5 api.ipify.org 2>/dev/null', { encoding: 'utf-8' }).trim();
+    if (ip && /^[\d.]+$/.test(ip)) {
+      cachedPublicIp = ip;
+      cacheTime = Date.now();
+      return ip;
+    }
+  } catch {
+    // ignore
+  }
+
+  // 4) Fallback: try to extract from ARCELLITE_PUBLIC_URL (may be Cloudflare-proxied)
+  const publicUrl = process.env.ARCELLITE_PUBLIC_URL;
+  if (publicUrl) {
+    try {
+      const hostname = new URL(publicUrl).hostname;
+      return hostname;
+    } catch { /* ignore */ }
+  }
+
+  return 'localhost';
+}

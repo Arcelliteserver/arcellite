@@ -7,18 +7,29 @@ import fsp from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
-let DATA_DIR = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
-if (DATA_DIR.startsWith('~/') || DATA_DIR === '~') {
-  DATA_DIR = path.join(os.homedir(), DATA_DIR.slice(2));
+function getDataDir(): string {
+  const cached = (globalThis as any).__arcellite_storage_path;
+  if (cached) return cached;
+  let dir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
+  if (dir.startsWith('~/') || dir === '~') {
+    dir = path.join(os.homedir(), dir.slice(2));
+  }
+  return dir;
 }
-const CONFIG_DIR = path.join(DATA_DIR, 'config');
-const KEYS_FILE = path.join(CONFIG_DIR, 'api-keys.json');
+
+function getConfigDir(): string {
+  return path.join(getDataDir(), 'config');
+}
+
+function getKeysFile(): string {
+  return path.join(getConfigDir(), 'api-keys.json');
+}
 
 // ─── API Key Storage ────────────────────────────────────────────────
 
 function ensureConfigDir() {
-  if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  if (!fs.existsSync(getConfigDir())) {
+    fs.mkdirSync(getConfigDir(), { recursive: true });
   }
 }
 
@@ -31,13 +42,13 @@ export function saveApiKeys(keys: Record<string, string>): void {
   for (const k in merged) {
     if (!merged[k]) delete merged[k];
   }
-  fs.writeFileSync(KEYS_FILE, JSON.stringify(merged, null, 2), 'utf8');
+  fs.writeFileSync(getKeysFile(), JSON.stringify(merged, null, 2), 'utf8');
 }
 
 export function loadApiKeys(): Record<string, string> {
-  if (!fs.existsSync(KEYS_FILE)) return {};
+  if (!fs.existsSync(getKeysFile())) return {};
   try {
-    return JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
+    return JSON.parse(fs.readFileSync(getKeysFile(), 'utf8'));
   } catch {
     return {};
   }
@@ -177,7 +188,7 @@ function cleanFileName(name: string): string {
  */
 function resolveFilePath(category: string, filePath: string): string {
   const catMap: Record<string, string> = { general: 'files', media: 'photos', video_vault: 'videos', music: 'music' };
-  const baseDir = path.join(DATA_DIR, catMap[category] || 'files');
+  const baseDir = path.join(getDataDir(), catMap[category] || 'files');
   const fullPath = path.join(baseDir, filePath);
 
   // If file exists at exact path, use it
@@ -215,7 +226,7 @@ function getFilesystemContext(): string {
   const sections: string[] = [];
 
   for (const [category, dir] of Object.entries(catMap)) {
-    const fullDir = path.join(DATA_DIR, dir);
+    const fullDir = path.join(getDataDir(), dir);
     if (!fs.existsSync(fullDir)) continue;
 
     try {
@@ -271,7 +282,7 @@ function getFilesystemContext(): string {
   }
 
   // Also list shared
-  const sharedDir = path.join(DATA_DIR, 'shared');
+  const sharedDir = path.join(getDataDir(), 'shared');
   if (fs.existsSync(sharedDir)) {
     try {
       const entries = fs.readdirSync(sharedDir).map((name) => `  - ${name}`);
@@ -301,7 +312,7 @@ function formatBytes(bytes: number): string {
  */
 async function getDatabaseContext(): Promise<string> {
   try {
-    const metadataFile = path.join(DATA_DIR, 'databases', 'metadata.json');
+    const metadataFile = path.join(getDataDir(), 'databases', 'metadata.json');
     if (!fs.existsSync(metadataFile)) return 'No databases created yet.';
     const metadata = JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
     const entries = Object.values(metadata) as any[];
@@ -379,11 +390,68 @@ async function getDatabaseContext(): Promise<string> {
 }
 
 /**
+ * Get connected apps context for the AI, loaded from the database.
+ */
+async function getConnectedAppsContext(userEmail?: string): Promise<string> {
+  if (!userEmail) return 'CONNECTED APPS:\nNo connected apps (user not identified).';
+  try {
+    const { pool } = await import('./db/connection.js');
+    // Get user ID from email
+    const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [userEmail]);
+    if (userResult.rows.length === 0) return 'CONNECTED APPS:\nNo connected apps.';
+    const userId = userResult.rows[0].id;
+    // Load myapps_state
+    const result = await pool.query(
+      `SELECT config FROM connected_apps WHERE user_id = $1 AND app_type = 'myapps_state' AND is_active = true ORDER BY updated_at DESC LIMIT 1`,
+      [userId]
+    );
+    if (result.rows.length === 0 || !result.rows[0].config) return 'CONNECTED APPS:\nNo connected apps.';
+    const config = result.rows[0].config;
+    const apps = config.apps;
+    if (!Array.isArray(apps) || apps.length === 0) return 'CONNECTED APPS:\nNo connected apps.';
+
+    const connectedApps = apps.filter((a: any) => a.status === 'connected');
+    if (connectedApps.length === 0) return 'CONNECTED APPS:\nNo apps are currently connected.';
+
+    const lines: string[] = ['CONNECTED APPS:'];
+    for (const app of connectedApps) {
+      let line = `  - ${app.name} (${app.id}) — ✅ Connected`;
+      if (app.statusMessage) line += ` — ${app.statusMessage}`;
+
+      // For Discord: list channels
+      if (app.discordChannels && Array.isArray(app.discordChannels) && app.discordChannels.length > 0) {
+        line += `\n    Discord Channels:`;
+        for (const ch of app.discordChannels) {
+          line += `\n      #${ch.name}${ch.topic ? ` — ${ch.topic}` : ''}`;
+        }
+        // Store the send URL so executeAction can use it
+        if (app.discordWebhooks?.sendUrl) {
+          line += `\n    [Send Webhook: ${app.discordWebhooks.sendUrl}]`;
+        }
+      }
+
+      // For n8n/MCP: show workflow count
+      if (app.files && Array.isArray(app.files) && app.files.length > 0) {
+        if (app.id.startsWith('n8n') || app.id.startsWith('mcp')) {
+          line += ` — ${app.files.length} workflow(s)`;
+        }
+      }
+
+      lines.push(line);
+    }
+
+    return lines.join('\n');
+  } catch {
+    return 'CONNECTED APPS:\nUnable to load connected apps.';
+  }
+}
+
+/**
  * Resolve a database reference (id or display name) to the actual metadata id.
  */
 function resolveDatabaseId(ref: string): string | null {
   try {
-    const metadataFile = path.join(DATA_DIR, 'databases', 'metadata.json');
+    const metadataFile = path.join(getDataDir(), 'databases', 'metadata.json');
     if (!fs.existsSync(metadataFile)) return null;
     const metadata = JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
     // Direct match by id
@@ -402,16 +470,19 @@ function resolveDatabaseId(ref: string): string | null {
   }
 }
 
-function buildSystemPrompt(filesCtx: string, dbCtx: string, userEmail?: string): string {
+function buildSystemPrompt(filesCtx: string, dbCtx: string, appsCtx: string, userEmail?: string): string {
   const emailCtx = userEmail ? `\nUSER EMAIL: ${userEmail}\n` : '';
+  const publicUrl = process.env.ARCELLITE_PUBLIC_URL || 'https://cloud.arcelliteserver.com';
   return `You are Arcellite — the personal AI assistant for the Arcellite file management system. You are helpful, concise, and conversational.
 ${emailCtx}
+SERVER PUBLIC URL: ${publicUrl}
 CAPABILITIES YOU CAN HELP WITH:
 1. **File Management**: Create files, create folders, delete files/folders, rename items, move items to trash, list contents
 2. **Database Management**: Create databases (PostgreSQL, MySQL, or SQLite), create tables, drop tables, run queries
 3. **Media**: Help find photos, videos, music files. Help cast media to devices.
 4. **Email**: Send files from the user's storage to their email as attachments.
-5. **General Help**: Answer questions about the system, provide guidance
+5. **Connected Apps**: Show the user's connected integrations (Discord, n8n, databases, etc.). Send messages to Discord channels.
+6. **General Help**: Answer questions about the system, provide guidance
 
 WHEN THE USER ASKS YOU TO PERFORM AN ACTION, respond with a JSON action block wrapped in \`\`\`action tags. Examples:
 
@@ -708,6 +779,49 @@ VERIFICATION (CRITICAL — DO NOT HALLUCINATE):
 - NEVER say you completed a task if the action results show failures. Be honest about what worked and what didn't.
 - For large batch operations (moving many files), work through ALL the files systematically. Do NOT stop halfway. If the max actions per response is reached, continue in the next iteration until every file has been processed.
 
+CONNECTED APPS & DISCORD:
+- When the user asks "what are my connected apps", "show my integrations", "which apps are connected", etc., refer to the CONNECTED APPS section below and list them with their names, status, and details.
+- For Discord apps, you know the available channels. When the user asks to send a message to Discord, use the discord_send action.
+- When sending to Discord, choose the most appropriate channel based on the content:
+  - Text/general messages → "general" or "text"
+  - Images or visual content → "images"
+  - Documents, files, reports → "documents"
+  - Audio files → "audio"
+  - Calendar events → "calendar"
+  - Music-related → "music" or "spotify"
+  - Task lists → "tasks"
+  - Alerts or warnings → "alerts"
+  - Debug/log info → "debug" or "logs"
+  - Video content → "video"
+  - Email-related → "email"
+  - Stock/finance → "stock"
+  - Updates → "update"
+  - If unsure, ask the user which channel they want, listing the available ones as a bullet list with each channel on its own line using the # prefix (e.g. "- #general"). NEVER list channels as a comma-separated inline list. Always present them as a clean vertical bullet list.
+- You can also send files to Discord by including a fileUrl. Build the URL using the SERVER PUBLIC URL above:
+  - Format: {SERVER_PUBLIC_URL}/api/files/serve?category={category}&path={url_encoded_path}
+  - Example: for a file at category="general" path="books/MyBook.pdf", the fileUrl would be "${publicUrl}/api/files/serve?category=general&path=books%2FMyBook.pdf"
+  - CRITICAL: Always use the SERVER PUBLIC URL (${publicUrl}) — NEVER use the Discord webhook domain or any other domain for file URLs.
+  - Always URL-encode the path (spaces → %20, slashes → %2F, parentheses → %28 %29, etc.)
+
+To send a message to a Discord channel:
+\`\`\`action
+{"type":"discord_send","channel":"general","message":"Hello from Arcellite!"}
+\`\`\`
+
+To send a message with a file attachment to Discord:
+\`\`\`action
+{"type":"discord_send","channel":"images","message":"Check out this photo","fileUrl":"${publicUrl}/api/files/serve?category=media&path=photo.jpg"}
+\`\`\`
+
+DISCORD RULES:
+- ALWAYS check the CONNECTED APPS context below to see if Discord is connected and which channels are available.
+- If Discord is not connected, tell the user to connect it first via My Apps.
+- Use the exact channel name from the channel list (lowercase, e.g. "general", "images", "documents").
+- When sending files, construct the fileUrl from the file's category and path.
+- Keep messages concise and helpful.
+
+${appsCtx}
+
 ${filesCtx}
 
 ${dbCtx}`;
@@ -725,7 +839,7 @@ export async function chatWithAI(
   const provider = getProviderForModel(model);
   const apiKey = getApiKey(provider);
   if (!apiKey) {
-    return { content: '', error: `No ${provider} API key configured. Go to Settings → API Keys to add your key.` };
+    return { content: '', error: `No API key configured for ${provider}. Go to your profile → AI Models to add your ${provider} API key, or switch to a model that has a key configured.` };
   }
 
   const config = PROVIDER_CONFIGS[provider];
@@ -736,13 +850,16 @@ export async function chatWithAI(
   // Build context
   const filesCtx = getFilesystemContext();
   const dbCtx = await getDatabaseContext();
-  const systemPrompt = buildSystemPrompt(filesCtx, dbCtx, userEmail);
+  const appsCtx = await getConnectedAppsContext(userEmail);
+  const systemPrompt = buildSystemPrompt(filesCtx, dbCtx, appsCtx, userEmail);
 
   // Resolve the actual API model name
   const apiModel = config.resolveModel(model);
 
   // ─── Anthropic uses a different API format ─────────────────────
   if (provider === 'Anthropic') {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
     try {
       const response = await fetch(config.apiUrl, {
         method: 'POST',
@@ -757,6 +874,7 @@ export async function chatWithAI(
           system: systemPrompt,
           messages: messages.map(m => ({ role: m.role, content: m.content })),
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -771,6 +889,8 @@ export async function chatWithAI(
     } catch (e) {
       console.error('[AI] Chat error:', e);
       return { content: '', error: `Failed to connect to ${provider}: ${(e as Error).message}` };
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -780,34 +900,81 @@ export async function chatWithAI(
     ...messages,
   ];
 
-  try {
-    const response = await fetch(config.apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: apiModel,
-        messages: fullMessages,
-        temperature: 0.7,
-        max_tokens: 4096,
-        stream: false,
-      }),
-    });
+  // Helper: make a single chat request with timeout + retry
+  const makeRequest = async (requestModel: string, retries: number = 1): Promise<{ content: string; error?: string }> => {
+    let lastError: any;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout per attempt
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[AI] ${provider} API error:`, response.status, errorText);
-      return { content: '', error: `${provider} API error (${response.status}): ${errorText}` };
+      try {
+        // deepseek-reasoner doesn't support temperature — omit it
+        const bodyParams: any = {
+          model: requestModel,
+          messages: fullMessages,
+          max_tokens: 4096,
+          stream: false,
+        };
+        if (requestModel !== 'deepseek-reasoner') {
+          bodyParams.temperature = 0.7;
+        }
+
+        const response = await fetch(config.apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(bodyParams),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[AI] ${provider} API error:`, response.status, errorText);
+          // On server errors (5xx), retry instead of returning immediately
+          if (response.status >= 500 && attempt < retries) {
+            console.warn(`[AI] ${requestModel} attempt ${attempt + 1} got ${response.status}, retrying...`);
+            lastError = new Error(`${provider} API error (${response.status}): ${errorText}`);
+            await new Promise(r => setTimeout(r, 2000)); // 2s delay before retry
+            continue;
+          }
+          return { content: '', error: `${provider} API error (${response.status}): ${errorText}` };
+        }
+
+        const data: any = await response.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        return { content };
+      } catch (e) {
+        lastError = e;
+        if (attempt < retries) {
+          console.warn(`[AI] ${requestModel} attempt ${attempt + 1} failed (${(e as Error).name}), retrying in 3s...`);
+          await new Promise(r => setTimeout(r, 3000)); // 3s delay before retry
+          continue;
+        }
+        throw e; // Final attempt failed — throw to outer handler
+      } finally {
+        clearTimeout(timeoutId);
+      }
     }
+    throw lastError; // Shouldn't reach here but just in case
+  };
 
-    const data: any = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    return { content };
-  } catch (e) {
+  try {
+    return await makeRequest(apiModel);
+  } catch (e: any) {
+    // If deepseek-chat times out / fails, fallback to deepseek-reasoner
+    if (model === 'deepseek-chat' && provider === 'DeepSeek') {
+      console.warn(`[AI] deepseek-chat failed after retries (${e.name || e.message}), falling back to deepseek-reasoner...`);
+      try {
+        return await makeRequest('deepseek-reasoner', 0); // Single attempt for fallback
+      } catch (e2) {
+        console.error('[AI] deepseek-reasoner fallback also failed:', e2);
+        return { content: '', error: `DeepSeek API is temporarily unavailable. Please try again in a moment.` };
+      }
+    }
     console.error('[AI] Chat error:', e);
-    return { content: '', error: `Failed to connect to ${provider}: ${(e as Error).message}` };
+    return { content: '', error: `Failed to connect to ${provider}. The service may be temporarily unavailable — please try again.` };
   }
 }
 
@@ -863,23 +1030,35 @@ export async function generateChatTitle(
         ...messages,
       ];
 
-      const response = await fetch(config.apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: apiModel,
-          messages: fullMessages,
-          temperature: 0.3,
-          max_tokens: 30,
-          stream: false,
-        }),
-      });
-      if (!response.ok) return { ok: false, error: `API error ${response.status}` };
-      const data: any = await response.json();
-      titleText = data.choices?.[0]?.message?.content || '';
+      // deepseek-reasoner doesn't support temperature
+      const bodyParams: any = {
+        model: apiModel,
+        messages: fullMessages,
+        max_tokens: 30,
+        stream: false,
+      };
+      if (apiModel !== 'deepseek-reasoner') {
+        bodyParams.temperature = 0.3;
+      }
+
+      const titleController = new AbortController();
+      const titleTimeout = setTimeout(() => titleController.abort(), 30000); // 30s timeout for title generation
+      try {
+        const response = await fetch(config.apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(bodyParams),
+          signal: titleController.signal,
+        });
+        if (!response.ok) return { ok: false, error: `API error ${response.status}` };
+        const data: any = await response.json();
+        titleText = data.choices?.[0]?.message?.content || '';
+      } finally {
+        clearTimeout(titleTimeout);
+      }
     }
 
     // Clean up the title
@@ -894,7 +1073,7 @@ export async function generateChatTitle(
 }
 
 /**
- * Test the DeepSeek API connection with a simple ping.
+ * Test an API provider connection with a simple ping message.
  */
 export async function testConnection(provider: string): Promise<{ ok: boolean; message: string }> {
   const apiKey = getApiKey(provider);
@@ -902,16 +1081,50 @@ export async function testConnection(provider: string): Promise<{ ok: boolean; m
     return { ok: false, message: `No API key found for ${provider}. Please save your key first.` };
   }
 
-  if (provider === 'DeepSeek') {
-    try {
-      const response = await fetch(DEEPSEEK_API_URL, {
+  const config = PROVIDER_CONFIGS[provider];
+  if (!config) {
+    // Providers without a config entry (Meta, Ollama) — just validate key exists
+    return { ok: true, message: `API key saved for ${provider}.` };
+  }
+
+  // Pick a representative model for the provider
+  const testModelEntry = Object.entries(MODEL_PROVIDER_MAP).find(([, p]) => p === provider);
+  const testModelId = testModelEntry ? testModelEntry[0] : 'deepseek-chat';
+  const apiModel = config.resolveModel(testModelId);
+
+  try {
+    if (provider === 'Anthropic') {
+      // Anthropic uses a different API format
+      const response = await fetch(config.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: apiModel,
+          max_tokens: 10,
+          messages: [{ role: 'user', content: 'Say "connected" in one word.' }],
+        }),
+      });
+
+      if (response.ok) {
+        return { ok: true, message: `Connected to ${provider} successfully!` };
+      } else {
+        const errorText = await response.text();
+        return { ok: false, message: `${provider} returned ${response.status}: ${errorText}` };
+      }
+    } else {
+      // OpenAI-compatible providers (DeepSeek, OpenAI, Google, Grok, Qwen)
+      const response = await fetch(config.apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'deepseek-chat',
+          model: apiModel,
           messages: [{ role: 'user', content: 'Say "connected" in one word.' }],
           max_tokens: 10,
           stream: false,
@@ -919,18 +1132,15 @@ export async function testConnection(provider: string): Promise<{ ok: boolean; m
       });
 
       if (response.ok) {
-        return { ok: true, message: `Connected to DeepSeek successfully!` };
+        return { ok: true, message: `Connected to ${provider} successfully!` };
       } else {
         const errorText = await response.text();
-        return { ok: false, message: `DeepSeek returned ${response.status}: ${errorText}` };
+        return { ok: false, message: `${provider} returned ${response.status}: ${errorText}` };
       }
-    } catch (e) {
-      return { ok: false, message: `Connection failed: ${(e as Error).message}` };
     }
+  } catch (e) {
+    return { ok: false, message: `Connection failed: ${(e as Error).message}` };
   }
-
-  // For other providers, just validate key format
-  return { ok: true, message: `API key saved for ${provider}. Connection test not yet implemented for this provider.` };
 }
 
 // ─── Action Execution ───────────────────────────────────────────────
@@ -1067,7 +1277,7 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
       }
 
       case 'list_databases': {
-        const metadataFile = path.join(DATA_DIR, 'databases', 'metadata.json');
+        const metadataFile = path.join(getDataDir(), 'databases', 'metadata.json');
         if (!fs.existsSync(metadataFile)) {
           return { success: true, message: 'No databases created yet.', data: { type: 'database_list', items: [] } };
         }
@@ -1282,7 +1492,7 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
         moveFile(category, sourcePath, targetPath);
         // Verify the move actually succeeded
         const catMap: Record<string, string> = { general: 'files', media: 'photos', video_vault: 'videos', music: 'music' };
-        const baseDir = path.join(DATA_DIR, catMap[category] || 'files');
+        const baseDir = path.join(getDataDir(), catMap[category] || 'files');
         const targetFull = path.join(baseDir, targetPath);
         const sourceFull = path.join(baseDir, sourcePath);
         if (!fs.existsSync(targetFull)) {
@@ -1349,7 +1559,7 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
         const movedFiles: string[] = [];
         const failedFiles: string[] = [];
         const catMapOrg: Record<string, string> = { general: 'files', media: 'photos', video_vault: 'videos', music: 'music' };
-        const baseDirOrg = path.join(DATA_DIR, catMapOrg[category] || 'files');
+        const baseDirOrg = path.join(getDataDir(), catMapOrg[category] || 'files');
         for (const mv of moves) {
           if (!folderMap[mv.targetFolder.toLowerCase()] && !foldersCreated.has(mv.targetFolder)) {
             mkdir(category, mv.targetFolder);
@@ -1443,7 +1653,7 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
         // Resolve the full absolute path on disk
         const catMap: Record<string, string> = { general: 'files', media: 'photos', video_vault: 'videos', music: 'music' };
         const categoryDir = catMap[emailCategory] || 'files';
-        const absolutePath = path.join(DATA_DIR, categoryDir, emailFilePath);
+        const absolutePath = path.join(getDataDir(), categoryDir, emailFilePath);
 
         if (!fs.existsSync(absolutePath)) {
           return { success: false, message: `File "${displayName}" not found on disk.` };
@@ -1473,6 +1683,84 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
         }
       }
 
+      case 'discord_send': {
+        const channel = action.channel;
+        const message = action.message;
+        if (!channel || !message) {
+          return { success: false, message: 'Discord send requires both "channel" and "message" fields.' };
+        }
+
+        // Look up the user's Discord send webhook URL from connected apps
+        let sendUrl: string | null = null;
+        try {
+          const { pool } = await import('./db/connection.js');
+          let userId: number | null = null;
+          if (userEmail) {
+            const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [userEmail]);
+            if (userResult.rows.length > 0) userId = userResult.rows[0].id;
+          }
+          if (userId) {
+            const result = await pool.query(
+              `SELECT config FROM connected_apps WHERE user_id = $1 AND app_type = 'myapps_state' AND is_active = true ORDER BY updated_at DESC LIMIT 1`,
+              [userId]
+            );
+            if (result.rows.length > 0 && result.rows[0].config?.apps) {
+              const apps = result.rows[0].config.apps;
+              const discordApp = apps.find((a: any) => a.id === 'discord' && a.status === 'connected');
+              if (discordApp?.discordWebhooks?.sendUrl) {
+                sendUrl = discordApp.discordWebhooks.sendUrl;
+              }
+            }
+          }
+        } catch {
+          // Fall through to error
+        }
+
+        if (!sendUrl) {
+          return { success: false, message: 'Discord is not connected. Please connect Discord in My Apps first and provide the Send Message webhook URL.' };
+        }
+
+        try {
+          const payload: any = { channel, message };
+          if (action.fileUrl) payload.fileUrl = action.fileUrl;
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 15000);
+          const resp = await fetch(sendUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!resp.ok) {
+            const errorText = await resp.text().catch(() => '');
+            return { success: false, message: `Discord send failed (${resp.status}): ${errorText || resp.statusText}` };
+          }
+
+          let respData: any = {};
+          try {
+            respData = await resp.json();
+          } catch { /* empty response is ok */ }
+
+          return {
+            success: true,
+            message: `Message sent to Discord #${channel}.`,
+            data: {
+              type: 'discord_sent',
+              channel,
+              message,
+              messageId: respData.messageId,
+              fileUrl: action.fileUrl,
+            },
+          };
+        } catch (e) {
+          const errMsg = (e as Error).name === 'AbortError' ? 'Discord webhook timed out' : (e as Error).message;
+          return { success: false, message: `Discord send failed: ${errMsg}` };
+        }
+      }
+
       default:
         return { success: false, message: `Unknown action type: ${action.type}` };
     }
@@ -1496,7 +1784,7 @@ export async function analyzeImageForTitle(imagePath: string): Promise<{ ok: boo
   }
 
   // Read the image file (async to avoid blocking the event loop during batch operations)
-  const absolutePath = imagePath.startsWith('/') ? imagePath : path.join(DATA_DIR, imagePath);
+  const absolutePath = imagePath.startsWith('/') ? imagePath : path.join(getDataDir(), imagePath);
   try {
     const stats = await fsp.stat(absolutePath);
     if (stats.size > 15 * 1024 * 1024) {

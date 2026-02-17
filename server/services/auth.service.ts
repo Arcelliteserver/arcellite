@@ -484,10 +484,17 @@ export async function getRecentFiles(userId: number, limit: number = 20): Promis
   // Validate files still exist on disk and filter out stale entries
   const fs = await import('fs');
   const path = await import('path');
-  const os = await import('os');
-  let dataDir = process.env.ARCELLITE_DATA || path.default.join(os.default.homedir(), 'arcellite-data');
-  if (dataDir.startsWith('~/') || dataDir === '~') {
-    dataDir = path.default.join(os.default.homedir(), dataDir.slice(2));
+
+  // Use the user's actual storage path from the database (handles USB/external storage)
+  let dataDir: string;
+  try {
+    dataDir = await getActiveStoragePath();
+  } catch {
+    const os = await import('os');
+    dataDir = process.env.ARCELLITE_DATA || path.default.join(os.default.homedir(), 'arcellite-data');
+    if (dataDir.startsWith('~/') || dataDir === '~') {
+      dataDir = path.default.join(os.default.homedir(), dataDir.slice(2));
+    }
   }
   const catDirMap: Record<string, string> = {
     general: 'files',
@@ -499,6 +506,14 @@ export async function getRecentFiles(userId: number, limit: number = 20): Promis
   const staleIds: number[] = [];
   const validRows = result.rows.filter(row => {
     if (!row.category || !row.file_path) return true; // keep rows without category info
+    // External files (USB/SD) — file_path is the absolute path
+    if (row.category === 'external') {
+      if (!fs.default.existsSync(row.file_path)) {
+        staleIds.push(row.id);
+        return false;
+      }
+      return true;
+    }
     const dirName = catDirMap[row.category];
     if (!dirName) return true;
     const fullPath = path.default.join(dataDir, dirName, row.file_path);
@@ -944,7 +959,7 @@ export async function resetUserSettings(userId: number): Promise<void> {
 }
 
 /**
- * Delete user account and all associated data (DB + files on disk)
+ * Delete user account and all associated data (DB + files on disk + user databases)
  */
 export async function deleteAccount(userId: number): Promise<void> {
   // Get the user's storage path before deleting
@@ -953,15 +968,70 @@ export async function deleteAccount(userId: number): Promise<void> {
     [userId]
   );
 
-  // CASCADE on foreign keys handles sessions, recent_files, activity_log, user_settings, etc.
+  // ── 1. Drop user-created PostgreSQL databases & chat history ──
+  try {
+    // Find all arcellite_* databases (user-created) and the chat history DB
+    const dbListResult = await pool.query(
+      `SELECT datname FROM pg_database
+       WHERE datname LIKE 'arcellite_%' AND datname != $1`,
+      [process.env.DB_NAME || 'arcellite']
+    );
+    for (const row of dbListResult.rows) {
+      const dbName = row.datname;
+      try {
+        // Terminate active connections first
+        await pool.query(
+          `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+          [dbName]
+        );
+        await pool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+        console.log(`[Auth] Dropped database: ${dbName}`);
+      } catch (err) {
+        console.error(`[Auth] Failed to drop database ${dbName}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('[Auth] Failed to clean up user databases:', err);
+  }
+
+  // ── 2. Drop user-created MySQL databases ──
+  try {
+    const mysql = await import('mysql2/promise');
+    const mysqlConn = await mysql.default.createConnection({
+      host: process.env.MYSQL_HOST || 'localhost',
+      port: parseInt(process.env.MYSQL_PORT || '3306'),
+      user: process.env.MYSQL_USER || 'arcellite_user',
+      password: process.env.MYSQL_PASSWORD || 'arcellite2024',
+    });
+    try {
+      const [rows] = await mysqlConn.query(
+        `SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME LIKE 'arcellite_%'`
+      ) as any[];
+      for (const row of rows) {
+        try {
+          await mysqlConn.query(`DROP DATABASE IF EXISTS \`${row.SCHEMA_NAME}\``);
+          console.log(`[Auth] Dropped MySQL database: ${row.SCHEMA_NAME}`);
+        } catch (err) {
+          console.error(`[Auth] Failed to drop MySQL database ${row.SCHEMA_NAME}:`, err);
+        }
+      }
+    } finally {
+      await mysqlConn.end();
+    }
+  } catch {
+    // MySQL may not be installed or accessible — that's fine
+  }
+
+  // ── 3. Delete user row (CASCADE handles sessions, recent_files, activity_log, etc.) ──
   await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
 
-  // Delete storage files from disk
+  // ── 4. Delete storage files from disk ──
+  const fs = await import('fs');
+  const path = await import('path');
+  const os = await import('os');
+
   if (userResult.rows.length > 0) {
     const storagePath = userResult.rows[0].storage_path || '~/arcellite-data';
-    const fs = await import('fs');
-    const path = await import('path');
-    const os = await import('os');
 
     // Resolve ~ to home directory
     const resolvedPath = storagePath.startsWith('~')
@@ -970,7 +1040,6 @@ export async function deleteAccount(userId: number): Promise<void> {
 
     // Also delete the default arcellite-data directory
     let defaultDataDir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
-    // Expand leading ~ to homedir
     if (defaultDataDir.startsWith('~/') || defaultDataDir === '~') {
       defaultDataDir = path.join(os.homedir(), defaultDataDir.slice(2));
     }
@@ -989,6 +1058,17 @@ export async function deleteAccount(userId: number): Promise<void> {
         console.error(`[Auth] Failed to delete storage directory ${dir}:`, err);
       }
     }
+  }
+
+  // ── 5. Clean up .env file (contains secrets specific to this installation) ──
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      fs.unlinkSync(envPath);
+      console.log('[Auth] Removed .env file');
+    }
+  } catch (err) {
+    console.error('[Auth] Failed to remove .env file:', err);
   }
 }
 

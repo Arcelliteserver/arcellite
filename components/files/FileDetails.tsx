@@ -18,6 +18,8 @@ import {
   Type,
   Sparkles,
   Loader2,
+  Play,
+  Pause,
 } from 'lucide-react';
 import { FileItem } from '../../types';
 import FileIcon from './FileIcon';
@@ -51,7 +53,54 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
   const [titleCopied, setTitleCopied] = useState(false);
   const [aiRenaming, setAiRenaming] = useState(false);
   const [aiRenameResult, setAiRenameResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const castMenuRef = useRef<HTMLDivElement>(null);
+
+  // Media Session API — notification-area controls for audio playback
+  useEffect(() => {
+    if (!file || file.type !== 'audio' || !('mediaSession' in navigator)) return;
+    const title = file.name.replace(/^\d{13}_/, '').replace(/_/g, ' ');
+    const artworkUrl = `${window.location.origin}/images/music_placeholder.png`;
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+      artist: 'Arcellite',
+      album: 'My Music',
+      artwork: [
+        { src: artworkUrl, sizes: '512x512', type: 'image/png' },
+        { src: artworkUrl, sizes: '256x256', type: 'image/png' },
+        { src: artworkUrl, sizes: '128x128', type: 'image/png' },
+        { src: artworkUrl, sizes: '96x96', type: 'image/png' },
+      ],
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => audioRef.current?.play());
+    navigator.mediaSession.setActionHandler('pause', () => audioRef.current?.pause());
+    navigator.mediaSession.setActionHandler('stop', () => {
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
+    });
+    navigator.mediaSession.setActionHandler('seekbackward', () => {
+      if (audioRef.current) audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
+    });
+    navigator.mediaSession.setActionHandler('seekforward', () => {
+      if (audioRef.current) audioRef.current.currentTime = Math.min(audioRef.current.duration || 0, audioRef.current.currentTime + 10);
+    });
+
+    return () => {
+      navigator.mediaSession.metadata = null;
+      ['play', 'pause', 'stop', 'seekbackward', 'seekforward'].forEach(a =>
+        navigator.mediaSession.setActionHandler(a as MediaSessionAction, null)
+      );
+    };
+  }, [file?.id, file?.type, file?.name]);
+
+  // Update media session playback state
+  useEffect(() => {
+    if (!file || file.type !== 'audio' || !('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = audioPlaying ? 'playing' : 'paused';
+  }, [file?.type, audioPlaying]);
 
   // Close cast menu on outside click
   useEffect(() => {
@@ -143,6 +192,7 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
 
   const isImage = file.type === 'image';
   const isVideo = file.type === 'video';
+  const isAudio = file.type === 'audio';
   const canCast = isImage || isVideo;
 
   // Get the publicly accessible file URL for casting
@@ -191,6 +241,30 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
     }
   };
 
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    // Try modern clipboard API first (requires secure context)
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return true; } catch {}
+    }
+    // Fallback: textarea + execCommand (works on HTTP)
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '-9999px';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
   const handleShare = async () => {
     if (!file.url) return;
 
@@ -202,17 +276,16 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
           title: file.name,
           url: shareUrl,
         });
-      } catch (error) {
-        // Share cancelled or not supported
+        return;
+      } catch {
+        // Share cancelled or not supported — fall through to copy
       }
-    } else {
-      // Fallback: copy to clipboard
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-        alert('Link copied to clipboard!');
-      } catch (error) {
-        alert('Could not copy link');
-      }
+    }
+    // Copy link to clipboard
+    const ok = await copyToClipboard(shareUrl);
+    if (ok) {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
     }
   };
 
@@ -348,6 +421,52 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
                   <FileIcon type={file.type} className="w-20 h-20 text-gray-400" />
                 )}
               </div>
+            ) : isAudio ? (
+              <div className="flex flex-col items-center">
+                {/* Music artwork / placeholder */}
+                <div className="relative w-48 h-48 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-violet-500/15 border border-gray-100 mb-6 group">
+                  <img
+                    src="/images/music_placeholder.png"
+                    alt="Music"
+                    className="w-full h-full object-cover"
+                  />
+                  {/* Play/Pause overlay button */}
+                  {file.url && (
+                    <button
+                      onClick={() => {
+                        if (!audioRef.current) return;
+                        if (audioPlaying) {
+                          audioRef.current.pause();
+                        } else {
+                          audioRef.current.play();
+                        }
+                      }}
+                      className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-white/90 backdrop-blur flex items-center justify-center shadow-xl">
+                        {audioPlaying ? (
+                          <Pause className="w-7 h-7 text-violet-600" />
+                        ) : (
+                          <Play className="w-7 h-7 text-violet-600 ml-1" />
+                        )}
+                      </div>
+                    </button>
+                  )}
+                </div>
+                {/* Hidden audio element */}
+                {file.url && (
+                  <audio
+                    ref={audioRef}
+                    src={file.url}
+                    preload="metadata"
+                    onPlay={() => setAudioPlaying(true)}
+                    onPause={() => setAudioPlaying(false)}
+                    onEnded={() => setAudioPlaying(false)}
+                    controls
+                    className="w-full max-w-xs"
+                  />
+                )}
+              </div>
             ) : (
               <div className="flex flex-col items-center">
                 <div className={`w-32 h-32 mb-8 flex items-center justify-center rounded-[2.5rem] shadow-xl shadow-[#5D5FEF]/10 relative transition-transform hover:scale-105 duration-300 ${file.isFolder ? 'bg-[#F0F0FF]' : 'bg-[#F8F9FA]'}`}>
@@ -384,10 +503,17 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
           <div className="flex items-center gap-3 mb-10">
             <button
               onClick={handleShare}
-              className="flex-1 flex items-center justify-center gap-2 bg-[#5D5FEF] text-white px-4 py-3 rounded-2xl hover:bg-[#4D4FCF] transition-all shadow-lg shadow-[#5D5FEF]/20 group active:scale-95"
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-2xl transition-all shadow-lg group active:scale-95 ${
+                linkCopied
+                  ? 'bg-green-500 text-white shadow-green-500/20'
+                  : 'bg-[#5D5FEF] text-white shadow-[#5D5FEF]/20 hover:bg-[#4D4FCF]'
+              }`}
             >
-              <Share2 className="w-4 h-4 group-hover:scale-110 transition-transform" />
-              <span className="text-sm font-bold">Share</span>
+              {linkCopied ? (
+                <><Check className="w-4 h-4" /><span className="text-sm font-bold">Link Copied!</span></>
+              ) : (
+                <><Share2 className="w-4 h-4 group-hover:scale-110 transition-transform" /><span className="text-sm font-bold">Share</span></>
+              )}
             </button>
             <button
               onClick={handleDownload}

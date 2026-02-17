@@ -8,12 +8,24 @@ import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js';
 const { Pool } = pg;
 
 const homeDir = os.homedir();
-let baseDir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
-if (baseDir.startsWith('~/') || baseDir === '~') {
-  baseDir = path.join(homeDir, baseDir.slice(2));
+
+function getStorageBase(): string {
+  const cached = (globalThis as any).__arcellite_storage_path;
+  if (cached) return cached;
+  let dir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
+  if (dir.startsWith('~/') || dir === '~') {
+    dir = path.join(homeDir, dir.slice(2));
+  }
+  return dir;
 }
-const dbDir = path.join(baseDir, 'databases');
-const dbMetadataFile = path.join(dbDir, 'metadata.json');
+
+function getDbDir(): string {
+  return path.join(getStorageBase(), 'databases');
+}
+
+function getDbMetadataFile(): string {
+  return path.join(getDbDir(), 'metadata.json');
+}
 
 // PostgreSQL connection config — force TCP (localhost) for password auth
 const rawHost = process.env.DB_HOST || 'localhost';
@@ -59,16 +71,17 @@ interface DatabasesMetadata {
 }
 
 function ensureDbDir() {
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
+  const dir = getDbDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 
 function loadMetadata(): DatabasesMetadata {
   ensureDbDir();
-  if (!fs.existsSync(dbMetadataFile)) return {};
+  if (!fs.existsSync(getDbMetadataFile())) return {};
   try {
-    return JSON.parse(fs.readFileSync(dbMetadataFile, 'utf-8'));
+    return JSON.parse(fs.readFileSync(getDbMetadataFile(), 'utf-8'));
   } catch {
     return {};
   }
@@ -76,7 +89,7 @@ function loadMetadata(): DatabasesMetadata {
 
 function saveMetadata(metadata: DatabasesMetadata) {
   ensureDbDir();
-  fs.writeFileSync(dbMetadataFile, JSON.stringify(metadata, null, 2), 'utf-8');
+  fs.writeFileSync(getDbMetadataFile(), JSON.stringify(metadata, null, 2), 'utf-8');
 }
 
 function generateId(): string {
@@ -125,16 +138,19 @@ async function getMysqlConn(dbName: string): Promise<mysql.Connection> {
 }
 
 // ── SQLite helpers ──
-const sqliteDir = path.join(dbDir, 'sqlite');
+function getSqliteDir(): string {
+  return path.join(getDbDir(), 'sqlite');
+}
 
 function ensureSqliteDir() {
-  if (!fs.existsSync(sqliteDir)) {
-    fs.mkdirSync(sqliteDir, { recursive: true });
+  const dir = getSqliteDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 
 function getSqlitePath(id: string): string {
-  return path.join(sqliteDir, `${id}.sqlite`);
+  return path.join(getSqliteDir(), `${id}.sqlite`);
 }
 
 let sqlJsInstance: Awaited<ReturnType<typeof initSqlJs>> | null = null;
@@ -251,7 +267,7 @@ export async function createDatabase(name: string, type: 'postgresql' | 'mysql' 
     // ── SQLite ──
     ensureSqliteDir();
     const sqliteDbName = `arcellite_${sanitizePgName(name)}`;
-    const filePath = path.join(sqliteDir, `${sqliteDbName}.sqlite`);
+    const filePath = path.join(getSqliteDir(), `${sqliteDbName}.sqlite`);
 
     // Check for existing file with same sanitized name
     if (fs.existsSync(filePath)) throw new Error(`SQLite database "${sqliteDbName}" already exists`);
@@ -308,7 +324,7 @@ export async function deleteDatabase(id: string): Promise<void> {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   }
 
-  const dbPath = path.join(dbDir, id);
+  const dbPath = path.join(getDbDir(), id);
   if (fs.existsSync(dbPath)) fs.rmSync(dbPath, { recursive: true, force: true });
 
   delete metadata[id];
@@ -769,7 +785,7 @@ export async function purgeAllDatabases(): Promise<{ purgedCount: number; names:
       console.error(`[purgeAllDatabases] Failed to drop ${db.displayName || db.name}:`, err);
     }
 
-    const dbPath = path.join(dbDir, id);
+    const dbPath = path.join(getDbDir(), id);
     if (fs.existsSync(dbPath)) fs.rmSync(dbPath, { recursive: true, force: true });
   }
 

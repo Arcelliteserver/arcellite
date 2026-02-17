@@ -184,11 +184,30 @@ const App: React.FC = () => {
     setSelectedModel(model);
     try { localStorage.setItem('arcellite_selected_model', model); } catch {}
   }, []);
+
+  // Auto-select a model that has an API key if the current selection doesn't
+  useEffect(() => {
+    fetch('/api/ai/configured-providers')
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok && data.providers && data.providers.length > 0) {
+          const currentModel = AI_MODELS.find(m => m.id === selectedModel);
+          if (!currentModel || !data.providers.includes(currentModel.provider)) {
+            // Current model's provider has no API key — switch to one that does
+            const firstConfigured = AI_MODELS.find(m => data.providers.includes(m.provider));
+            if (firstConfigured) {
+              handleModelChange(firstConfigured.id);
+            }
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
-  const [sortBy, setSortBy] = useState<'name' | 'date' | 'size'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'date' | 'size'>('date');
   const [showBanner, setShowBanner] = useState(true);
   const [mountedDevice, setMountedDevice] = useState<RemovableDeviceInfo | null>(() => {
     try {
@@ -372,7 +391,9 @@ const App: React.FC = () => {
           : undefined;
 
         const fileUrl = !isFolder && rf.category && rf.filePath
-          ? `${FILES_API}/serve?category=${rf.category}&path=${encodeURIComponent(rf.filePath)}`
+          ? rf.category === 'external'
+            ? `/api/files/serve-external?path=${encodeURIComponent(rf.filePath)}`
+            : `${FILES_API}/serve?category=${rf.category}&path=${encodeURIComponent(rf.filePath)}`
           : undefined;
 
         return {
@@ -397,13 +418,17 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (activeTab === 'overview') {
+      loadRecentFiles();
+      return;
+    }
     if (!category) return;
     loadServerFolders(category, currentPath);
     // Gallery needs both photos (media) and videos (video_vault)
     if (category === 'media') {
       loadServerFolders('video_vault', '');
     }
-  }, [activeTab, category, currentPath, loadServerFolders]);
+  }, [activeTab, category, currentPath, loadServerFolders, loadRecentFiles]);
 
   // Persist mounted device to localStorage
   useEffect(() => {

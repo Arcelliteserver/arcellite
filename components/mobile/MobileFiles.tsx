@@ -197,6 +197,7 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
                 {items.map((file) => {
                   const ext = file.name.split('.').pop()?.toLowerCase() || '';
                   const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic'].includes(ext);
+                  const isAudioFile = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma', 'opus'].includes(ext);
                   const isPdfBook = PDF_BOOK_EXTS.includes(ext);
                   const IconComp = getFileIconComponent(ext);
                   const colorClass = getFileColor(ext);
@@ -213,6 +214,8 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
                         <div className="w-full h-[100px] bg-gray-50 flex items-center justify-center overflow-hidden">
                           {thumbnailUrl ? (
                             <img src={thumbnailUrl} alt={file.name} className="w-full h-full object-cover" loading="lazy" />
+                          ) : isAudioFile ? (
+                            <img src="/images/music_placeholder.png" alt="Music" className="w-full h-full object-cover" loading="lazy" />
                           ) : (
                             <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colorClass}`}>
                               <IconComp className="w-6 h-6" />

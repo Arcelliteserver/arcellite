@@ -280,7 +280,8 @@ export async function runIntegrityCheck(): Promise<{
   checksumFile: string;
 }> {
   ensureKeysDir();
-  const baseDir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
+  const cached = (globalThis as any).__arcellite_storage_path;
+  const baseDir = cached || process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
   const expandedBase = baseDir.startsWith('~/') ? path.join(os.homedir(), baseDir.slice(2)) : baseDir;
   const checksums: Record<string, string> = {};
   const errors: string[] = [];

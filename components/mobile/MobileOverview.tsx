@@ -289,6 +289,7 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
             {recentFiles.slice(0, 12).map((file) => {
               const ext = file.name.split('.').pop()?.toLowerCase() || '';
               const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic'].includes(ext);
+              const isAudioFile = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma', 'opus'].includes(ext);
               const IconComp = getFileIconComponent(ext);
               // Use the url property set by App.tsx (correct query-param format)
               const thumbnailUrl = isImage && file.url ? file.url : null;
@@ -304,6 +305,13 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
                       <img
                         src={thumbnailUrl}
                         alt={file.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : isAudioFile ? (
+                      <img
+                        src="/images/music_placeholder.png"
+                        alt="Music"
                         className="w-full h-full object-cover"
                         loading="lazy"
                       />

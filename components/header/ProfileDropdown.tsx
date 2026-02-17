@@ -6,10 +6,11 @@ import {
   Palette,
   Activity,
   Download,
-  Settings,
+  Server,
   Sparkles,
   ShieldCheck,
-  Lock
+  Fingerprint,
+  Blocks
 } from 'lucide-react';
 import type { UserData } from '../../App';
 
@@ -119,6 +120,13 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Account Settings</span>
               </button>
               <button 
+                onClick={() => handleMenuItemClick(onSecurityVault)}
+                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+              >
+                <Fingerprint className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Security Vault</span>
+              </button>
+              <button 
                 onClick={() => handleTabNavigate('stats')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
@@ -133,9 +141,9 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
 
           <div className="my-2 border-t border-gray-50" />
 
-          {/* Preferences Section */}
+          {/* Settings Section */}
           <div className="px-3 py-2">
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">Preferences</p>
+            <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">Settings</p>
             <div className="space-y-0.5">
               <button 
                 onClick={() => handleTabNavigate('appearance')}
@@ -144,21 +152,12 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
                 <Palette className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Appearance</span>
               </button>
-            </div>
-          </div>
-
-          <div className="my-2 border-t border-gray-50" />
-
-          {/* System Section */}
-          <div className="px-3 py-2">
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">System</p>
-            <div className="space-y-0.5">
               <button 
-                onClick={() => handleTabNavigate('server')}
+                onClick={() => handleTabNavigate('myapps')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
-                <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Server</span>
+                <Blocks className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Integrations</span>
               </button>
               <button 
                 onClick={() => handleTabNavigate('apikeys')}
@@ -174,33 +173,22 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
                 <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">AI Security</span>
               </button>
-              <button 
-                onClick={() => handleTabNavigate('myapps')}
-                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
-              >
-                <img 
-                  src="/assets/icons/app_registration_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg" 
-                  alt="My Apps" 
-                  className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 [filter:brightness(0)_saturate(100%)_invert(60%)_sepia(0%)_saturate(0%)_hue-rotate(0deg)_brightness(90%)_contrast(90%)]"
-                />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">My Apps</span>
-              </button>
-              <button 
-                onClick={() => handleMenuItemClick(onSecurityVault)}
-                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
-              >
-                <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Security Vault</span>
-              </button>
             </div>
           </div>
 
           <div className="my-2 border-t border-gray-50" />
 
-          {/* Activity & Support Section */}
+          {/* System Section */}
           <div className="px-3 py-2">
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">Activity & Support</p>
+            <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">System</p>
             <div className="space-y-0.5">
+              <button 
+                onClick={() => handleTabNavigate('server')}
+                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+              >
+                <Server className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Server</span>
+              </button>
               <button 
                 onClick={() => handleTabNavigate('activity')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"

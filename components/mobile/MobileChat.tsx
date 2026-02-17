@@ -130,8 +130,8 @@ const MobileChat: React.FC<MobileChatProps> = ({
   onNavigateToFile,
   onBack,
 }) => {
-  // Force DeepSeek for mobile chat — Gemini free tier quota exhausted
-  const selectedModel = 'deepseek-chat';
+  // Use the model selected by the user (App.tsx auto-selects a model with a configured API key)
+  const selectedModel = _selectedModel;
   // ── Chat State ──
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -490,10 +490,12 @@ const MobileChat: React.FC<MobileChatProps> = ({
       const bold = rem.match(/\*\*(.*?)\*\*/);
       const code = rem.match(/`(.*?)`/);
       const italic = rem.match(/(?<!\*)\*(?!\*)(.*?)\*(?!\*)/);
+      const channel = rem.match(/#([a-zA-Z][a-zA-Z0-9_-]*)/);
       const matches = [
         bold ? { type: 'bold', match: bold, idx: rem.indexOf(bold[0]) } : null,
         code ? { type: 'code', match: code, idx: rem.indexOf(code[0]) } : null,
         italic ? { type: 'italic', match: italic, idx: rem.indexOf(italic[0]) } : null,
+        channel ? { type: 'channel', match: channel, idx: rem.indexOf(channel[0]) } : null,
       ].filter(Boolean).sort((a, b) => a!.idx - b!.idx);
       if (!matches.length) { parts.push(rem); break; }
       const first = matches[0]!;
@@ -501,6 +503,11 @@ const MobileChat: React.FC<MobileChatProps> = ({
       if (first.type === 'bold') parts.push(<strong key={k++} className="font-black text-gray-900">{first.match![1]}</strong>);
       else if (first.type === 'code') parts.push(<code key={k++} className="px-1 py-0.5 bg-gray-100 rounded text-[11px] font-mono text-[#5D5FEF]">{first.match![1]}</code>);
       else if (first.type === 'italic') parts.push(<em key={k++}>{first.match![1]}</em>);
+      else if (first.type === 'channel') parts.push(
+        <span key={k++} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-[#5D5FEF]/10 text-[#5D5FEF] rounded-md text-[12px] font-bold">
+          <span className="opacity-60">#</span>{first.match![1]}
+        </span>
+      );
       rem = rem.slice(first.idx + first.match![0].length);
     }
     return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>;
@@ -582,6 +589,17 @@ const MobileChat: React.FC<MobileChatProps> = ({
             <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Sent to {action.data.email}</span>
           </div>
           <CheckCircle className="w-4 h-4 text-blue-400 flex-shrink-0" />
+        </div>
+      )}
+      {action.success && action.data?.type === 'discord_sent' && (
+        <div className="p-3 bg-white border border-[#5865F2]/20 rounded-2xl flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-[#5865F2]/10 flex items-center justify-center flex-shrink-0"><MessageSquare className="w-5 h-5 text-[#5865F2]" /></div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-bold text-gray-800 truncate">#{action.data.channel}</p>
+            <p className="text-[11px] text-gray-500 truncate">{action.data.message}</p>
+            <span className="text-[9px] font-black text-[#5865F2] uppercase tracking-widest">Discord · Sent</span>
+          </div>
+          <CheckCircle className="w-4 h-4 text-[#5865F2] flex-shrink-0" />
         </div>
       )}
       {action.success && action.data?.type === 'database_created' && (
@@ -687,7 +705,7 @@ const MobileChat: React.FC<MobileChatProps> = ({
       )}
       {/* Fallback action card */}
       {(() => {
-        const special = ['image','file_list','file_list_all','file_created','file_preview','email_sent','database_created','database_deleted','table_created','database_list','trash_list','organize_result','query_result'];
+        const special = ['image','file_list','file_list_all','file_created','file_preview','email_sent','discord_sent','database_created','database_deleted','table_created','database_list','trash_list','organize_result','query_result'];
         if (!action.success || (action.data?.type && special.includes(action.data.type))) return null;
         return (
           <div className="flex items-start gap-2 px-3 py-2 rounded-xl text-[12px] font-bold bg-gray-50 text-gray-500 border border-gray-100">
@@ -713,10 +731,10 @@ const MobileChat: React.FC<MobileChatProps> = ({
 
   // ── Suggestions ──
   const suggestions = [
-    { text: 'Create a new folder called "Projects"', icon: FolderPlus, color: '#5D5FEF', bg: 'bg-[#5D5FEF]/10' },
-    { text: 'What files do I have?', icon: FileText, color: '#F59E0B', bg: 'bg-amber-50' },
-    { text: 'Organize my Files', icon: ArrowRight, color: '#10B981', bg: 'bg-emerald-50' },
-    { text: 'Clean up my trash', icon: Trash2, color: '#EF4444', bg: 'bg-red-50' },
+    { text: 'Create a new database for my app', icon: Database, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'active:border-violet-400' },
+    { text: 'Organize my files into folders', icon: FolderPlus, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'active:border-violet-400' },
+    { text: 'Send my latest photos to Discord', icon: Send, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'active:border-violet-400' },
+    { text: 'Find all PDF documents in my files', icon: FileText, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'active:border-violet-400' },
   ];
 
   // ── Auto-resize textarea ──
@@ -782,12 +800,12 @@ const MobileChat: React.FC<MobileChatProps> = ({
                     <button
                       key={i}
                       onClick={() => setInput(item.text)}
-                      className="flex flex-col items-start gap-3 p-4 bg-white border border-gray-100 rounded-2xl text-left active:scale-[0.96] active:border-[#5D5FEF]/30 transition-all touch-manipulation shadow-sm shadow-black/[0.03]"
+                      className={`flex flex-col items-start gap-3 p-4 ${item.bg} border ${item.border} rounded-2xl text-left active:scale-[0.96] ${item.hover} transition-all touch-manipulation shadow-sm`}
                     >
-                      <div className={`w-9 h-9 rounded-xl ${item.bg} flex items-center justify-center`}>
-                        <Icon className="w-[18px] h-[18px]" style={{ color: item.color }} />
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${item.gradient} flex items-center justify-center shadow-lg`}>
+                        <Icon className="w-[18px] h-[18px] text-white" />
                       </div>
-                      <span className="text-[13px] font-semibold text-gray-700 leading-snug">{item.text}</span>
+                      <span className="text-[13px] font-bold text-gray-700 leading-snug">{item.text}</span>
                     </button>
                   );
                 })}

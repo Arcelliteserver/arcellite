@@ -132,7 +132,9 @@ function calculateHealthIndex(storagePercent: number, totalFiles: number): {
 export function getVaultAnalytics(): VaultAnalytics {
   try {
     const homeDir = os.homedir();
-    let baseDir = process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
+    // Use the global storage path cache (set on startup and after transfer)
+    const cached = (globalThis as any).__arcellite_storage_path;
+    let baseDir = cached || process.env.ARCELLITE_DATA || path.join(homeDir, 'arcellite-data');
     if (baseDir.startsWith('~/') || baseDir === '~') {
       baseDir = path.join(homeDir, baseDir.slice(2));
     }

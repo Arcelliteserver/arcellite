@@ -1,29 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ExternalLink, FileText, Image, File, Video, Music, RefreshCw, ChevronRight, Loader2, FolderDown } from 'lucide-react';
+import { Users, ExternalLink, FileText, Image, File, Video, Music, RefreshCw, ChevronRight, Loader2, FolderDown, MessageSquare, Database as DatabaseIcon, LayoutGrid, List } from 'lucide-react';
 
 interface GoogleFile {
   id: string;
   name: string;
-  type: 'doc' | 'sheet' | 'slide' | 'folder' | 'file' | 'image' | 'video' | 'audio';
+  type?: string;
   mimeType?: string;
   webViewLink?: string;
   url?: string;
-  size?: number;
+  size?: number | string;
   modifiedTime?: string;
+  modified?: string;
+  created?: string;
   thumbnailLink?: string;
   iconLink?: string;
+  [key: string]: any;
+}
+
+interface DiscordChannel {
+  id: string;
+  name: string;
+  type?: string;
 }
 
 interface ConnectedApp {
   id: string;
   name: string;
   icon: string;
-  description: string;
-  category: string;
-  status: 'available' | 'connected' | 'error' | 'connecting';
+  description?: string;
+  category?: string;
+  status: 'available' | 'connected' | 'disconnected' | 'error' | 'connecting';
   statusMessage?: string;
   webhookUrl?: string;
   files?: GoogleFile[];
+  discordChannels?: DiscordChannel[];
   children?: ConnectedApp[];
 }
 
@@ -37,26 +47,32 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
   const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
   const [savingFile, setSavingFile] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
-  // Load connected apps from localStorage
+  // Load connected apps from localStorage, with server fallback
   useEffect(() => {
+    // Filter apps that are connected AND have content (files or channels)
+    // Does NOT depend on connectedAppIds — just checks app.status directly
+    const filterConnected = (allApps: any[]) => {
+      return allApps.filter((app: ConnectedApp) =>
+        app.status === 'connected' && (
+          (app.files && app.files.length > 0) ||
+          (app.discordChannels && app.discordChannels.length > 0)
+        )
+      );
+    };
+
     const loadConnectedApps = () => {
       try {
         const savedApps = localStorage.getItem('connectedApps');
-        const savedConnected = localStorage.getItem('connectedAppIds');
 
-        if (savedApps && savedConnected) {
+        if (savedApps) {
           const allApps = JSON.parse(savedApps);
-          const connectedIds = JSON.parse(savedConnected);
-
-          // Filter to only show connected apps with files
-          const connectedApps = allApps.filter((app: ConnectedApp) =>
-            connectedIds.includes(app.id) && app.status === 'connected' && app.files && app.files.length > 0
-          );
-
-          setApps(connectedApps);
-          // Auto-expand all apps by default
-          setExpandedApps(new Set(connectedApps.map((app: ConnectedApp) => app.id)));
+          if (Array.isArray(allApps)) {
+            const connectedApps = filterConnected(allApps);
+            setApps(connectedApps);
+            setExpandedApps(new Set(connectedApps.map((app: ConnectedApp) => app.id)));
+          }
         }
       } catch (e) {
         // Silent — UI shows empty state
@@ -65,7 +81,32 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
       }
     };
 
+    // Also try loading from server (cross-device sync)
+    const loadFromServer = async () => {
+      try {
+        const token = localStorage.getItem('sessionToken');
+        if (!token) return;
+        const resp = await fetch('/api/apps/connections', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.apps && Array.isArray(data.apps) && data.apps.length > 0) {
+          // Sync to localStorage
+          localStorage.setItem('connectedApps', JSON.stringify(data.apps));
+          const connectedApps = filterConnected(data.apps);
+          if (connectedApps.length > 0) {
+            setApps(connectedApps);
+            setExpandedApps(new Set(connectedApps.map((app: ConnectedApp) => app.id)));
+          }
+        }
+      } catch {
+        // Silent — localStorage data is used as fallback
+      }
+    };
+
     loadConnectedApps();
+    loadFromServer();
 
     // Listen for localStorage changes (when apps are connected/disconnected)
     const handleStorageChange = () => {
@@ -82,21 +123,48 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
     };
   }, []);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setRefreshing(true);
-    const savedApps = localStorage.getItem('connectedApps');
-    const savedConnected = localStorage.getItem('connectedAppIds');
 
-    if (savedApps && savedConnected) {
-      const allApps = JSON.parse(savedApps);
-      const connectedIds = JSON.parse(savedConnected);
-      const connectedApps = allApps.filter((app: ConnectedApp) =>
-        connectedIds.includes(app.id) && app.status === 'connected' && app.files && app.files.length > 0
+    const filterConnected = (allApps: any[]) => {
+      return allApps.filter((app: ConnectedApp) =>
+        app.status === 'connected' && (
+          (app.files && app.files.length > 0) ||
+          (app.discordChannels && app.discordChannels.length > 0)
+        )
       );
+    };
+
+    // Try loading fresh data from server first
+    try {
+      const token = localStorage.getItem('sessionToken');
+      if (token) {
+        const resp = await fetch('/api/apps/connections', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.apps && Array.isArray(data.apps)) {
+            localStorage.setItem('connectedApps', JSON.stringify(data.apps));
+            const connectedApps = filterConnected(data.apps);
+            setApps(connectedApps);
+            setExpandedApps(new Set(connectedApps.map((app: ConnectedApp) => app.id)));
+            setRefreshing(false);
+            return;
+          }
+        }
+      }
+    } catch {}
+
+    // Fallback to localStorage
+    const savedApps = localStorage.getItem('connectedApps');
+    if (savedApps) {
+      const allApps = JSON.parse(savedApps);
+      const connectedApps = filterConnected(allApps);
       setApps(connectedApps);
     }
 
-    setTimeout(() => setRefreshing(false), 500);
+    setRefreshing(false);
   };
 
   const toggleAppExpand = (appId: string) => {
@@ -180,7 +248,35 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  const totalFiles = apps.reduce((sum, app) => sum + (app.files?.length || 0), 0);
+  const totalFiles = apps.reduce((sum, app) => sum + (app.files?.length || 0) + (app.discordChannels?.length || 0), 0);
+
+  /** Resolve thumbnail URL from various API formats (Google Drive, OneDrive/Graph, etc.) */
+  const getFileThumbnail = (file: GoogleFile): string | null => {
+    // Google Drive direct thumbnailLink
+    if (file.thumbnailLink) return file.thumbnailLink;
+    // OneDrive / MS Graph: thumbnail object with url
+    if (file.thumbnail) {
+      if (typeof file.thumbnail === 'string') return file.thumbnail;
+      if (file.thumbnail.large?.url) return file.thumbnail.large.url;
+      if (file.thumbnail.medium?.url) return file.thumbnail.medium.url;
+      if (file.thumbnail.small?.url) return file.thumbnail.small.url;
+      if (file.thumbnail.url) return file.thumbnail.url;
+    }
+    // OneDrive thumbnails array
+    if (file.thumbnails && Array.isArray(file.thumbnails) && file.thumbnails.length > 0) {
+      const t = file.thumbnails[0];
+      if (t.large?.url) return t.large.url;
+      if (t.medium?.url) return t.medium.url;
+      if (t.small?.url) return t.small.url;
+    }
+    // MS Graph download URL for images — can serve as thumbnail
+    const isImageMime = file.mimeType?.startsWith('image/') || ['image'].includes(file.type || '');
+    if (isImageMime && file['@microsoft.graph.downloadUrl']) return file['@microsoft.graph.downloadUrl'];
+    if (isImageMime && file.downloadUrl) return file.downloadUrl;
+    // Dropbox thumbnail_link
+    if (file.thumbnail_link) return file.thumbnail_link;
+    return null;
+  };
 
   return (
     <div className="w-full">
@@ -195,15 +291,34 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
         </div>
         <div className="flex items-center justify-between pl-3 sm:pl-4 md:pl-6">
           <p className="text-gray-500 font-medium text-sm">
-            {loading ? 'Loading...' : `${totalFiles} files from ${apps.length} connected ${apps.length === 1 ? 'app' : 'apps'}`}
+            {loading ? 'Loading...' : `${totalFiles} ${totalFiles === 1 ? 'item' : 'items'} from ${apps.length} connected ${apps.length === 1 ? 'app' : 'apps'}`}
           </p>
-          <button
-            onClick={handleRefresh}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold text-[#5D5FEF] hover:bg-[#5D5FEF]/5 transition-all"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Grid / List toggle */}
+            <div className="flex items-center bg-gray-100 rounded-xl p-1">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-[#5D5FEF]' : 'text-gray-400 hover:text-gray-600'}`}
+                title="List view"
+              >
+                <List className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-[#5D5FEF]' : 'text-gray-400 hover:text-gray-600'}`}
+                title="Grid view"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+            </div>
+            <button
+              onClick={handleRefresh}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold text-[#5D5FEF] hover:bg-[#5D5FEF]/5 transition-all"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
 
@@ -236,6 +351,10 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
             const isExpanded = expandedApps.has(app.id);
             const files = app.files || [];
 
+            const channels = app.discordChannels || [];
+            const itemCount = files.length + channels.length;
+            const isDiscord = app.id === 'discord';
+
             return (
               <div key={app.id} className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm">
                 {/* App Header */}
@@ -251,7 +370,10 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
                       <div>
                         <h3 className="text-[15px] font-black text-gray-900">{app.name}</h3>
                         <p className="text-[11px] font-bold text-gray-400">
-                          {files.length} {files.length === 1 ? 'file' : 'files'}
+                          {isDiscord
+                            ? `${channels.length} ${channels.length === 1 ? 'channel' : 'channels'}`
+                            : `${files.length} ${files.length === 1 ? 'file' : 'files'}`
+                          }
                         </p>
                       </div>
                     </div>
@@ -263,8 +385,36 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
                   </div>
                 </div>
 
-                {/* Files List */}
-                {isExpanded && (
+                {/* Discord Channels List */}
+                {isExpanded && isDiscord && channels.length > 0 && (
+                  <div className="divide-y divide-gray-50">
+                    {channels.map((channel, idx) => (
+                      <div
+                        key={channel.id || idx}
+                        className="px-8 py-5 hover:bg-gray-50 transition-all group"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-[#5865F2]/10 border border-[#5865F2]/20 flex items-center justify-center shadow-sm flex-shrink-0">
+                            <MessageSquare className="w-5 h-5 text-[#5865F2]" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[14px] font-bold text-gray-900 truncate group-hover:text-[#5865F2] transition-colors">
+                              #{channel.name}
+                            </p>
+                            {channel.type && (
+                              <p className="text-[11px] text-gray-400 font-medium mt-0.5">
+                                {channel.type} channel
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Files — List View */}
+                {isExpanded && files.length > 0 && viewMode === 'list' && (
                   <div className="divide-y divide-gray-50">
                     {files.map((file, idx) => (
                       <div
@@ -274,21 +424,12 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
                       >
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-xl bg-white border border-gray-100 flex items-center justify-center shadow-sm flex-shrink-0">
-                            {file.thumbnailLink ? (
-                              <img
-                                src={file.thumbnailLink}
-                                alt={file.name}
-                                className="w-full h-full object-cover rounded-xl"
-                              />
-                            ) : file.iconLink ? (
-                              <img
-                                src={file.iconLink}
-                                alt={file.name}
-                                className="w-6 h-6"
-                              />
-                            ) : (
-                              getFileIcon(file)
-                            )}
+                            {(() => {
+                              const thumb = getFileThumbnail(file);
+                              if (thumb) return <img src={thumb} alt={file.name} className="w-full h-full object-cover rounded-xl" />;
+                              if (file.iconLink) return <img src={file.iconLink} alt={file.name} className="w-6 h-6" />;
+                              return getFileIcon(file);
+                            })()}
                           </div>
 
                           <div className="flex-1 min-w-0">
@@ -344,6 +485,93 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Files — Grid View */}
+                {isExpanded && files.length > 0 && viewMode === 'grid' && (
+                  <div className="p-4 sm:p-6">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+                      {files.map((file, idx) => {
+                        const isAudioFile = file.type === 'audio';
+                        const thumbnail = getFileThumbnail(file);
+                        return (
+                          <div
+                            key={file.id || idx}
+                            onClick={() => handleFileClick(file)}
+                            className="bg-white border border-gray-100 rounded-2xl overflow-hidden cursor-pointer group hover:shadow-lg hover:border-[#5D5FEF]/30 transition-all active:scale-[0.97]"
+                          >
+                            {/* Thumbnail area */}
+                            <div className="w-full aspect-square bg-gray-50 flex items-center justify-center overflow-hidden relative">
+                              {thumbnail ? (
+                                <img
+                                  src={thumbnail}
+                                  alt={file.name}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : isAudioFile ? (
+                                <img
+                                  src="/images/music_placeholder.png"
+                                  alt="Music"
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : file.iconLink ? (
+                                <img
+                                  src={file.iconLink}
+                                  alt={file.name}
+                                  className="w-10 h-10"
+                                />
+                              ) : (
+                                <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center">
+                                  {getFileIcon(file)}
+                                </div>
+                              )}
+                              {/* Hover actions */}
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all flex items-end justify-end p-2 opacity-0 group-hover:opacity-100">
+                                <div className="flex gap-1">
+                                  {app.id !== 'n8n' && app.id !== 'mcp' && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleSaveToVault(file, app); }}
+                                      disabled={savingFile === file.id}
+                                      className="w-8 h-8 rounded-lg bg-white/90 backdrop-blur flex items-center justify-center shadow-sm hover:bg-white transition-all disabled:opacity-50"
+                                      title="Save to Vault"
+                                    >
+                                      {savingFile === file.id ? (
+                                        <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
+                                      ) : (
+                                        <FolderDown className="w-3.5 h-3.5 text-emerald-600" />
+                                      )}
+                                    </button>
+                                  )}
+                                  {(file.webViewLink || file.url) && (
+                                    <a
+                                      href={file.webViewLink || file.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-8 h-8 rounded-lg bg-white/90 backdrop-blur flex items-center justify-center shadow-sm hover:bg-white transition-all"
+                                      title="Open in browser"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5 text-[#5D5FEF]" />
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            {/* File info */}
+                            <div className="px-3 py-2.5">
+                              <p className="text-[12px] font-bold text-gray-900 truncate group-hover:text-[#5D5FEF] transition-colors">{file.name}</p>
+                              <p className="text-[10px] text-gray-400 font-medium mt-0.5 truncate">
+                                {formatFileSize(file.size)}
+                                {file.modifiedTime ? ` · ${formatDate(file.modifiedTime)}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

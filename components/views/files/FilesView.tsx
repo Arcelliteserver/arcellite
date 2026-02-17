@@ -127,11 +127,8 @@ const FilesView: React.FC<FilesViewProps> = ({
         return 0;
       });
     } else if (isOverview) {
-      items.sort((a, b) => {
-        if (sortBy === 'name') return a.name.localeCompare(b.name);
-        if (sortBy === 'size') return (b.sizeBytes || 0) - (a.sizeBytes || 0);
-        return b.modifiedTimestamp - a.modifiedTimestamp;
-      });
+      // Recent Assets: always sort by most recently accessed first
+      items.sort((a, b) => b.modifiedTimestamp - a.modifiedTimestamp);
     }
     return items;
   }, [filteredFilesOnly, typeFilter, sortBy, isOverview]);

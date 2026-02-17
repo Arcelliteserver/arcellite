@@ -226,14 +226,14 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
               onDragOver={(e) => handleFolderDragOver(e, file.id)}
               onDragLeave={handleFolderDragLeave}
               onDrop={(e) => handleFolderDrop(e, file)}
-              className={`group relative flex flex-col cursor-pointer select-none transition-all duration-300 hover:-translate-y-1 ${isMenuOpen ? 'z-50' : 'z-0'} ${dragOverFolderId === file.id ? 'ring-4 ring-[#5D5FEF] ring-offset-2 scale-[1.03]' : ''}`}
+              className={`group relative flex flex-col cursor-pointer select-none transition-all duration-300 touch-manipulation active:scale-[0.97] md:hover:-translate-y-1 ${isMenuOpen ? 'z-50' : 'z-0'} ${dragOverFolderId === file.id ? 'ring-4 ring-[#5D5FEF] ring-offset-2 scale-[1.03]' : ''}`}
             >
-              <div className="absolute -top-1.5 left-5 w-14 h-5 bg-[#5D5FEF] rounded-t-2xl transition-opacity group-hover:opacity-100 opacity-100 shadow-md" />
+              <div className="absolute -top-1.5 left-5 w-14 h-5 bg-[#5D5FEF] rounded-t-2xl transition-opacity md:group-hover:opacity-100 opacity-100 shadow-md" />
               
               <div className={`relative w-full aspect-[1.6/1] rounded-2xl sm:rounded-3xl bg-[#5D5FEF] transition-all duration-300 border border-[#5D5FEF] ${
                 isSelected 
                   ? 'ring-4 ring-[#5D5FEF]/30 shadow-2xl' 
-                  : 'shadow-xl shadow-[#5D5FEF]/15 hover:shadow-2xl hover:shadow-[#5D5FEF]/40'
+                  : 'shadow-xl shadow-[#5D5FEF]/15 md:hover:shadow-2xl md:hover:shadow-[#5D5FEF]/40'
               }`}>
                 <div className="absolute inset-0 rounded-2xl sm:rounded-3xl overflow-hidden pointer-events-none">
                    <div className="absolute -right-16 -bottom-16 w-48 h-48 bg-white/10 rounded-full blur-[60px]" />
@@ -242,7 +242,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                 <button 
                   onClick={(e) => toggleMenu(e, file.id)}
                   className={`absolute top-2 right-2 z-[60] p-1.5 rounded-xl transition-all ${
-                    isMenuOpen ? 'opacity-100 bg-white/20 text-white' : 'text-white/60 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100'
+                    isMenuOpen ? 'opacity-100 bg-white/20 text-white' : 'text-white/60 md:hover:text-white md:hover:bg-white/10 opacity-0 md:group-hover:opacity-100'
                   }`}
                 >
                   <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -300,23 +300,23 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
             draggable={!file.isFolder}
             onDragStart={(e) => handleDragStart(e, file)}
             onClick={() => onFileClick(file)}
-            className={`group relative flex flex-col p-3 sm:p-4 rounded-2xl sm:rounded-3xl border transition-all duration-300 cursor-pointer select-none bg-white aspect-[3/4] ${
+            className={`group relative flex flex-col p-3 sm:p-4 rounded-2xl sm:rounded-3xl border transition-all duration-300 cursor-pointer select-none bg-white aspect-[3/4] touch-manipulation active:scale-[0.97] ${
               isSelected 
                 ? 'border-[#5D5FEF] shadow-xl ring-4 ring-[#5D5FEF]/5' 
-                : 'border-gray-200 shadow-md shadow-gray-200/20 hover:border-gray-300 hover:shadow-2xl hover:shadow-gray-200/40 hover:-translate-y-1'
+                : 'border-gray-200 shadow-md shadow-gray-200/20 md:hover:border-gray-300 md:hover:shadow-2xl md:hover:shadow-gray-200/40 md:hover:-translate-y-1'
             } ${isMenuOpen ? 'z-50' : 'z-0'}`}
           >
             <button 
               onClick={(e) => toggleMenu(e, file.id)}
               className={`absolute top-2 right-2 z-[60] p-1.5 rounded-xl transition-all ${
-                isMenuOpen ? 'opacity-100 text-[#5D5FEF] bg-[#5D5FEF]/5' : 'text-gray-300 hover:text-[#5D5FEF] hover:bg-[#5D5FEF]/5 opacity-0 group-hover:opacity-100'
+                isMenuOpen ? 'opacity-100 text-[#5D5FEF] bg-[#5D5FEF]/5' : 'text-gray-300 md:hover:text-[#5D5FEF] md:hover:bg-[#5D5FEF]/5 opacity-0 md:group-hover:opacity-100'
               }`}
             >
               <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
 
-            <div className="w-full flex-1 flex items-center justify-center rounded-xl sm:rounded-2xl transition-all duration-500 relative overflow-hidden bg-gray-50/80 group-hover:bg-[#5D5FEF]/5 mb-2 sm:mb-3">
-              <div className="relative w-full h-full transform transition-transform duration-500 group-hover:scale-105 flex items-center justify-center">
+            <div className="w-full flex-1 flex items-center justify-center rounded-xl sm:rounded-2xl transition-all duration-500 relative overflow-hidden bg-gray-50/80 md:group-hover:bg-[#5D5FEF]/5 mb-2 sm:mb-3">
+              <div className="relative w-full h-full transform transition-transform duration-500 md:group-hover:scale-105 flex items-center justify-center">
                 {isImage ? (
                   <img
                     src={file.url || `https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=400&q=80`}
@@ -406,13 +406,12 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                     </div>
                   </div>
                 ) : file.type === 'audio' ? (
-                  <div className="relative w-full h-full bg-gradient-to-br from-violet-50 to-purple-50 flex items-center justify-center">
-                    <div className="absolute inset-0 flex items-end justify-center px-4 pb-3 opacity-[0.12]">
-                      {[...Array(12)].map((_, i) => (
-                        <div key={i} className="w-1 mx-[1px] rounded-full bg-violet-400" style={{ height: `${12 + Math.sin(i * 0.8) * 10 + Math.random() * 8}px` }} />
-                      ))}
-                    </div>
-                    <FileIcon type={file.type} className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 text-violet-500 group-hover:text-violet-600 transition-colors relative z-10" />
+                  <div className="relative w-full h-full overflow-hidden">
+                    <img
+                      src="/images/music_placeholder.png"
+                      alt="Music"
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                 ) : file.type === 'archive' ? (
                   <div className="relative w-full h-full bg-gradient-to-br from-orange-50 to-amber-50 flex items-center justify-center">

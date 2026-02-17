@@ -1,10 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Usb, RefreshCw, HardDrive, MapPin, MoreVertical } from 'lucide-react';
+import { RefreshCw, HardDrive, MapPin, MoreVertical } from 'lucide-react';
+
+const CableIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
+  <svg className={className} viewBox="0 -960 960 960" fill="currentColor">
+    <path d="M200-120q-17 0-28.5-11.5T160-160v-40h-40v-160q0-17 11.5-28.5T160-400h40v-280q0-66 47-113t113-47q66 0 113 47t47 113v400q0 33 23.5 56.5T600-200q33 0 56.5-23.5T680-280v-280h-40q-17 0-28.5-11.5T600-600v-160h40v-40q0-17 11.5-28.5T680-840h80q17 0 28.5 11.5T800-800v40h40v160q0 17-11.5 28.5T800-560h-40v280q0 66-47 113t-113 47q-66 0-113-47t-47-113v-400q0-33-23.5-56.5T360-760q-33 0-56.5 23.5T280-680v280h40q17 0 28.5 11.5T360-360v160h-40v40q0 17-11.5 28.5T280-120h-80Z"/>
+  </svg>
+);
 import type { RemovableDeviceInfo, SystemStorageResponse } from '@/types';
+
+const SdCardIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
+  <svg className={className} viewBox="0 -960 960 960" fill="currentColor">
+    <path d="M360-520h80v-160h-80v160Zm120 0h80v-160h-80v160Zm120 0h80v-160h-80v160ZM240-80q-33 0-56.5-23.5T160-160v-480l240-240h320q33 0 56.5 23.5T800-800v640q0 33-23.5 56.5T720-80H240Zm0-80h480v-640H434L240-606v446Zm0 0h480-480Z"/>
+  </svg>
+);
 
 const STORAGE_API = '/api/system/storage';
 const MOUNT_API = '/api/system/mount';
 const UNMOUNT_API = '/api/system/unmount';
+const FORMAT_API = '/api/system/format';
 
 interface RemovableStorageViewProps {
   onMountedDeviceOpen?: (device: RemovableDeviceInfo) => void;
@@ -20,6 +33,7 @@ interface DeviceCardProps {
   onUnmount: (dev: RemovableDeviceInfo) => void;
   onEditLabel: (dev: RemovableDeviceInfo) => void;
   onOpen: (dev: RemovableDeviceInfo) => void;
+  onFormat: (dev: RemovableDeviceInfo) => void;
 }
 
 const DeviceCard: React.FC<DeviceCardProps> = ({
@@ -31,6 +45,7 @@ const DeviceCard: React.FC<DeviceCardProps> = ({
   onUnmount,
   onEditLabel,
   onOpen,
+  onFormat,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -55,10 +70,12 @@ const DeviceCard: React.FC<DeviceCardProps> = ({
       <div className="flex items-start justify-between mb-4 gap-3">
         <div className="flex items-start gap-3 flex-1 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-            {dev.deviceType === 'portable' ? (
+            {dev.deviceType === 'sd_card' ? (
+              <SdCardIcon className="w-5 h-5 text-[#5D5FEF]" />
+            ) : dev.deviceType === 'emmc' || dev.deviceType === 'portable' ? (
               <HardDrive className="w-5 h-5 text-[#5D5FEF]" />
             ) : (
-              <Usb className="w-5 h-5 text-[#5D5FEF]" />
+              <CableIcon className="w-5 h-5 text-[#5D5FEF]" />
             )}
           </div>
           <div className="min-w-0 flex-1">
@@ -105,6 +122,18 @@ const DeviceCard: React.FC<DeviceCardProps> = ({
                 >
                   {isUnmounting ? 'Unmounting…' : 'Unmount'}
                 </button>
+                <div className="border-t border-gray-100 my-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    onFormat(dev);
+                    setMenuOpen(false);
+                  }}
+                  disabled={busy}
+                  className="w-full text-left px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors text-xs disabled:opacity-50"
+                >
+                  Format
+                </button>
               </div>
             )}
           </div>
@@ -116,7 +145,7 @@ const DeviceCard: React.FC<DeviceCardProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
             <HardDrive className="w-3.5 h-3.5 text-gray-400" />
-            <span>{dev.sizeHuman}</span>
+            <span>{dev.fsSizeHuman || dev.sizeHuman}</span>
           </div>
           <div className="text-xs font-bold text-gray-500 truncate max-w-[120px]" title={dev.label || dev.name}>
             {dev.label || dev.mountpoint?.split('/').pop() || dev.name}
@@ -185,6 +214,14 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
     action: 'mount' | 'unmount';
   }>({ isOpen: false, device: null, action: 'mount' });
   const [password, setPassword] = useState('');
+  const [formatModal, setFormatModal] = useState<{
+    isOpen: boolean;
+    device: RemovableDeviceInfo | null;
+  }>({ isOpen: false, device: null });
+  const [formatFs, setFormatFs] = useState('exfat');
+  const [formatLabel, setFormatLabel] = useState('');
+  const [formatting, setFormatting] = useState(false);
+  const [formatError, setFormatError] = useState<string | null>(null);
 
   const fetchStorage = useCallback(async () => {
     try {
@@ -252,13 +289,6 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
   };
 
   const handleMount = async (dev: RemovableDeviceInfo, password?: string) => {
-    // Always require system password for mount
-    if (!password) {
-      setMountError(null);
-      setPasswordModal({ isOpen: true, device: dev, action: 'mount' });
-      return;
-    }
-
     setMountError(null);
     setMountingDevice(dev.name);
 
@@ -268,7 +298,7 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           device: dev.name,
-          password: password,
+          password: password || '',
         }),
       });
       const json = (await res.json().catch(() => ({}))) as {
@@ -279,34 +309,30 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
       };
 
       if (res.status === 401 && json.requiresAuth) {
-        // Server needs sudo password — show the password modal
+        // Server needs sudo password — show the password modal only if not already providing one
         if (!password) {
           setPasswordModal({ isOpen: true, device: dev, action: 'mount' });
           setMountingDevice(null);
           return;
         }
-        // Wrong password — keep modal open for retry
+        // Wrong password — show error but close modal
+        setPasswordModal({ isOpen: false, device: null, action: 'mount' });
+        setPassword('');
         setMountError(json.error || 'Incorrect password');
-        setMountingDevice(null);
-        return;
-      }
-
-      if (res.status === 401) {
-        setMountError(json.error || 'Authentication failed');
         setMountingDevice(null);
         return;
       }
 
       if (!res.ok) throw new Error(json.error || 'Mount failed');
 
-      // Mount succeeded — refresh the storage list to show updated state
-      await fetchStorage();
-
-      // Close password modal
+      // Mount succeeded — close modal and refresh
       setPasswordModal({ isOpen: false, device: null, action: 'mount' });
       setPassword('');
       setMountError(null);
+      await fetchStorage();
     } catch (e) {
+      setPasswordModal({ isOpen: false, device: null, action: 'mount' });
+      setPassword('');
       setMountError((e as Error).message);
     } finally {
       setMountingDevice(null);
@@ -324,20 +350,13 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
   };
 
   const handleUnmount = async (dev: RemovableDeviceInfo, password?: string) => {
-    // Always require system password for unmount
-    if (!password) {
-      setMountError(null);
-      setPasswordModal({ isOpen: true, device: dev, action: 'unmount' });
-      return;
-    }
-
     setMountError(null);
     setUnmountingDevice(dev.name);
     try {
       const res = await fetch(UNMOUNT_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device: dev.name, password: password }),
+        body: JSON.stringify({ device: dev.name, password: password || '' }),
       });
       const json = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -346,28 +365,68 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
       };
 
       if (res.status === 401 && json.requiresAuth) {
-        // Server needs sudo password — show the password modal
         if (!password) {
           setPasswordModal({ isOpen: true, device: dev, action: 'unmount' });
           setUnmountingDevice(null);
           return;
         }
-        // Wrong password — keep modal open for retry
+        // Wrong password — close modal and show error
+        setPasswordModal({ isOpen: false, device: null, action: 'mount' });
+        setPassword('');
         setMountError(json.error || 'Incorrect password');
         setUnmountingDevice(null);
         return;
       }
 
       if (!res.ok) throw new Error(json.error || 'Unmount failed');
-      await fetchStorage();
 
       setPasswordModal({ isOpen: false, device: null, action: 'mount' });
       setPassword('');
       setMountError(null);
+      await fetchStorage();
     } catch (e) {
+      setPasswordModal({ isOpen: false, device: null, action: 'mount' });
+      setPassword('');
       setMountError((e as Error).message);
     } finally {
       setUnmountingDevice(null);
+    }
+  };
+
+  const handleFormat = async () => {
+    if (!formatModal.device) return;
+    setFormatting(true);
+    setFormatError(null);
+    try {
+      const res = await fetch(FORMAT_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device: formatModal.device.name,
+          filesystem: formatFs,
+          label: formatLabel,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        requiresAuth?: boolean;
+      };
+
+      if (res.status === 401 && json.requiresAuth) {
+        setFormatError('Password required — configure sudoers for passwordless format');
+        return;
+      }
+
+      if (!res.ok) throw new Error(json.error || 'Format failed');
+
+      setFormatModal({ isOpen: false, device: null });
+      setFormatLabel('');
+      await fetchStorage();
+    } catch (e) {
+      setFormatError((e as Error).message);
+    } finally {
+      setFormatting(false);
     }
   };
 
@@ -380,7 +439,7 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
         <div className="relative">
           <div className="absolute -left-2 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
           <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-4 md:pl-6 relative">
-            USB & Removable storage
+            External Storage
             <span className="absolute -top-2 -right-8 md:-right-12 w-16 h-16 md:w-20 md:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
           </h2>
         </div>
@@ -419,7 +478,7 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
 
       {loading && !data && (
         <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-          <Usb className="w-14 h-14 mb-4 animate-pulse" />
+          <CableIcon className="w-14 h-14 mb-4 animate-pulse" />
           <p className="text-sm font-bold">Loading devices…</p>
         </div>
       )}
@@ -432,9 +491,9 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
 
       {!loading && !error && removable.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-          <Usb className="w-14 h-14 mb-4" />
-          <p className="text-sm font-bold uppercase tracking-wider">No USB or removable drives connected</p>
-          <p className="text-xs mt-2 text-gray-400">Connect a drive to see it here.</p>
+          <CableIcon className="w-14 h-14 mb-4" />
+          <p className="text-sm font-bold uppercase tracking-wider">No USB drives or SD cards connected</p>
+          <p className="text-xs mt-2 text-gray-400">Connect a USB drive or insert an SD card to see it here.</p>
         </div>
       )}
 
@@ -457,6 +516,12 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
               onUnmount={handleUnmount}
               onEditLabel={editLabel}
               onOpen={onMountedDeviceOpen || (() => {})}
+              onFormat={(dev) => {
+                setFormatModal({ isOpen: true, device: dev });
+                setFormatFs('exfat');
+                setFormatLabel('');
+                setFormatError(null);
+              }}
             />
           ))}
         </div>
@@ -519,6 +584,85 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
                 <p className="text-sm text-red-700 font-medium">{mountError}</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Format Confirmation Modal */}
+      {formatModal.isOpen && formatModal.device && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[1000] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-black text-gray-900 mb-2">Format Device</h3>
+            <p className="text-sm text-gray-600 mb-1">
+              Format <span className="font-bold">{formatModal.device.model || formatModal.device.name}</span> ({formatModal.device.sizeHuman})
+            </p>
+            <p className="text-xs text-red-500 font-bold mb-6">
+              ⚠ This will permanently erase all data on the device.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                  File System
+                </label>
+                <select
+                  value={formatFs}
+                  onChange={(e) => setFormatFs(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-[#5D5FEF] focus:outline-none text-sm font-medium transition-colors bg-white"
+                >
+                  <option value="exfat">exFAT (recommended — works on all OS)</option>
+                  <option value="vfat">FAT32 (max 4GB file size)</option>
+                  <option value="ext4">ext4 (Linux only)</option>
+                  <option value="ntfs">NTFS (Windows compatible)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                  Volume Label (optional)
+                </label>
+                <input
+                  type="text"
+                  value={formatLabel}
+                  onChange={(e) => setFormatLabel(e.target.value)}
+                  placeholder="e.g. MY_DRIVE"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-[#5D5FEF] focus:outline-none text-sm font-medium transition-colors"
+                />
+              </div>
+
+              {formatError && (
+                <div className="p-3 bg-red-50 border-2 border-red-200 rounded-xl">
+                  <p className="text-sm text-red-700 font-medium">{formatError}</p>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setFormatModal({ isOpen: false, device: null });
+                    setFormatError(null);
+                  }}
+                  disabled={formatting}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-gray-700 bg-white border-2 border-gray-200 hover:bg-gray-50 transition-all disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleFormat}
+                  disabled={formatting}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-white bg-red-500 hover:bg-red-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-500/25 flex items-center justify-center gap-2"
+                >
+                  {formatting ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Formatting…
+                    </>
+                  ) : (
+                    'Format'
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

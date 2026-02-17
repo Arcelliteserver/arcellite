@@ -133,6 +133,7 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
           query: 'aiDatabaseQuery',
           send_email: 'aiSendEmail',
           cast: 'aiCastMedia',
+          discord_send: 'aiSendEmail',
           show_image: 'aiFileRead',
           show_file: 'aiFileRead',
           list_databases: 'aiFileRead',
@@ -157,6 +158,7 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
           query: 'run SQL queries',
           send_email: 'send emails',
           cast: 'cast to devices',
+          discord_send: 'send Discord messages',
           show_image: 'view files',
           show_file: 'view files',
           list_databases: 'view database info',
@@ -384,7 +386,7 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
 
         const catMap: Record<string, string> = { general: 'files', media: 'photos', video_vault: 'videos', music: 'music' };
         const catDir = catMap[category] || 'files';
-        let dataDir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
+        let dataDir = (globalThis as any).__arcellite_storage_path || process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
         if (dataDir.startsWith('~/') || dataDir === '~') {
           dataDir = path.join(os.homedir(), dataDir.slice(2));
         }
@@ -473,7 +475,7 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
         // Build full path from category
         const catMap: Record<string, string> = { general: 'files', media: 'photos', video_vault: 'videos', music: 'music' };
         const catDir = catMap[category] || 'files';
-        let dataDir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
+        let dataDir = (globalThis as any).__arcellite_storage_path || process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
         if (dataDir.startsWith('~/') || dataDir === '~') {
           dataDir = path.join(os.homedir(), dataDir.slice(2));
         }

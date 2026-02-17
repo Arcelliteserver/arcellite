@@ -28,13 +28,19 @@ export interface TrashItem {
 }
 
 function getBaseDir(): string {
-  // Use cached user storage path from files.routes if available
+  // Use cached user storage path (set on startup and after transfer)
   const cached = (globalThis as any).__arcellite_storage_path;
   if (cached) return cached;
   let dir = process.env.ARCELLITE_DATA || path.join(os.homedir(), 'arcellite-data');
   if (dir.startsWith('~/') || dir === '~') {
     dir = path.join(os.homedir(), dir.slice(2));
   }
+  // Async: try to populate cache from DB so future calls use the correct path
+  import('./services/auth.service.js').then(authSvc => {
+    authSvc.getActiveStoragePath().then(p => {
+      if (p) (globalThis as any).__arcellite_storage_path = p;
+    }).catch(() => {});
+  }).catch(() => {});
   return dir;
 }
 

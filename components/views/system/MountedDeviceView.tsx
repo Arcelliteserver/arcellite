@@ -4,6 +4,7 @@ import { RefreshCw, Folder, FileText, ChevronRight, ChevronLeft, FolderPlus, Gri
 import FileGrid from '../../files/FileGrid';
 import FileListView from '../../files/FileListView';
 import ConfirmModal from '../../common/ConfirmModal';
+import { getSessionToken } from '@/services/api.client';
 import type { RemovableDeviceInfo } from '@/types';
 import type { FileItem } from '@/types';
 
@@ -19,10 +20,11 @@ interface ListEntry {
 interface MountedDeviceViewProps {
   device: RemovableDeviceInfo;
   onFileSelect?: (file: any) => void;
+  onFilesLoaded?: (files: any[]) => void;
   selectedFile?: any;
 }
 
-const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSelect, selectedFile: parentSelectedFile }) => {
+const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSelect, onFilesLoaded, selectedFile: parentSelectedFile }) => {
   const [browseEntries, setBrowseEntries] = useState<ListEntry[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [browseLoading, setBrowseLoading] = useState(false);
@@ -263,12 +265,39 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
   // Get selected file details
   const selectedFile = selectedFileId ? fileItems.find(f => f.id === selectedFileId) : null;
 
-  // Sync selected file with parent component
+  // Sync selected file with parent component + track as recent
   useEffect(() => {
     if (onFileSelect) {
       onFileSelect(selectedFile || null);
     }
+    // Track file access for recent files (non-folder only)
+    if (selectedFile && !selectedFile.isFolder) {
+      const browsePath = currentPath || device.mountpoint || '';
+      const fullPath = `${browsePath}/${selectedFile.name}`;
+      const token = getSessionToken();
+      fetch('/api/files/track-recent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          filePath: fullPath,
+          fileName: selectedFile.name,
+          fileType: selectedFile.type,
+          category: 'external',
+          sizeBytes: selectedFile.sizeBytes || undefined,
+        }),
+      }).catch(() => {});
+    }
   }, [selectedFile]);
+
+  // Report file list to parent (for mobile file viewer swiping)
+  useEffect(() => {
+    if (onFilesLoaded) {
+      onFilesLoaded(fileItems);
+    }
+  }, [fileItems.length]);
 
   // Resolve a display name for the device header
   const deviceDisplayName = labels[device.name] || device.label || device.model || device.mountpoint?.split('/').pop() || 'Drive';

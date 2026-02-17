@@ -22,6 +22,17 @@ interface AppChild {
   status: 'connected' | 'disconnected';
 }
 
+interface DiscordChannel {
+  id: string;
+  name: string;
+  type?: string;
+}
+
+interface DiscordWebhooks {
+  channelsUrl: string;
+  sendUrl: string;
+}
+
 interface AppConnection {
   id: string;
   name: string;
@@ -31,6 +42,8 @@ interface AppConnection {
   children?: AppChild[];
   files?: GoogleFile[];
   webhookUrl?: string;
+  discordWebhooks?: DiscordWebhooks;
+  discordChannels?: DiscordChannel[];
 }
 
 // All possible apps that can be connected — no defaults pre-filled, user must configure
@@ -80,7 +93,8 @@ const MyAppsView: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0)
+          return parsed.map((a: any) => a.status === 'error' ? { ...a, status: 'disconnected', statusMessage: undefined } : a);
       } catch (e) {
         // Corrupted saved apps — fall through to defaults
       }
@@ -117,6 +131,10 @@ const MyAppsView: React.FC = () => {
   const [apiCredentials, setApiCredentials] = useState({
     apiUrl: '',
     apiKey: '',
+  });
+  const [discordWebhooks, setDiscordWebhooks] = useState<DiscordWebhooks>({
+    channelsUrl: '',
+    sendUrl: '',
   });
   const [n8nWorkflows, setN8nWorkflows] = useState<any[]>([]);
   const [pendingConnectId, setPendingConnectId] = useState<string | null>(null);
@@ -161,8 +179,9 @@ const MyAppsView: React.FC = () => {
           if (!resp.ok) return;
           const data = await resp.json();
           if (data.apps && Array.isArray(data.apps) && data.apps.length > 0) {
-            setApps(data.apps);
-            localStorage.setItem('connectedApps', JSON.stringify(data.apps));
+            const cleaned = data.apps.map((a: any) => a.status === 'error' ? { ...a, status: 'disconnected', statusMessage: undefined } : a);
+            setApps(cleaned);
+            localStorage.setItem('connectedApps', JSON.stringify(cleaned));
           }
           if (data.connectedAppIds && Array.isArray(data.connectedAppIds)) {
             const ids = new Set<string>(data.connectedAppIds);
@@ -185,13 +204,28 @@ const MyAppsView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Use refs to avoid stale closures when saving to server
+  const appsRef = React.useRef(apps);
+  const connectedAppIdsRef = React.useRef(connectedAppIds);
+  appsRef.current = apps;
+  connectedAppIdsRef.current = connectedAppIds;
+
+  // Debounced save to server — uses refs for latest values
+  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedSaveToServer = React.useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveToServer(appsRef.current, connectedAppIdsRef.current);
+    }, 300);
+  }, []);
+
   // Save apps to localStorage + server whenever they change
   useEffect(() => {
     localStorage.setItem('connectedApps', JSON.stringify(apps));
     // Notify SharedView of updates
     window.dispatchEvent(new Event('apps-updated'));
-    // Persist to server for cross-device sync
-    saveToServer(apps, connectedAppIds);
+    // Persist to server for cross-device sync (debounced, uses refs for latest values)
+    debouncedSaveToServer();
   }, [apps]);
 
   // Save connected app IDs to localStorage + server
@@ -199,8 +233,8 @@ const MyAppsView: React.FC = () => {
     localStorage.setItem('connectedAppIds', JSON.stringify(Array.from(connectedAppIds)));
     // Notify SharedView of updates
     window.dispatchEvent(new Event('apps-updated'));
-    // Persist to server for cross-device sync
-    saveToServer(apps, connectedAppIds);
+    // Persist to server for cross-device sync (debounced, uses refs for latest values)
+    debouncedSaveToServer();
   }, [connectedAppIds]);
 
   // Trigger connection after state update (avoids stale closure issue with setTimeout)
@@ -403,8 +437,85 @@ const MyAppsView: React.FC = () => {
         return;
       }
 
+      // Discord apps: connect via channels webhook
+      if (isDiscordApp(appId) && app.discordWebhooks) {
+        const { channelsUrl, sendUrl } = app.discordWebhooks;
+        if (!channelsUrl) {
+          throw new Error('Discord Channels URL not configured');
+        }
+        if (!sendUrl) {
+          throw new Error('Discord Send URL not configured');
+        }
+
+        // Test the channels URL via webhook proxy (GET request)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+        const response = await fetch('/api/apps/webhook-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhookUrl: channelsUrl }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Connection failed: ${response.status} ${response.statusText}`);
+        }
+
+        let data: any = {};
+        const responseText = await response.text();
+        if (responseText && responseText.trim()) {
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            data = {};
+          }
+        }
+
+        // Handle array-wrapped response (n8n returns [{...}])
+        if (Array.isArray(data) && data.length > 0) {
+          data = data[0];
+        }
+
+        // Parse channels from response
+        let channels: DiscordChannel[] = [];
+        if (data.channels && Array.isArray(data.channels)) {
+          channels = data.channels.map((ch: any) => ({
+            id: ch.id || ch.channelId || '',
+            name: ch.name || ch.channelName || 'Unknown',
+            type: ch.type || 'text',
+          }));
+        } else if (Array.isArray(data)) {
+          channels = data.map((ch: any) => ({
+            id: ch.id || ch.channelId || '',
+            name: ch.name || ch.channelName || 'Unknown',
+            type: ch.type || 'text',
+          }));
+        }
+
+        setConnectedAppIds(prev => new Set([...prev, appId]));
+        setCollapsedConnectedApps(prev => new Set([...prev, appId]));
+        setApps(prevApps => prevApps.map(a => {
+          if (a.id === appId) {
+            return {
+              ...a,
+              status: 'connected',
+              statusMessage: channels.length > 0
+                ? `${channels.length} channel(s) found`
+                : 'Connected to Discord',
+              discordChannels: channels,
+            };
+          }
+          return a;
+        }));
+        setError(null);
+        return;
+      }
+
       // Webhook apps: connect via webhook proxy
-      if (!app.webhookUrl) {
+      if (!app.webhookUrl && !app.discordWebhooks) {
         throw new Error(`${app.name} webhook not configured`);
       }
 
@@ -424,8 +535,17 @@ const MyAppsView: React.FC = () => {
       clearTimeout(timeoutId);
 
       if (response.ok) {
-        // Successfully connected
-        let data = await response.json();
+        // Successfully connected — parse response safely
+        let data: any = {};
+        const responseText = await response.text();
+        if (responseText && responseText.trim()) {
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            // Webhook returned non-JSON — treat as connected with no files
+            data = {};
+          }
+        }
         
         // Handle array-wrapped response (n8n returns [{success, count, files}])
         if (Array.isArray(data) && data.length > 0) {
@@ -512,12 +632,75 @@ const MyAppsView: React.FC = () => {
     setRefreshing(true);
     setError(null);
 
-    // Refresh all connected apps
-    const refreshPromises = Array.from(connectedAppIds).map(async (appId) => {
-      const app = apps.find(a => a.id === appId);
-      if (!app || !app.webhookUrl) return;
+    // Refresh all apps that are configured (connected or errored)
+    const appsToRefresh = apps.filter(a => a.status === 'connected' || a.status === 'error');
+    const refreshPromises = appsToRefresh.map(async (app) => {
+      const appId = app.id;
 
       try {
+        // Database apps: reconnect via fetchDatabases
+        if (isDatabaseApp(appId) && (app as any).credentials) {
+          const creds = (app as any).credentials;
+          const databases = await fetchDatabases(appId, creds.host, creds.port, creds.username, creds.password, creds.database);
+          setConnectedAppIds(prev => new Set([...prev, appId]));
+          setApps(prevApps => prevApps.map(a => {
+            if (a.id === appId) {
+              return { ...a, status: 'connected' as const, statusMessage: `${databases.length} database(s) found`, files: databases.map((dbName: string) => ({ id: dbName, name: dbName, type: 'database' })) };
+            }
+            return a;
+          }));
+          return;
+        }
+
+        // API apps (n8n, MCP): reconnect via fetchN8nWorkflows
+        if (isApiApp(appId) && (app as any).apiCredentials) {
+          const apiCreds = (app as any).apiCredentials;
+          const workflows = await fetchN8nWorkflows(apiCreds.apiUrl, apiCreds.apiKey, appId);
+          const isMcp = appId === 'mcp' || appId.startsWith('mcp-');
+          setConnectedAppIds(prev => new Set([...prev, appId]));
+          setApps(prevApps => prevApps.map(a => {
+            if (a.id === appId) {
+              return { ...a, status: 'connected' as const, statusMessage: isMcp ? 'MCP Server Connected' : `${workflows.length} workflow(s) found`, files: !isMcp ? workflows.map((w: any) => ({ id: w.id, name: w.name, type: 'workflow', created: w.createdAt, modified: w.updatedAt })) : [] };
+            }
+            return a;
+          }));
+          return;
+        }
+
+        // Discord apps: refresh channels
+        if (isDiscordApp(appId) && app.discordWebhooks?.channelsUrl) {
+          const response = await fetch('/api/apps/webhook-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ webhookUrl: app.discordWebhooks.channelsUrl }),
+          });
+          if (response.ok) {
+            let data: any = {};
+            const responseText = await response.text();
+            if (responseText && responseText.trim()) {
+              try { data = JSON.parse(responseText); } catch { data = {}; }
+            }
+            if (Array.isArray(data) && data.length > 0) data = data[0];
+            let channels: DiscordChannel[] = [];
+            if (data.channels && Array.isArray(data.channels)) {
+              channels = data.channels.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+            } else if (Array.isArray(data)) {
+              channels = data.map((ch: any) => ({ id: ch.id || ch.channelId || '', name: ch.name || ch.channelName || 'Unknown', type: ch.type || 'text' }));
+            }
+            setConnectedAppIds(prev => new Set([...prev, appId]));
+            setApps(prevApps => prevApps.map(a => {
+              if (a.id === appId) {
+                return { ...a, status: 'connected' as const, statusMessage: channels.length > 0 ? `${channels.length} channel(s) found` : 'Connected to Discord', discordChannels: channels };
+              }
+              return a;
+            }));
+          }
+          return;
+        }
+
+        // Webhook apps
+        if (!app.webhookUrl) return;
+
         const response = await fetch('/api/apps/webhook-proxy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -525,12 +708,20 @@ const MyAppsView: React.FC = () => {
         });
 
         if (response.ok) {
-          let data = await response.json();
-                    // Handle array-wrapped response (n8n returns [{success, count, files}])
+          let data: any = {};
+          const responseText = await response.text();
+          if (responseText && responseText.trim()) {
+            try {
+              data = JSON.parse(responseText);
+            } catch {
+              data = {};
+            }
+          }
+          // Handle array-wrapped response
           if (Array.isArray(data) && data.length > 0) {
             data = data[0];
           }
-                    // Handle different response formats
+          // Handle different response formats
           let files: GoogleFile[] = [];
           if (data.files && Array.isArray(data.files)) {
             files = data.files;
@@ -542,12 +733,10 @@ const MyAppsView: React.FC = () => {
             files = data;
           }
 
+          setConnectedAppIds(prev => new Set([...prev, appId]));
           setApps(prevApps => prevApps.map(a => {
-            if (a.id === appId && a.status === 'connected') {
-              return {
-                ...a,
-                files: files,
-              };
+            if (a.id === appId) {
+              return { ...a, status: 'connected' as const, statusMessage: 'Successfully connected', files };
             }
             return a;
           }));
@@ -611,6 +800,12 @@ const MyAppsView: React.FC = () => {
         setError(`Please enter both ${selectedNewApp.name} API URL and API Key`);
         return;
       }
+    } else if (selectedNewApp.id === 'discord') {
+      // Discord needs both webhook URLs
+      if (!discordWebhooks.channelsUrl.trim() || !discordWebhooks.sendUrl.trim()) {
+        setError('Please enter both the Channels URL and Send Message URL');
+        return;
+      }
     } else {
       // Other apps need webhook URL
       if (!webhookUrl.trim()) {
@@ -646,7 +841,7 @@ const MyAppsView: React.FC = () => {
       name: displayName,
       icon: selectedNewApp.icon,
       status: 'disconnected',
-      webhookUrl: !['postgresql', 'mysql', 'n8n'].includes(selectedNewApp.id) 
+      webhookUrl: !['postgresql', 'mysql', 'n8n', 'discord'].includes(selectedNewApp.id) 
         ? webhookUrl.trim()
         : undefined,
       children: (meta as any)?.children,
@@ -657,6 +852,8 @@ const MyAppsView: React.FC = () => {
       (newApp as any).credentials = dbCredentials;
     } else if (['n8n', 'mcp'].includes(selectedNewApp.id)) {
       (newApp as any).apiCredentials = apiCredentials;
+    } else if (selectedNewApp.id === 'discord') {
+      newApp.discordWebhooks = { ...discordWebhooks };
     }
 
     setApps(prev => [...prev, newApp]);
@@ -759,11 +956,100 @@ const MyAppsView: React.FC = () => {
       }
     }
     
+    // For Discord, automatically attempt to connect and fetch channels
+    if (selectedNewApp.id === 'discord') {
+      setLoading(prev => ({ ...prev, [appId]: true }));
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+        const response = await fetch('/api/apps/webhook-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhookUrl: discordWebhooks.channelsUrl }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Connection failed: ${response.status} ${response.statusText}`);
+        }
+
+        let data: any = {};
+        const responseText = await response.text();
+        if (responseText && responseText.trim()) {
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            data = {};
+          }
+        }
+
+        if (Array.isArray(data) && data.length > 0) {
+          data = data[0];
+        }
+
+        let channels: DiscordChannel[] = [];
+        if (data.channels && Array.isArray(data.channels)) {
+          channels = data.channels.map((ch: any) => ({
+            id: ch.id || ch.channelId || '',
+            name: ch.name || ch.channelName || 'Unknown',
+            type: ch.type || 'text',
+          }));
+        } else if (Array.isArray(data)) {
+          channels = data.map((ch: any) => ({
+            id: ch.id || ch.channelId || '',
+            name: ch.name || ch.channelName || 'Unknown',
+            type: ch.type || 'text',
+          }));
+        }
+
+        setConnectedAppIds(prev => new Set([...prev, appId]));
+        setCollapsedConnectedApps(prev => new Set([...prev, appId]));
+        setApps(prevApps => prevApps.map(app => {
+          if (app.id === appId) {
+            return {
+              ...app,
+              status: 'connected',
+              statusMessage: channels.length > 0
+                ? `${channels.length} channel(s) found`
+                : 'Connected to Discord',
+              discordChannels: channels,
+            };
+          }
+          return app;
+        }));
+        setError(null);
+      } catch (err: any) {
+        let errorMessage = 'Connection failed';
+        if (err.name === 'AbortError') {
+          errorMessage = 'Connection timeout - webhook not responding';
+        } else {
+          errorMessage = err.message || 'Unknown error';
+        }
+        setApps(prevApps => prevApps.map(app => {
+          if (app.id === appId) {
+            return {
+              ...app,
+              status: 'error',
+              statusMessage: errorMessage,
+            };
+          }
+          return app;
+        }));
+        setError(`Discord: ${errorMessage}`);
+      } finally {
+        setLoading(prev => ({ ...prev, [appId]: false }));
+      }
+    }
+    
     // Reset form but keep modal open
     setSelectedNewApp(null);
     setWebhookUrl('');
     setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
     setApiCredentials({ apiUrl: '', apiKey: '' });
+    setDiscordWebhooks({ channelsUrl: '', sendUrl: '' });
     setError(null);
   };
 
@@ -775,11 +1061,16 @@ const MyAppsView: React.FC = () => {
     return appId && (appId === 'n8n' || appId === 'mcp' || appId.startsWith('n8n-') || appId.startsWith('mcp-'));
   };
 
+  const isDiscordApp = (appId?: string) => {
+    return appId === 'discord';
+  };
+
   const hasCredentials = (app: AppConnection) => {
     return !!(
       (app as any).webhookUrl ||
       (app as any).credentials ||
-      (app as any).apiCredentials
+      (app as any).apiCredentials ||
+      (app as any).discordWebhooks?.channelsUrl
     );
   };
 
@@ -885,7 +1176,7 @@ const MyAppsView: React.FC = () => {
         </div>
         <button
           onClick={handleRefresh}
-          disabled={refreshing || connectedAppIds.size === 0}
+          disabled={refreshing || apps.length === 0}
           className="flex items-center gap-2 px-4 md:px-6 py-2.5 md:py-3 bg-white text-gray-600 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest border border-gray-100 hover:bg-gray-50 hover:border-[#5D5FEF]/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
         >
           <RefreshCw className={`w-3.5 h-3.5 md:w-4 md:h-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -1041,6 +1332,7 @@ const MyAppsView: React.FC = () => {
                             setWebhookUrl((app as any).webhookUrl || '');
                             if ((app as any).credentials) setDbCredentials((app as any).credentials);
                             if ((app as any).apiCredentials) setApiCredentials((app as any).apiCredentials);
+                            if (app.discordWebhooks) setDiscordWebhooks(app.discordWebhooks);
                           }
                         }}
                         className="w-full px-4 md:px-6 py-2.5 md:py-3 bg-gradient-to-r from-[#5D5FEF]/80 to-[#4D4FCF]/80 text-white rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest hover:from-[#5D5FEF] hover:to-[#4D4FCF] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#5D5FEF]/15 hover:shadow-xl hover:shadow-[#5D5FEF]/25 active:scale-95"
@@ -1057,7 +1349,8 @@ const MyAppsView: React.FC = () => {
                           const hasConfig = !!(
                             app.webhookUrl ||
                             (app as any).credentials ||
-                            (app as any).apiCredentials
+                            (app as any).apiCredentials ||
+                            app.discordWebhooks?.channelsUrl
                           );
                           if (hasConfig) {
                             handleConnect(app.id);
@@ -1068,6 +1361,7 @@ const MyAppsView: React.FC = () => {
                               setWebhookUrl('');
                               setDbCredentials({ host: '', port: '', username: '', password: '', database: '' });
                               setApiCredentials({ apiUrl: '', apiKey: '' });
+                              setDiscordWebhooks({ channelsUrl: '', sendUrl: '' });
                               setError(null);
                             }
                           }
@@ -1096,6 +1390,7 @@ const MyAppsView: React.FC = () => {
                             setWebhookUrl((app as any).webhookUrl || '');
                             if ((app as any).credentials) setDbCredentials((app as any).credentials);
                             if ((app as any).apiCredentials) setApiCredentials((app as any).apiCredentials);
+                            if (app.discordWebhooks) setDiscordWebhooks(app.discordWebhooks);
                           }
                         }}
                         className="w-full px-4 md:px-6 py-2.5 md:py-3 bg-gradient-to-r from-[#5D5FEF]/80 to-[#4D4FCF]/80 text-white rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-widest hover:from-[#5D5FEF] hover:to-[#4D4FCF] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#5D5FEF]/15 hover:shadow-xl hover:shadow-[#5D5FEF]/25 active:scale-95"
@@ -1148,6 +1443,19 @@ const MyAppsView: React.FC = () => {
                         <input type="password" value={apiCredentials.apiKey} onChange={(e) => setApiCredentials(prev => ({ ...prev, apiKey: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono" />
                       </div>
                     </div>
+                  ) : isDiscordApp(app.id) ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Channels URL</label>
+                        <input type="text" value={discordWebhooks.channelsUrl} onChange={(e) => setDiscordWebhooks(prev => ({ ...prev, channelsUrl: e.target.value }))} placeholder="https://n8n.example.com/webhook/discord-channels" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono" />
+                        <p className="text-[8px] text-gray-400 mt-1">GET endpoint that returns your Discord server channels</p>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Send Message URL</label>
+                        <input type="text" value={discordWebhooks.sendUrl} onChange={(e) => setDiscordWebhooks(prev => ({ ...prev, sendUrl: e.target.value }))} placeholder="https://n8n.example.com/webhook/discord-send" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:border-[#5D5FEF] focus:ring-2 focus:ring-[#5D5FEF]/20 text-sm font-mono" />
+                        <p className="text-[8px] text-gray-400 mt-1">POST endpoint to send messages to a Discord channel</p>
+                      </div>
+                    </div>
                   ) : (
                     <div>
                       <label className="text-[9px] font-black text-gray-700 uppercase tracking-widest mb-1.5 block">Webhook URL</label>
@@ -1166,6 +1474,7 @@ const MyAppsView: React.FC = () => {
                             const updated = { ...a };
                             if (isDatabaseApp(app.id)) (updated as any).credentials = { ...dbCredentials };
                             else if (isApiApp(app.id)) (updated as any).apiCredentials = { ...apiCredentials };
+                            else if (isDiscordApp(app.id)) updated.discordWebhooks = { ...discordWebhooks };
                             else updated.webhookUrl = webhookUrl;
                             return updated;
                           }));
@@ -1187,6 +1496,7 @@ const MyAppsView: React.FC = () => {
                               const updated = { ...a, status: 'disconnected' as const, statusMessage: undefined };
                               if (isDatabaseApp(app.id)) (updated as any).credentials = { ...dbCredentials };
                               else if (isApiApp(app.id)) (updated as any).apiCredentials = { ...apiCredentials };
+                              else if (isDiscordApp(app.id)) updated.discordWebhooks = { ...discordWebhooks };
                               else updated.webhookUrl = webhookUrl;
                               return updated;
                             }));
@@ -1202,6 +1512,7 @@ const MyAppsView: React.FC = () => {
                             };
                             if (isDatabaseApp(app.id)) (newApp as any).credentials = { ...dbCredentials };
                             else if (isApiApp(app.id)) (newApp as any).apiCredentials = { ...apiCredentials };
+                            else if (isDiscordApp(app.id)) newApp.discordWebhooks = { ...discordWebhooks };
                             else newApp.webhookUrl = webhookUrl;
                             setApps(prev => [...prev, newApp]);
                           }
@@ -1215,7 +1526,9 @@ const MyAppsView: React.FC = () => {
                             ? !dbCredentials.host || !dbCredentials.port || !dbCredentials.username || !dbCredentials.database
                             : isApiApp(app.id)
                               ? !apiCredentials.apiUrl.trim() || !apiCredentials.apiKey.trim()
-                              : !webhookUrl.trim()
+                              : isDiscordApp(app.id)
+                                ? !discordWebhooks.channelsUrl.trim() || !discordWebhooks.sendUrl.trim()
+                                : !webhookUrl.trim()
                         }
                         className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
@@ -1267,8 +1580,45 @@ const MyAppsView: React.FC = () => {
                 </div>
               )}
 
+              {/* Discord Channels List - Only show when not collapsed */}
+              {isDiscordApp(app.id) && app.status === 'connected' && app.discordChannels && app.discordChannels.length > 0 && !collapsedConnectedApps.has(app.id) && (
+                <div className="mt-6 md:mt-8 pt-6 md:pt-8 border-t border-gray-100">
+                  <div className="flex items-center justify-between mb-4 md:mb-6">
+                    <p className="text-[9px] md:text-[10px] font-black text-gray-300 uppercase tracking-widest flex items-center gap-2">
+                      <span>Channels</span>
+                      <span className="px-2 md:px-2.5 py-0.5 md:py-1 bg-[#5865F2]/10 text-[#5865F2] rounded-full text-[8px] md:text-[9px] font-black">
+                        {app.discordChannels.length}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                    {app.discordChannels.map((channel, index) => (
+                      <div
+                        key={channel.id || index}
+                        className="group/channel flex items-center gap-3 p-4 md:p-5 bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-100 hover:border-[#5865F2]/30 hover:bg-gradient-to-br hover:from-[#5865F2]/5 hover:to-white transition-all duration-300 shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                      >
+                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-[#5865F2]/10 to-[#5865F2]/5 border-2 border-[#5865F2]/20 flex items-center justify-center flex-shrink-0 group-hover/channel:scale-110 transition-all duration-300">
+                          <span className="text-[#5865F2] font-black text-lg">#</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] md:text-[14px] font-bold text-gray-900 truncate group-hover/channel:text-[#5865F2] transition-colors">
+                            {channel.name}
+                          </p>
+                          {channel.type && (
+                            <span className="text-[9px] md:text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                              {channel.type}
+                            </span>
+                          )}
+                        </div>
+                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Files/Workflows List - Only show when not collapsed */}
-              {app.status === 'connected' && app.files && app.files.length > 0 && !collapsedConnectedApps.has(app.id) && (
+              {app.status === 'connected' && app.files && app.files.length > 0 && !isDiscordApp(app.id) && !collapsedConnectedApps.has(app.id) && (
                 <div className="mt-6 md:mt-8 pt-6 md:pt-8 border-t border-gray-100">
                   <div className="flex items-center justify-between mb-4 md:mb-6">
                     <p className="text-[9px] md:text-[10px] font-black text-gray-300 uppercase tracking-widest flex items-center gap-2">
@@ -1441,7 +1791,7 @@ const MyAppsView: React.FC = () => {
               )}
 
               {/* Empty State */}
-              {app.status === 'connected' && (!app.files || app.files.length === 0) && !app.id.startsWith('mcp') && (
+              {app.status === 'connected' && (!app.files || app.files.length === 0) && !app.id.startsWith('mcp') && !isDiscordApp(app.id) && (
                 <div className="mt-8 pt-8 border-t border-gray-100">
                   <div className="flex flex-col items-center justify-center py-16">
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-200 flex items-center justify-center mb-6">
