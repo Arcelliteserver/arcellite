@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 export interface ToastData {
   message: string;
   type: 'success' | 'error' | 'info' | 'warning';
-  icon?: 'usb' | 'folder' | 'upload' | 'trash' | 'rename' | 'move' | 'ai' | 'copy' | 'download' | 'settings' | 'database' | 'key';
+  icon?: 'usb' | 'folder' | 'upload' | 'trash' | 'rename' | 'move' | 'ai' | 'copy' | 'download' | 'settings' | 'database' | 'key' | 'lock';
 }
 
 interface ToastProps {

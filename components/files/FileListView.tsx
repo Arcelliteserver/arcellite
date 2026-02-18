@@ -143,10 +143,18 @@ const FileListView: React.FC<FileListViewProps> = ({ files, onFileClick, selecte
                 }`}>
                   <FileIcon type={file.type} fileName={file.name} className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex items-center gap-1.5">
                   <span className="text-sm font-bold text-gray-800 tracking-tight block truncate group-hover:text-[#5D5FEF] transition-colors">
                     {file.name}
                   </span>
+                  {file.isFolder && file.hasSubfolders && (
+                    <img
+                      src="/assets/icons/stacks_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg"
+                      alt=""
+                      className="w-4 h-4 opacity-50 flex-shrink-0"
+                      aria-hidden
+                    />
+                  )}
                   <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider sm:hidden">{file.type} • {file.size || '--'}</span>
                 </div>
               </div>

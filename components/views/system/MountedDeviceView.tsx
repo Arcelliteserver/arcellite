@@ -15,6 +15,7 @@ interface ListEntry {
   isFolder: boolean;
   mtimeMs: number;
   sizeBytes?: number;
+  hasSubfolders?: boolean;
 }
 
 interface MountedDeviceViewProps {
@@ -223,6 +224,7 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
     isFolder: true,
     modified: new Date(entry.mtimeMs).toLocaleDateString(),
     modifiedTimestamp: entry.mtimeMs,
+    hasSubfolders: entry.hasSubfolders ?? false,
   }));
 
   const fileItems = files.map((entry) => {

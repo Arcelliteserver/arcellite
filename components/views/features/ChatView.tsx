@@ -304,7 +304,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
                 accBlocks.push({ type: 'text', text: content });
                 addOrUpdateMessage();
               }
-            } catch {}
+            } catch (e) { console.error('[Chat] SSE text parse error:', e); }
           } else if (eventType === 'action' && eventData) {
             try {
               const actionResult = JSON.parse(eventData);
@@ -312,14 +312,14 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
               accBlocks.push({ type: 'action', actionResult });
               addOrUpdateMessage();
               if (onRefreshFiles) onRefreshFiles();
-            } catch {}
+            } catch (e) { console.error('[Chat] SSE action parse error:', e); }
           } else if (eventType === 'error' && eventData) {
             try {
               const { error } = JSON.parse(eventData);
               accContent = error || 'Something went wrong. Please check your API key in Settings → AI Models.';
               accBlocks = [{ type: 'text', text: accContent }];
               addOrUpdateMessage();
-            } catch {}
+            } catch (e) { console.error('[Chat] SSE error parse error:', e); }
           }
         }
       }

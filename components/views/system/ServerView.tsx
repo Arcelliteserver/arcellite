@@ -276,37 +276,6 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
     handleServerAction(passwordModal.actionKey, passwordModal.endpoint, password);
   };
 
-  const metrics = [
-    {
-      label: 'CPU Load',
-      value: loading ? '—' : error ? 'N/A' : `${data?.cpu.loadPercent || 0}%`,
-      status: loading ? 'Loading' : error ? 'Error' : (data?.cpu.loadPercent || 0) < 50 ? 'Optimal' : (data?.cpu.loadPercent || 0) < 80 ? 'Normal' : 'High',
-      icon: <Cpu className="w-8 h-8" />,
-      color: 'text-blue-500',
-    },
-    {
-      label: 'RAM Usage',
-      value: loading ? '—' : error ? 'N/A' : data?.memory.usedHuman || '0B',
-      status: loading ? 'Loading' : error ? 'Error' : (data?.memory.usedPercent || 0) < 70 ? 'Healthy' : (data?.memory.usedPercent || 0) < 90 ? 'Normal' : 'High',
-      icon: <HardDrive className="w-8 h-8" />,
-      color: 'text-purple-500',
-    },
-    {
-      label: 'Network',
-      value: loading ? '—' : error ? 'N/A' : data?.network.bytesPerSecHuman || '0b/s',
-      status: loading ? 'Loading' : error ? 'Error' : data?.network.status === 'high' ? 'High' : data?.network.status === 'medium' ? 'Medium' : 'Low',
-      icon: <Signal className="w-8 h-8" />,
-      color: 'text-green-500',
-    },
-    {
-      label: 'Security',
-      value: loading ? '—' : error ? 'N/A' : data?.security.status === 'active' ? 'Active' : 'Inactive',
-      status: loading ? 'Loading' : error ? 'Error' : data?.security.firewallEnabled ? 'Secure' : 'Warning',
-      icon: <ShieldCheck className="w-8 h-8" />,
-      color: 'text-[#5D5FEF]',
-    },
-  ];
-
   const logs = data?.logs || [];
 
   const getLogStyle = (status: string) => {
@@ -446,21 +415,167 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
         </span>
       </div>
 
-      {/* Metrics Grid - NO HOVER EFFECTS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8 md:mb-12">
-        {metrics.map((m, i) => (
-          <div key={i} className="bg-white p-4 md:p-6 rounded-xl md:rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden">
-             <div className={`${m.color} mb-4 md:mb-6`}>
-                <div className="w-6 h-6 md:w-8 md:h-8">{m.icon}</div>
-             </div>
-
-             <p className="text-[9px] md:text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] mb-2 md:mb-3">{m.label}</p>
-             <div className="flex items-end justify-between gap-2">
-                <h3 className="text-xl md:text-2xl lg:text-3xl font-black text-gray-900 truncate">{m.value}</h3>
-                <span className={`text-[9px] md:text-[10px] font-black ${m.color} uppercase tracking-widest pb-1 flex-shrink-0`}>{m.status}</span>
-             </div>
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 mb-8 md:mb-12">
+        {/* CPU Load */}
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
+              <Cpu className="w-5 h-5 text-white" />
+            </div>
+            <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+              loading ? 'bg-gray-100 text-gray-400' :
+              error ? 'bg-red-100 text-red-600' :
+              (data?.cpu.loadPercent || 0) < 50 ? 'bg-emerald-100 text-emerald-700' :
+              (data?.cpu.loadPercent || 0) < 80 ? 'bg-amber-100 text-amber-700' :
+              'bg-red-100 text-red-700'
+            }`}>
+              {loading ? '...' : error ? 'Error' : (data?.cpu.loadPercent || 0) < 50 ? 'Optimal' : (data?.cpu.loadPercent || 0) < 80 ? 'Normal' : 'High'}
+            </div>
           </div>
-        ))}
+          <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">
+            {loading ? '—' : error ? 'N/A' : `${data?.cpu.loadPercent || 0}`}<span className="text-lg text-gray-300 font-bold">%</span>
+          </p>
+          <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">CPU Load</p>
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden mb-2">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${
+                  (data?.cpu.loadPercent || 0) < 50 ? 'bg-gradient-to-r from-blue-400 to-indigo-500' :
+                  (data?.cpu.loadPercent || 0) < 80 ? 'bg-gradient-to-r from-amber-400 to-orange-500' :
+                  'bg-gradient-to-r from-red-400 to-red-500'
+                }`}
+                style={{ width: `${loading || error ? 0 : Math.max(4, data?.cpu.loadPercent || 0)}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">{loading ? '—' : error ? '—' : `${data?.cpu.cores || 0} cores`}</span>
+              <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400 truncate max-w-[55%] text-right">{loading ? '' : error ? '' : data?.cpu.model?.split(' ').slice(0, 3).join(' ') || ''}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* RAM Usage */}
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
+              <HardDrive className="w-5 h-5 text-white" />
+            </div>
+            <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+              loading ? 'bg-gray-100 text-gray-400' :
+              error ? 'bg-red-100 text-red-600' :
+              (data?.memory.usedPercent || 0) < 70 ? 'bg-emerald-100 text-emerald-700' :
+              (data?.memory.usedPercent || 0) < 90 ? 'bg-amber-100 text-amber-700' :
+              'bg-red-100 text-red-700'
+            }`}>
+              {loading ? '...' : error ? 'Error' : (data?.memory.usedPercent || 0) < 70 ? 'Healthy' : (data?.memory.usedPercent || 0) < 90 ? 'Normal' : 'High'}
+            </div>
+          </div>
+          <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">
+            {loading ? '—' : error ? 'N/A' : data?.memory.usedHuman || '0B'}
+          </p>
+          <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">RAM Usage</p>
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden mb-2">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${
+                  (data?.memory.usedPercent || 0) < 70 ? 'bg-gradient-to-r from-violet-400 to-purple-500' :
+                  (data?.memory.usedPercent || 0) < 90 ? 'bg-gradient-to-r from-amber-400 to-orange-500' :
+                  'bg-gradient-to-r from-red-400 to-red-500'
+                }`}
+                style={{ width: `${loading || error ? 0 : Math.max(4, data?.memory.usedPercent || 0)}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">{loading ? '—' : error ? '—' : `${data?.memory.usedPercent || 0}% used`}</span>
+              <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">{loading ? '' : error ? '' : `of ${data?.memory.totalHuman || '0B'}`}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Network */}
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+              <Signal className="w-5 h-5 text-white" />
+            </div>
+            <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+              loading ? 'bg-gray-100 text-gray-400' :
+              error ? 'bg-red-100 text-red-600' :
+              data?.network.status === 'low' ? 'bg-emerald-100 text-emerald-700' :
+              data?.network.status === 'medium' ? 'bg-amber-100 text-amber-700' :
+              'bg-red-100 text-red-700'
+            }`}>
+              {loading ? '...' : error ? 'Error' : data?.network.status === 'low' ? 'Low' : data?.network.status === 'medium' ? 'Medium' : 'High'}
+            </div>
+          </div>
+          <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">
+            {loading ? '—' : error ? 'N/A' : data?.network.bytesPerSecHuman || '0b/s'}
+          </p>
+          <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Network</p>
+          <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Throughput</span>
+              <span className={`text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-md ${
+                loading || error ? 'bg-gray-50 text-gray-400' :
+                data?.network.status === 'low' ? 'bg-emerald-50 text-emerald-600' :
+                data?.network.status === 'medium' ? 'bg-amber-50 text-amber-600' :
+                'bg-red-50 text-red-600'
+              }`}>{loading ? '—' : error ? '—' : data?.network.status || 'unknown'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Platform</span>
+              <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400 capitalize">{loading ? '—' : error ? '—' : data?.platform || '—'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Security */}
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${
+              loading || error ? 'bg-gradient-to-br from-gray-400 to-gray-500 shadow-gray-400/25' :
+              data?.security.firewallEnabled ? 'bg-gradient-to-br from-[#5D5FEF] to-indigo-700 shadow-[#5D5FEF]/25' :
+              'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/25'
+            }`}>
+              <ShieldCheck className="w-5 h-5 text-white" />
+            </div>
+            <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+              loading ? 'bg-gray-100 text-gray-400' :
+              error ? 'bg-red-100 text-red-600' :
+              data?.security.firewallEnabled ? 'bg-emerald-100 text-emerald-700' :
+              'bg-amber-100 text-amber-700'
+            }`}>
+              {loading ? '...' : error ? 'Error' : data?.security.firewallEnabled ? 'Secure' : 'Warning'}
+            </div>
+          </div>
+          <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">
+            {loading ? '—' : error ? 'N/A' : data?.security.status === 'active' ? 'Active' : 'Off'}
+          </p>
+          <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Security</p>
+          <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Firewall</span>
+              <div className="flex items-center gap-1.5">
+                <div className={`w-2 h-2 rounded-full ${
+                  loading || error ? 'bg-gray-300' :
+                  data?.security.firewallEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'
+                }`} />
+                <span className={`text-[10px] sm:text-[11px] font-semibold ${
+                  loading || error ? 'text-gray-400' :
+                  data?.security.firewallEnabled ? 'text-emerald-600' : 'text-red-500'
+                }`}>{loading ? '—' : error ? '—' : data?.security.firewallEnabled ? 'Enabled' : 'Disabled'}</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Status</span>
+              <span className={`text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-md ${
+                loading || error ? 'bg-gray-50 text-gray-400' :
+                data?.security.status === 'active' ? 'bg-[#5D5FEF]/10 text-[#5D5FEF]' : 'bg-amber-50 text-amber-600'
+              }`}>{loading ? '—' : error ? '—' : data?.security.status || 'unknown'}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Bottom Sections */}

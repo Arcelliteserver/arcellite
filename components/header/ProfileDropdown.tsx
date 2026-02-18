@@ -10,7 +10,8 @@ import {
   Sparkles,
   ShieldCheck,
   Fingerprint,
-  Blocks
+  Blocks,
+  Globe
 } from 'lucide-react';
 import type { UserData } from '../../App';
 
@@ -202,6 +203,13 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
               >
                 <Download className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Export Data</span>
+              </button>
+              <button 
+                onClick={() => handleTabNavigate('domain')}
+                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+              >
+                <Globe className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Domain</span>
               </button>
             </div>
           </div>

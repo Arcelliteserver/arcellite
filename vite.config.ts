@@ -216,6 +216,33 @@ export default defineConfig(({ mode }) => {
                 return;
               }
 
+              // Domain / Cloudflare Tunnel routes
+              if (url === '/api/domain/status' && req.method === 'GET') {
+                const domainRoutes = await import('./server/routes/domain.routes.js');
+                domainRoutes.handleDomainStatus(req, res);
+                return;
+              }
+              if (url === '/api/domain/install-cloudflared' && req.method === 'POST') {
+                const domainRoutes = await import('./server/routes/domain.routes.js');
+                domainRoutes.handleInstallCloudflared(req, res);
+                return;
+              }
+              if (url === '/api/domain/run-tunnel' && req.method === 'POST') {
+                const domainRoutes = await import('./server/routes/domain.routes.js');
+                domainRoutes.handleRunTunnel(req, res);
+                return;
+              }
+              if (url === '/api/domain/stop-tunnel' && req.method === 'POST') {
+                const domainRoutes = await import('./server/routes/domain.routes.js');
+                domainRoutes.handleStopTunnel(req, res);
+                return;
+              }
+              if (url === '/api/domain/save-domain' && req.method === 'PUT') {
+                const domainRoutes = await import('./server/routes/domain.routes.js');
+                domainRoutes.handleSaveDomain(req, res);
+                return;
+              }
+
               if (url?.startsWith('/api/files/recent') && req.method === 'GET') {
                 const authRoutes = await import('./server/routes/auth.routes.js');
                 authRoutes.handleGetRecentFiles(req, res);
@@ -314,6 +341,11 @@ export default defineConfig(({ mode }) => {
                 const setupNeeded = await isSetupNeeded();
                 res.setHeader('Content-Type', 'application/json');
                 res.end(JSON.stringify({ setupNeeded }));
+                return;
+              }
+              if (url === '/api/auth/access-status' && req.method === 'GET') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleAccessStatus(req, res);
                 return;
               }
 
@@ -461,7 +493,7 @@ export default defineConfig(({ mode }) => {
                     return;
                   }
 
-                  interface DirEntry { name: string; isFolder: boolean; mtimeMs: number; sizeBytes?: number; }
+                  interface DirEntry { name: string; isFolder: boolean; mtimeMs: number; sizeBytes?: number; hasSubfolders?: boolean; }
                   let entries: DirEntry[] = [];
 
                   // Try direct read first
@@ -472,11 +504,20 @@ export default defineConfig(({ mode }) => {
                       const full = pathModule.join(resolved, name);
                       try {
                         const stat = fs.statSync(full);
+                        const isDir = stat.isDirectory();
+                        let hasSubfolders: boolean | undefined;
+                        if (isDir) {
+                          try {
+                            const children = fs.readdirSync(full, { withFileTypes: true });
+                            hasSubfolders = children.some((c: any) => c.isDirectory());
+                          } catch { hasSubfolders = undefined; }
+                        }
                         entries.push({
                           name,
-                          isFolder: stat.isDirectory(),
+                          isFolder: isDir,
                           mtimeMs: stat.mtimeMs,
                           sizeBytes: stat.isFile() ? stat.size : undefined,
+                          hasSubfolders,
                         });
                       } catch {
                         entries.push({ name, isFolder: false, mtimeMs: Date.now() });
@@ -1213,65 +1254,131 @@ export default defineConfig(({ mode }) => {
               }
 
               if (url === '/api/system/restart' && req.method === 'POST') {
-                import('child_process').then(({ exec }) => {
-                  try {
+                const authHeader = req.headers.authorization;
+                if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                  res.statusCode = 401;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ error: 'Unauthorized' }));
+                  return;
+                }
+                const sessionToken = authHeader.substring(7);
+                let bodyStr = '';
+                req.on('data', (chunk) => { bodyStr += chunk; });
+                req.on('end', () => {
+                  Promise.all([
+                    import('./server/services/auth.service.js'),
+                    import('./server/db/connection.js'),
+                    import('bcrypt'),
+                    import('child_process'),
+                  ]).then(async ([authMod, { pool }, bcrypt, { exec }]) => {
+                    const user = await authMod.validateSession(sessionToken);
+                    if (!user) {
+                      res.statusCode = 401;
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: 'Invalid session' }));
+                      return;
+                    }
+                    let password = '';
+                    try { password = JSON.parse(bodyStr).password || ''; } catch { /* */ }
+                    const dbResult = await pool.query('SELECT password_hash FROM users WHERE id = $1', [user.id]);
+                    const storedHash = dbResult.rows[0]?.password_hash;
+                    if (!storedHash || !(await bcrypt.compare(password, storedHash))) {
+                      res.statusCode = 403;
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: 'Incorrect password' }));
+                      return;
+                    }
                     res.setHeader('Content-Type', 'application/json');
                     res.end(JSON.stringify({ ok: true, message: 'Restart initiated' }));
-                    // Give time for response to be sent, then restart
                     setTimeout(() => {
                       exec('sudo reboot', (error) => {
                         if (error) console.error('Reboot error:', error);
                       });
                     }, 500);
-                  } catch (e) {
+                  }).catch((e) => {
                     res.statusCode = 500;
                     res.setHeader('Content-Type', 'application/json');
                     res.end(JSON.stringify({ error: String((e as Error).message) }));
-                  }
-                }).catch((e) => {
-                  res.statusCode = 500;
-                  res.setHeader('Content-Type', 'application/json');
-                  res.end(JSON.stringify({ error: String((e as Error).message) }));
+                  });
                 });
                 return;
               }
 
               if (url === '/api/system/shutdown' && req.method === 'POST') {
-                import('child_process').then(({ exec }) => {
-                  try {
+                const authHeader = req.headers.authorization;
+                if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                  res.statusCode = 401;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ error: 'Unauthorized' }));
+                  return;
+                }
+                const sessionToken = authHeader.substring(7);
+                let bodyStr = '';
+                req.on('data', (chunk) => { bodyStr += chunk; });
+                req.on('end', () => {
+                  Promise.all([
+                    import('./server/services/auth.service.js'),
+                    import('./server/db/connection.js'),
+                    import('bcrypt'),
+                    import('child_process'),
+                  ]).then(async ([authMod, { pool }, bcrypt, { exec }]) => {
+                    const user = await authMod.validateSession(sessionToken);
+                    if (!user) {
+                      res.statusCode = 401;
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: 'Invalid session' }));
+                      return;
+                    }
+                    let password = '';
+                    try { password = JSON.parse(bodyStr).password || ''; } catch { /* */ }
+                    const dbResult = await pool.query('SELECT password_hash FROM users WHERE id = $1', [user.id]);
+                    const storedHash = dbResult.rows[0]?.password_hash;
+                    if (!storedHash || !(await bcrypt.compare(password, storedHash))) {
+                      res.statusCode = 403;
+                      res.setHeader('Content-Type', 'application/json');
+                      res.end(JSON.stringify({ error: 'Incorrect password' }));
+                      return;
+                    }
                     res.setHeader('Content-Type', 'application/json');
                     res.end(JSON.stringify({ ok: true, message: 'Shutdown initiated' }));
-                    // Give time for response to be sent, then shutdown
                     setTimeout(() => {
                       exec('sudo shutdown -h now', (error) => {
                         if (error) console.error('Shutdown error:', error);
                       });
                     }, 500);
-                  } catch (e) {
+                  }).catch((e) => {
                     res.statusCode = 500;
                     res.setHeader('Content-Type', 'application/json');
                     res.end(JSON.stringify({ error: String((e as Error).message) }));
-                  }
-                }).catch((e) => {
-                  res.statusCode = 500;
-                  res.setHeader('Content-Type', 'application/json');
-                  res.end(JSON.stringify({ error: String((e as Error).message) }));
+                  });
                 });
                 return;
               }
 
               if (url === '/api/system/clear-cache' && req.method === 'POST') {
-                import('child_process').then(({ execSync }) => {
-                  try {
-                    // Clear system cache (requires sudo)
-                    execSync('sync; echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null', { timeout: 10000 });
+                const authHeader = req.headers.authorization;
+                if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                  res.statusCode = 401;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ error: 'Unauthorized' }));
+                  return;
+                }
+                const sessionToken = authHeader.substring(7);
+                Promise.all([
+                  import('./server/services/auth.service.js'),
+                  import('child_process'),
+                ]).then(async ([authMod, { execSync }]) => {
+                  const user = await authMod.validateSession(sessionToken);
+                  if (!user) {
+                    res.statusCode = 401;
                     res.setHeader('Content-Type', 'application/json');
-                    res.end(JSON.stringify({ ok: true, message: 'Cache cleared successfully' }));
-                  } catch (e) {
-                    res.statusCode = 500;
-                    res.setHeader('Content-Type', 'application/json');
-                    res.end(JSON.stringify({ error: String((e as Error).message) }));
+                    res.end(JSON.stringify({ error: 'Invalid session' }));
+                    return;
                   }
+                  // Clear system cache (requires sudo)
+                  execSync('sync; echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null', { timeout: 10000 });
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ ok: true, message: 'Cache cleared successfully' }));
                 }).catch((e) => {
                   res.statusCode = 500;
                   res.setHeader('Content-Type', 'application/json');

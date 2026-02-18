@@ -49,6 +49,8 @@ interface FilesViewProps {
   pdfThumbnails?: boolean;
   aiRenamedSet?: Set<string>;
   onFileDrop?: (file: FileItem, targetFolder: FileItem) => void;
+  isFolderLocked?: (file: FileItem) => boolean;
+  onBulkAction?: (action: string, files: FileItem[]) => void;
 }
 
 const FilesView: React.FC<FilesViewProps> = ({
@@ -74,6 +76,8 @@ const FilesView: React.FC<FilesViewProps> = ({
   pdfThumbnails = true,
   aiRenamedSet,
   onFileDrop,
+  isFolderLocked,
+  onBulkAction,
 }) => {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -357,6 +361,8 @@ const FilesView: React.FC<FilesViewProps> = ({
             pdfThumbnails={pdfThumbnails}
             aiRenamedSet={aiRenamedSet}
             onFileDrop={onFileDrop}
+            isFolderLocked={isFolderLocked}
+            onBulkAction={onBulkAction}
           />
         </div>
       )}
@@ -378,6 +384,8 @@ const FilesView: React.FC<FilesViewProps> = ({
               pdfThumbnails={pdfThumbnails}
               aiRenamedSet={aiRenamedSet}
               onFileDrop={onFileDrop}
+              isFolderLocked={isFolderLocked}
+              onBulkAction={onBulkAction}
             />
           ) : (
             <FileListView

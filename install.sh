@@ -309,6 +309,9 @@ if [[ ! -f "$SUDOERS_FILE" ]]; then
   MKFS_EXT4_BIN=$(which mkfs.ext4 2>/dev/null || echo "/usr/sbin/mkfs.ext4")
   MKFS_EXFAT_BIN=$(which mkfs.exfat 2>/dev/null || echo "/usr/sbin/mkfs.exfat")
   MKFS_NTFS_BIN=$(which mkfs.ntfs 2>/dev/null || echo "/usr/sbin/mkfs.ntfs")
+  REBOOT_BIN=$(which reboot 2>/dev/null || echo "/sbin/reboot")
+  SHUTDOWN_BIN=$(which shutdown 2>/dev/null || echo "/sbin/shutdown")
+  TEE_BIN=$(which tee 2>/dev/null || echo "/usr/bin/tee")
   sudo tee "$SUDOERS_FILE" > /dev/null <<SUDOEOF
 # Arcellite: Allow mounting/unmounting removable devices without password
 ${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MOUNT_BIN} /dev/* /media/arcellite/*
@@ -325,6 +328,11 @@ ${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MKFS_VFAT_BIN} *
 ${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MKFS_EXT4_BIN} *
 ${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MKFS_EXFAT_BIN} *
 ${ARCELLITE_USER} ALL=(root) NOPASSWD: ${MKFS_NTFS_BIN} *
+
+# Arcellite: Allow system power management and cache clearing
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${REBOOT_BIN}
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${SHUTDOWN_BIN} -h now
+${ARCELLITE_USER} ALL=(root) NOPASSWD: ${TEE_BIN} /proc/sys/vm/drop_caches
 SUDOEOF
   sudo chmod 440 "$SUDOERS_FILE"
   if sudo visudo -c -f "$SUDOERS_FILE" >/dev/null 2>&1; then
@@ -713,6 +721,7 @@ MYSQL_HOST=${MYSQL_HOST}
 MYSQL_PORT=${MYSQL_PORT}
 MYSQL_USER=${MYSQL_USER}
 MYSQL_PASSWORD=${MYSQL_PASSWORD}
+MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
 
 # ── Application ──
 PORT=3000
@@ -874,6 +883,57 @@ if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "active";
     success "Firewall: port ${PG_PORT} opened (PostgreSQL)"
   else
     success "Firewall: port ${PG_PORT} already open"
+  fi
+fi
+
+
+# ═════════════════════════════════════════════════════════════════════
+#  Step 10/10  —  Cloudflare Tunnel (optional)
+# ═════════════════════════════════════════════════════════════════════
+echo ""
+step "10/10  Cloudflare Tunnel (optional)"
+
+if command -v cloudflared &>/dev/null; then
+  CF_VERSION=$(cloudflared --version 2>/dev/null | head -1)
+  success "cloudflared is already installed: ${CF_VERSION}"
+  info "You can configure your tunnel in Settings > Domain in the web UI."
+else
+  echo ""
+  echo -e "  ${BOLD}Cloudflare Tunnel${NC} lets you access Arcellite from a custom domain"
+  echo -e "  (e.g. cloud.yourdomain.com) without port forwarding or a static IP."
+  echo -e "  ${DIM}You can always install it later from Settings > Domain.${NC}"
+  echo ""
+  read -rp "  Install cloudflared now? (y/N): " INSTALL_CF || INSTALL_CF=""
+  echo ""
+
+  if [[ "${INSTALL_CF,,}" == "y" || "${INSTALL_CF,,}" == "yes" ]]; then
+    info "Installing cloudflared..."
+
+    if [[ "$PKG_MGR" == "apt" ]]; then
+      # Debian / Ubuntu
+      sudo mkdir -p --mode=0755 /usr/share/keyrings
+      curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | sudo tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+      echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
+      sudo apt-get update -qq >/dev/null 2>&1
+      sudo apt-get install -y cloudflared >/dev/null 2>&1
+    elif [[ "$PKG_MGR" == "dnf" ]]; then
+      # Red Hat / CentOS / Fedora
+      curl -fsSl https://pkg.cloudflare.com/cloudflared.repo | sudo tee /etc/yum.repos.d/cloudflared.repo >/dev/null
+      sudo ${PKG_MGR} install -y cloudflared >/dev/null 2>&1
+    else
+      warn "Unsupported package manager. Install cloudflared manually:"
+      echo -e "    ${CYAN}https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/${NC}"
+    fi
+
+    if command -v cloudflared &>/dev/null; then
+      CF_VERSION=$(cloudflared --version 2>/dev/null | head -1)
+      success "cloudflared installed: ${CF_VERSION}"
+      info "Configure your tunnel in Settings > Domain after setup."
+    else
+      warn "cloudflared installation failed. You can install it later from Settings > Domain."
+    fi
+  else
+    info "Skipped. You can install cloudflared later from Settings > Domain."
   fi
 fi
 

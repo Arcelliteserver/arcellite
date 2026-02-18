@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Lock, ShieldCheck, Key, EyeOff, Activity, RefreshCw, AlertTriangle, ShieldAlert, ChevronRight, Eye, Shield, Loader2, CheckCircle2, XCircle, Copy, Check, Trash2, Plus, FolderClosed } from 'lucide-react';
+import { Lock, ShieldCheck, Key, EyeOff, Activity, RefreshCw, AlertTriangle, ShieldAlert, ChevronRight, Eye, Shield, Loader2, CheckCircle2, XCircle, Copy, Check, Trash2, Plus, FolderClosed, Timer, FolderLock } from 'lucide-react';
 import { authApi } from '../../services/api.client';
 
 interface SessionData {
@@ -20,21 +20,38 @@ interface SecuritySettings {
   secGhostFolders: boolean;
   secTrafficMasking: boolean;
   secStrictIsolation: boolean;
+  secAutoLock: boolean;
+  secAutoLockTimeout: number;
+  secAutoLockPin: string;
+  secFolderLock: boolean;
+  secFolderLockPin: string;
+  secLockedFolders: string[];
 }
 
-const MobileSecurityVaultView: React.FC = () => {
+interface MobileSecurityVaultProps {
+  onAutoLockChange?: (enabled: boolean, timeout: number, pin: string) => void;
+  onFolderLockChange?: (enabled: boolean, lockedFolders: string[], pin: string) => void;
+}
+
+const MobileSecurityVaultView: React.FC<MobileSecurityVaultProps> = ({ onAutoLockChange, onFolderLockChange }) => {
   const [settings, setSettings] = useState<SecuritySettings>({
     secTwoFactor: false,
     secFileObfuscation: false,
     secGhostFolders: false,
     secTrafficMasking: false,
     secStrictIsolation: false,
+    secAutoLock: false,
+    secAutoLockTimeout: 5,
+    secAutoLockPin: '',
+    secFolderLock: false,
+    secFolderLockPin: '',
+    secLockedFolders: [],
   });
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingField, setSavingField] = useState<string | null>(null);
   const [actionRunning, setActionRunning] = useState<string | null>(null);
-  const [actionResult, setActionResult] = useState<{ action: string; success: boolean; message: string } | null>(null);
+  const [actionResult, setActionResult] = useState<{ action: string; success: boolean | 'warning'; message: string } | null>(null);
   // 2FA setup state
   const [show2FASetup, setShow2FASetup] = useState(false);
   const [totpUri, setTotpUri] = useState('');
@@ -49,11 +66,26 @@ const MobileSecurityVaultView: React.FC = () => {
   const [ghostLoading, setGhostLoading] = useState(false);
   const [availableFolders, setAvailableFolders] = useState<string[]>([]);
 
+  // Auto-lock settings
+  const [autoLockPin, setAutoLockPin] = useState('');
+  const [autoLockPinConfirm, setAutoLockPinConfirm] = useState('');
+  const [autoLockPinError, setAutoLockPinError] = useState('');
+  const [showAutoLockSetup, setShowAutoLockSetup] = useState(false);
+  const [autoLockTimeout, setAutoLockTimeout] = useState(5);
+
+  // Folder lock settings
+  const [folderLockPin, setFolderLockPin] = useState('');
+  const [folderLockPinConfirm, setFolderLockPinConfirm] = useState('');
+  const [folderLockPinError, setFolderLockPinError] = useState('');
+  const [showFolderLockSetup, setShowFolderLockSetup] = useState(false);
+  const [lockedFolders, setLockedFolders] = useState<string[]>([]);
+  const [newLockedFolder, setNewLockedFolder] = useState('');
+
   useEffect(() => {
     Promise.all([
-      authApi.getSettings().catch(() => ({ settings: {} })),
-      authApi.getSessions().catch(() => ({ sessions: [] })),
-      authApi.getSecurityStatus().catch(() => ({ ghostFolders: [] })),
+      authApi.getSettings().catch((e) => { console.error('[MobileSecurityVault] Failed to load settings:', e); return { settings: {} }; }),
+      authApi.getSessions().catch((e) => { console.error('[MobileSecurityVault] Failed to load sessions:', e); return { sessions: [] }; }),
+      authApi.getSecurityStatus().catch((e) => { console.error('[MobileSecurityVault] Failed to load security status:', e); return { ghostFolders: [] }; }),
     ]).then(([settingsRes, sessionsRes, secStatus]: [any, any, any]) => {
       const s = settingsRes.settings || {};
       setSettings({
@@ -62,9 +94,17 @@ const MobileSecurityVaultView: React.FC = () => {
         secGhostFolders: s.secGhostFolders ?? false,
         secTrafficMasking: s.secTrafficMasking ?? false,
         secStrictIsolation: s.secStrictIsolation ?? false,
+        secAutoLock: s.secAutoLock ?? false,
+        secAutoLockTimeout: s.secAutoLockTimeout ?? 5,
+        secAutoLockPin: s.secAutoLockPin ?? '',
+        secFolderLock: s.secFolderLock ?? false,
+        secFolderLockPin: s.secFolderLockPin ?? '',
+        secLockedFolders: s.secLockedFolders ?? [],
       });
       setSessions(sessionsRes.sessions || []);
       setGhostFolders(secStatus.ghostFolders || []);
+      setLockedFolders(s.secLockedFolders ?? []);
+      setAutoLockTimeout(s.secAutoLockTimeout ?? 5);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -139,6 +179,54 @@ const MobileSecurityVaultView: React.FC = () => {
         return;
       }
     }
+    // Auto-Lock requires PIN setup
+    if (key === 'secAutoLock') {
+      if (!settings.secAutoLock) {
+        setAutoLockPin('');
+        setAutoLockPinConfirm('');
+        setAutoLockPinError('');
+        setAutoLockTimeout(settings.secAutoLockTimeout || 5);
+        setShowAutoLockSetup(true);
+        return;
+      } else {
+        // Disable auto-lock
+        setSavingField(key);
+        try {
+          await authApi.updateSettings({ secAutoLock: false, secAutoLockPin: '' });
+          setSettings(prev => ({ ...prev, secAutoLock: false, secAutoLockPin: '' }));
+          onAutoLockChange?.(false, 0, '');
+        } catch {
+          // revert
+        } finally {
+          setSavingField(null);
+        }
+        return;
+      }
+    }
+    // Folder Lock requires PIN setup
+    if (key === 'secFolderLock') {
+      if (!settings.secFolderLock) {
+        setFolderLockPin('');
+        setFolderLockPinConfirm('');
+        setFolderLockPinError('');
+        setShowFolderLockSetup(true);
+        return;
+      } else {
+        // Disable folder lock
+        setSavingField(key);
+        try {
+          await authApi.updateSettings({ secFolderLock: false, secFolderLockPin: '', secLockedFolders: [] });
+          setSettings(prev => ({ ...prev, secFolderLock: false, secFolderLockPin: '', secLockedFolders: [] }));
+          setLockedFolders([]);
+          onFolderLockChange?.(false, [], '');
+        } catch {
+          // revert
+        } finally {
+          setSavingField(null);
+        }
+        return;
+      }
+    }
     const newVal = !settings[key];
     setSettings(prev => ({ ...prev, [key]: newVal }));
     setSavingField(key);
@@ -149,7 +237,7 @@ const MobileSecurityVaultView: React.FC = () => {
     } finally {
       setSavingField(null);
     }
-  }, [settings]);
+  }, [settings, onAutoLockChange]);
 
   const handleVerify2FA = useCallback(async () => {
     if (verifyCode.length !== 6) return;
@@ -170,8 +258,8 @@ const MobileSecurityVaultView: React.FC = () => {
     }
   }, [verifyCode]);
 
-  const enabledCount = Object.values(settings).filter(Boolean).length;
-  const totalFeatures = 5;
+  const enabledCount = [settings.secTwoFactor, settings.secFileObfuscation, settings.secGhostFolders, settings.secTrafficMasking, settings.secStrictIsolation, settings.secAutoLock, settings.secFolderLock].filter(Boolean).length;
+  const totalFeatures = 7;
   const securityScore = Math.round((enabledCount / totalFeatures) * 100);
 
   const formatTimeAgo = (dateStr: string) => {
@@ -191,6 +279,8 @@ const MobileSecurityVaultView: React.FC = () => {
     { key: 'secFileObfuscation' as const, label: 'File Obfuscation', desc: 'Randomize file metadata', icon: EyeOff },
     { key: 'secGhostFolders' as const, label: 'Ghost Folders', desc: 'Hide folders from browse', icon: Eye },
     { key: 'secTrafficMasking' as const, label: 'Traffic Masking', desc: 'Mask server IP address', icon: Shield },
+    { key: 'secAutoLock' as const, label: 'Auto-Lock Screen', desc: 'Lock after inactivity', icon: Timer },
+    { key: 'secFolderLock' as const, label: 'Folder Lock', desc: 'Protect folders with PIN', icon: FolderLock },
   ];
 
   const protocolActions = [
@@ -204,7 +294,8 @@ const MobileSecurityVaultView: React.FC = () => {
     setActionResult(null);
     try {
       const result = await authApi.runProtocolAction(action);
-      setActionResult({ action, success: true, message: result.message || 'Action completed' });
+      const hasIssues = result.hasIssues === true;
+      setActionResult({ action, success: hasIssues ? 'warning' : true, message: result.message || 'Action completed' });
     } catch (err: any) {
       setActionResult({ action, success: false, message: err.message || 'Action failed' });
     } finally {
@@ -334,7 +425,135 @@ const MobileSecurityVaultView: React.FC = () => {
         </div>
       )}
 
-      {/* Protocol Actions */}
+      {/* Auto-Lock Settings — shows when enabled */}
+      {settings.secAutoLock && (
+        <div>
+          <h4 className="text-[9px] font-black text-gray-300 uppercase tracking-[0.2em] mb-3 ml-1">Auto-Lock Settings</h4>
+          <div className="bg-white rounded-2xl border border-gray-100 p-4">
+            <p className="text-[10px] text-gray-400 font-medium mb-4">Screen locks after inactivity. A 6-digit PIN is required to unlock.</p>
+
+            {/* Lock timeout selection */}
+            <div className="mb-4">
+              <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-3 block">Lock after</label>
+              <div className="flex flex-wrap gap-2">
+                {[1, 3, 5, 10, 15, 30].map(mins => (
+                  <button
+                    key={mins}
+                    onClick={async () => {
+                      setAutoLockTimeout(mins);
+                      setSettings(prev => ({ ...prev, secAutoLockTimeout: mins }));
+                      await authApi.updateSettings({ secAutoLockTimeout: mins });
+                      onAutoLockChange?.(true, mins, settings.secAutoLockPin);
+                    }}
+                    className={`px-3 py-2 rounded-lg text-[11px] font-black transition-all active:scale-95 ${
+                      autoLockTimeout === mins
+                        ? 'bg-[#5D5FEF] text-white shadow-lg shadow-[#5D5FEF]/20'
+                        : 'bg-[#F5F5F7] text-gray-500'
+                    }`}
+                  >
+                    {mins}m
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Change PIN button */}
+            <button
+              onClick={() => {
+                setAutoLockPin('');
+                setAutoLockPinConfirm('');
+                setAutoLockPinError('');
+                setShowAutoLockSetup(true);
+              }}
+              className="w-full px-3 py-2.5 bg-[#F5F5F7] text-gray-600 rounded-lg font-black text-[10px] uppercase tracking-widest active:scale-95 transition-transform flex items-center justify-center gap-2"
+            >
+              <Key className="w-3.5 h-3.5" /> Change PIN
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Locked Folders Management — shows when Folder Lock is enabled */}
+      {settings.secFolderLock && (
+        <div>
+          <h4 className="text-[9px] font-black text-gray-300 uppercase tracking-[0.2em] mb-3 ml-1">Locked Folders</h4>
+          <div className="bg-white rounded-2xl border border-gray-100 p-4">
+            <p className="text-[10px] text-gray-400 font-medium mb-4">These folders require your 6-digit PIN to open.</p>
+
+            {/* Add folder */}
+            <div className="flex gap-2 mb-4">
+              <select
+                value={newLockedFolder}
+                onChange={(e) => setNewLockedFolder(e.target.value)}
+                className="flex-1 px-3 py-2.5 bg-[#F5F5F7] rounded-lg border border-transparent focus:border-[#5D5FEF]/30 text-[12px] outline-none font-medium appearance-none"
+              >
+                <option value="">Select folder...</option>
+                {availableFolders.filter(f => !lockedFolders.includes(f)).map(f => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+              <button
+                onClick={async () => {
+                  if (!newLockedFolder) return;
+                  const updated = [...lockedFolders, newLockedFolder];
+                  setLockedFolders(updated);
+                  setNewLockedFolder('');
+                  await authApi.updateSettings({ secLockedFolders: updated });
+                  setSettings(prev => ({ ...prev, secLockedFolders: updated }));
+                  onFolderLockChange?.(true, updated, settings.secFolderLockPin);
+                }}
+                disabled={!newLockedFolder}
+                className="px-3 py-2.5 bg-[#5D5FEF] text-white rounded-lg font-black text-[10px] uppercase tracking-widest disabled:opacity-40 flex items-center gap-1.5 active:scale-95 transition-transform"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add
+              </button>
+            </div>
+
+            {lockedFolders.length === 0 ? (
+              <div className="text-center py-6 text-gray-300">
+                <FolderLock className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                <p className="text-[10px] font-bold">No locked folders yet</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5 mb-4">
+                {lockedFolders.map(folder => (
+                  <div key={folder} className="flex items-center justify-between p-3 bg-[#F5F5F7] rounded-lg">
+                    <div className="flex items-center gap-2.5">
+                      <FolderLock className="w-3.5 h-3.5 text-[#5D5FEF]" />
+                      <span className="text-[12px] font-bold text-gray-700">{folder}</span>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        const updated = lockedFolders.filter(f => f !== folder);
+                        setLockedFolders(updated);
+                        await authApi.updateSettings({ secLockedFolders: updated });
+                        setSettings(prev => ({ ...prev, secLockedFolders: updated }));
+                        onFolderLockChange?.(true, updated, settings.secFolderLockPin);
+                      }}
+                      className="p-1 text-gray-300 active:text-red-500"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Change PIN button */}
+            <button
+              onClick={() => {
+                setFolderLockPin('');
+                setFolderLockPinConfirm('');
+                setFolderLockPinError('');
+                setShowFolderLockSetup(true);
+              }}
+              className="w-full px-3 py-2.5 bg-[#F5F5F7] text-gray-600 rounded-lg font-black text-[10px] uppercase tracking-widest active:scale-95 transition-transform flex items-center justify-center gap-2"
+            >
+              <Key className="w-3.5 h-3.5" /> Change PIN
+            </button>
+          </div>
+        </div>
+      )}
       <div>
         <h4 className="text-[9px] font-black text-gray-300 uppercase tracking-[0.2em] mb-3 ml-1">Protocol Actions</h4>
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden divide-y divide-gray-50">
@@ -361,9 +580,21 @@ const MobileSecurityVaultView: React.FC = () => {
 
       {/* Protocol action result */}
       {actionResult && (
-        <div className={`p-3 rounded-xl flex items-center gap-2.5 ${actionResult.success ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
-          {actionResult.success ? <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" /> : <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
-          <p className={`text-[11px] font-bold ${actionResult.success ? 'text-green-700' : 'text-red-700'}`}>{actionResult.message}</p>
+        <div className={`p-3 rounded-xl flex items-center gap-2.5 ${
+          actionResult.success === 'warning' ? 'bg-amber-50 border border-amber-100'
+          : actionResult.success ? 'bg-green-50 border border-green-100'
+          : 'bg-red-50 border border-red-100'
+        }`}>
+          {actionResult.success === 'warning'
+            ? <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+            : actionResult.success
+              ? <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+              : <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
+          <p className={`text-[11px] font-bold ${
+            actionResult.success === 'warning' ? 'text-amber-700'
+            : actionResult.success ? 'text-green-700'
+            : 'text-red-700'
+          }`}>{actionResult.message}</p>
         </div>
       )}
 
@@ -439,7 +670,180 @@ const MobileSecurityVaultView: React.FC = () => {
         document.body
       )}
 
-      {/* Strict Isolation */}
+      {/* Auto-Lock PIN Setup Modal */}
+      {showAutoLockSetup && createPortal(
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-end sm:items-center justify-center">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl p-6 w-full sm:max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5 sm:hidden" />
+            <div className="text-center mb-5">
+              <div className="w-12 h-12 bg-[#5D5FEF]/10 rounded-xl flex items-center justify-center mx-auto mb-3">
+                <Timer className="w-6 h-6 text-[#5D5FEF]" />
+              </div>
+              <h3 className="text-[15px] font-black text-gray-900 mb-1">Setup Auto-Lock</h3>
+              <p className="text-[11px] text-gray-400 font-medium">Set a 6-digit PIN to unlock your screen</p>
+            </div>
+
+            <div className="mb-4">
+              <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3 block">Lock after</label>
+              <div className="flex flex-wrap gap-2">
+                {[1, 3, 5, 10, 15, 30].map(mins => (
+                  <button
+                    key={mins}
+                    onClick={() => setAutoLockTimeout(mins)}
+                    className={`px-3 py-2 rounded-lg text-[10px] font-black transition-all active:scale-95 ${
+                      autoLockTimeout === mins
+                        ? 'bg-[#5D5FEF] text-white'
+                        : 'bg-[#F5F5F7] text-gray-500'
+                    }`}
+                  >
+                    {mins}m
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2 block">6-Digit PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={autoLockPin}
+                onChange={(e) => setAutoLockPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="••••••"
+                className="w-full px-4 py-3 bg-[#F5F5F7] rounded-xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-center text-lg font-black tracking-[0.3em] outline-none placeholder:text-gray-300 placeholder:tracking-normal placeholder:font-medium placeholder:text-xs"
+                autoFocus
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2 block">Confirm PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={autoLockPinConfirm}
+                onChange={(e) => setAutoLockPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="••••••"
+                className="w-full px-4 py-3 bg-[#F5F5F7] rounded-xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-center text-lg font-black tracking-[0.3em] outline-none placeholder:text-gray-300 placeholder:tracking-normal placeholder:font-medium placeholder:text-xs"
+              />
+            </div>
+
+            {autoLockPinError && (
+              <div className="bg-red-50 border border-red-100 rounded-lg p-2.5 mb-4 flex items-center gap-2">
+                <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                <p className="text-red-600 text-[11px] font-medium">{autoLockPinError}</p>
+              </div>
+            )}
+
+            <div className="flex gap-2.5">
+              <button
+                onClick={() => setShowAutoLockSetup(false)}
+                className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-lg font-black text-[10px] uppercase tracking-widest active:scale-95 transition-transform"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (autoLockPin.length !== 6) { setAutoLockPinError('PIN must be 6 digits'); return; }
+                  if (autoLockPin !== autoLockPinConfirm) { setAutoLockPinError('PINs do not match'); return; }
+                  setSavingField('secAutoLock');
+                  try {
+                    await authApi.updateSettings({ secAutoLock: true, secAutoLockPin: autoLockPin, secAutoLockTimeout: autoLockTimeout });
+                    setSettings(prev => ({ ...prev, secAutoLock: true, secAutoLockPin: autoLockPin, secAutoLockTimeout: autoLockTimeout }));
+                    onAutoLockChange?.(true, autoLockTimeout, autoLockPin);
+                    setShowAutoLockSetup(false);
+                  } catch { setAutoLockPinError('Failed to save'); }
+                  finally { setSavingField(null); }
+                }}
+                disabled={autoLockPin.length !== 6}
+                className="flex-1 py-3 bg-[#5D5FEF] text-white rounded-lg font-black text-[10px] uppercase tracking-widest disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95 transition-transform"
+              >
+                {savingField === 'secAutoLock' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Enable Auto-Lock'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Folder Lock PIN Setup Modal */}
+      {showFolderLockSetup && createPortal(
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-end sm:items-center justify-center">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl p-6 w-full sm:max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5 sm:hidden" />
+            <div className="text-center mb-5">
+              <div className="w-12 h-12 bg-[#5D5FEF]/10 rounded-xl flex items-center justify-center mx-auto mb-3">
+                <FolderLock className="w-6 h-6 text-[#5D5FEF]" />
+              </div>
+              <h3 className="text-[15px] font-black text-gray-900 mb-1">Setup Folder Lock</h3>
+              <p className="text-[11px] text-gray-400 font-medium">Set a 6-digit PIN to protect your folders</p>
+            </div>
+
+            <div className="mb-4">
+              <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2 block">6-Digit PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={folderLockPin}
+                onChange={(e) => setFolderLockPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="••••••"
+                className="w-full px-4 py-3 bg-[#F5F5F7] rounded-xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-center text-lg font-black tracking-[0.3em] outline-none placeholder:text-gray-300 placeholder:tracking-normal placeholder:font-medium placeholder:text-xs"
+                autoFocus
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2 block">Confirm PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={folderLockPinConfirm}
+                onChange={(e) => setFolderLockPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="••••••"
+                className="w-full px-4 py-3 bg-[#F5F5F7] rounded-xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-center text-lg font-black tracking-[0.3em] outline-none placeholder:text-gray-300 placeholder:tracking-normal placeholder:font-medium placeholder:text-xs"
+              />
+            </div>
+
+            {folderLockPinError && (
+              <div className="bg-red-50 border border-red-100 rounded-lg p-2.5 mb-4 flex items-center gap-2">
+                <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                <p className="text-red-600 text-[11px] font-medium">{folderLockPinError}</p>
+              </div>
+            )}
+
+            <div className="flex gap-2.5">
+              <button
+                onClick={() => setShowFolderLockSetup(false)}
+                className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-lg font-black text-[10px] uppercase tracking-widest active:scale-95 transition-transform"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (folderLockPin.length !== 6) { setFolderLockPinError('PIN must be 6 digits'); return; }
+                  if (folderLockPin !== folderLockPinConfirm) { setFolderLockPinError('PINs do not match'); return; }
+                  setSavingField('secFolderLock');
+                  try {
+                    await authApi.updateSettings({ secFolderLock: true, secFolderLockPin: folderLockPin });
+                    setSettings(prev => ({ ...prev, secFolderLock: true, secFolderLockPin: folderLockPin }));
+                    onFolderLockChange?.(true, lockedFolders, folderLockPin);
+                    setShowFolderLockSetup(false);
+                  } catch { setFolderLockPinError('Failed to save'); }
+                  finally { setSavingField(null); }
+                }}
+                disabled={folderLockPin.length !== 6}
+                className="flex-1 py-3 bg-[#5D5FEF] text-white rounded-lg font-black text-[10px] uppercase tracking-widest disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95 transition-transform"
+              >
+                {savingField === 'secFolderLock' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Enable Folder Lock'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       <div className={`rounded-2xl p-5 border relative overflow-hidden ${settings.secStrictIsolation ? 'bg-amber-50 border-amber-200' : 'bg-amber-50/50 border-amber-100'}`}>
         <div className="absolute top-0 right-0 p-4 opacity-10">
           <AlertTriangle className="w-16 h-16 text-amber-500" />

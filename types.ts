@@ -116,6 +116,7 @@ export interface FileItem {
   category?: FileCategory; // Used to route folders and files to specific silos
   url?: string; // URL to access the file
   itemCount?: number; // Number of children in a folder (from server)
+  hasSubfolders?: boolean; // True if folder contains at least one subfolder
 }
 
 // Authentication & User Management Types

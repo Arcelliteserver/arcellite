@@ -10,7 +10,7 @@ const chatPool = new Pool({
   port: parseInt(process.env.DB_PORT || '5432'),
   database: 'arcellite_chat_history',
   user: process.env.DB_USER || 'arcellite_user',
-  password: process.env.DB_PASSWORD || 'changeme',
+  password: process.env.DB_PASSWORD,
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 3000,

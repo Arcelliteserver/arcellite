@@ -15,6 +15,8 @@ import {
 import { FileItem } from '../../types';
 import { usePdfThumbnail } from '../files/usePdfThumbnail';
 
+const LOCK_ICON_SRC = '/assets/icons/password_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
+
 interface MobileFilesProps {
   activeCategory: string;
   currentFolderId: string | null;
@@ -29,6 +31,7 @@ interface MobileFilesProps {
   pdfThumbnails?: boolean;
   aiRenamedSet?: Set<string>;
   onTabChange?: (tab: string) => void;
+  isFolderLocked?: (file: FileItem) => boolean;
 }
 
 const getFileIconComponent = (ext: string) => {
@@ -89,6 +92,7 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
   pdfThumbnails = true,
   aiRenamedSet,
   onTabChange,
+  isFolderLocked,
 }) => {
   const [showAllFolders, setShowAllFolders] = useState(false);
 
@@ -176,6 +180,24 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
                       </p>
                     </div>
                   </div>
+                  {isFolderLocked?.(folder) && (
+                    <img
+                      src={LOCK_ICON_SRC}
+                      alt=""
+                      className="absolute bottom-3 right-3 z-10 w-5 h-5 opacity-90 pointer-events-none"
+                      title="Locked — enter PIN to open"
+                      aria-hidden
+                    />
+                  )}
+                  {!isFolderLocked?.(folder) && folder.hasSubfolders && (
+                    <img
+                      src="/assets/icons/stacks_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg"
+                      alt=""
+                      className="absolute bottom-3 right-3 z-10 w-5 h-5 opacity-70 pointer-events-none"
+                      title="Contains subfolders"
+                      aria-hidden
+                    />
+                  )}
                 </div>
               </button>
             ))}

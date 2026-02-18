@@ -17,6 +17,8 @@ interface HeaderProps {
   onTabChange?: (tab: string) => void;
   onSignOut?: () => void;
   onMobileMenuToggle?: () => void;
+  sidebarCollapsed?: boolean;
+  onSidebarToggle?: () => void;
   hasActiveModal?: boolean;
   user?: UserData | null;
 }
@@ -31,6 +33,8 @@ const Header: React.FC<HeaderProps> = ({
   onTabChange,
   onSignOut,
   onMobileMenuToggle,
+  sidebarCollapsed,
+  onSidebarToggle,
   hasActiveModal = false,
   user,
 }) => {
@@ -39,33 +43,41 @@ const Header: React.FC<HeaderProps> = ({
   const [isNotificationOpen, setIsNotificationOpen] = React.useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = React.useState(0);
   const prevUnreadRef = React.useRef<number>(0);
-  const notificationSoundRef = React.useRef<HTMLAudioElement | null>(null);
+  const audioUnlockedRef = React.useRef(false);
   const isFirstFetchRef = React.useRef(true);
 
-  // Initialize notification sound
-  React.useEffect(() => {
-    notificationSoundRef.current = new Audio('/audio/notification.wav');
-    notificationSoundRef.current.volume = 0.5;
+  // Play notification sound — creates a fresh Audio element each time for reliability
+  const playNotificationSound = React.useCallback(() => {
+    if (!audioUnlockedRef.current) return;
+    try {
+      const sound = new Audio('/audio/notification.wav');
+      sound.volume = 0.5;
+      sound.play().catch((e) => console.warn('[Notification] Sound play failed:', e.message));
+    } catch (e) {
+      console.warn('[Notification] Sound error:', e);
+    }
+  }, []);
 
-    // Unlock audio on first user interaction (mobile browsers require this)
+  // Unlock audio on first user interaction (browsers require user gesture for audio)
+  React.useEffect(() => {
     const unlockAudio = () => {
-      if (notificationSoundRef.current) {
-        notificationSoundRef.current.muted = true;
-        notificationSoundRef.current.play().then(() => {
-          notificationSoundRef.current!.pause();
-          notificationSoundRef.current!.muted = false;
-          notificationSoundRef.current!.currentTime = 0;
-        }).catch(() => {});
-      }
-      document.removeEventListener('touchstart', unlockAudio);
-      document.removeEventListener('click', unlockAudio);
+      // Create a throwaway audio element to unlock the audio context
+      const testSound = new Audio('/audio/notification.wav');
+      testSound.volume = 0;
+      testSound.play().then(() => {
+        testSound.pause();
+        audioUnlockedRef.current = true;
+      }).catch(() => {
+        // Even if the first play fails, mark as unlocked — subsequent user-gesture–initiated plays may still work
+        audioUnlockedRef.current = true;
+      });
     };
-    document.addEventListener('touchstart', unlockAudio, { once: true });
     document.addEventListener('click', unlockAudio, { once: true });
+    document.addEventListener('touchstart', unlockAudio, { once: true });
 
     return () => {
-      document.removeEventListener('touchstart', unlockAudio);
       document.removeEventListener('click', unlockAudio);
+      document.removeEventListener('touchstart', unlockAudio);
     };
   }, []);
 
@@ -76,9 +88,8 @@ const Header: React.FC<HeaderProps> = ({
         .then(data => {
           const unread = (data.notifications || []).filter((n: any) => !n.read).length;
           // Play sound when new notifications arrive (not on initial load)
-          if (!isFirstFetchRef.current && unread > prevUnreadRef.current && notificationSoundRef.current) {
-            notificationSoundRef.current.currentTime = 0;
-            notificationSoundRef.current.play().catch(() => {});
+          if (!isFirstFetchRef.current && unread > prevUnreadRef.current) {
+            playNotificationSound();
           }
           isFirstFetchRef.current = false;
           prevUnreadRef.current = unread;
@@ -87,9 +98,9 @@ const Header: React.FC<HeaderProps> = ({
         .catch(() => {});
     };
     fetchCount();
-    const interval = setInterval(fetchCount, 10000);
+    const interval = setInterval(fetchCount, 6000);
     return () => clearInterval(interval);
-  }, []);
+  }, [playNotificationSound]);
 
   const toggleProfile = () => {
     setIsProfileOpen(!isProfileOpen);
@@ -148,6 +159,20 @@ const Header: React.FC<HeaderProps> = ({
       >
         <Menu className="w-5 h-5" />
       </button>
+
+      {/* Desktop Sidebar Toggle (visible when sidebar is collapsed) */}
+      {sidebarCollapsed && onSidebarToggle && (
+        <button
+          onClick={onSidebarToggle}
+          className="hidden md:flex p-2 -ml-2 mr-2 rounded-lg text-gray-400 hover:text-[#5D5FEF] hover:bg-gray-50 transition-all flex-shrink-0 group"
+          aria-label="Show sidebar"
+          title="Show sidebar"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" className="fill-current">
+            <path d="M320-240 80-480l240-240 57 57-184 184 183 183-56 56Zm320 0-57-57 184-184-183-183 56-56 240 240-240 240Z"/>
+          </svg>
+        </button>
+      )}
 
       {/* Breadcrumb - Left side */}
       <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 text-[10px] sm:text-xs md:text-sm text-gray-400 font-medium flex-shrink-0 min-w-0">

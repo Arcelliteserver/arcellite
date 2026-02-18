@@ -65,7 +65,7 @@ const ALL_POSSIBLE_APPS = [
   { id: 'postgresql', name: 'PostgreSQL', icon: '/assets/apps/postgresql.svg', description: 'Connect to an external PostgreSQL database', category: 'database' },
   { id: 'mysql', name: 'MySQL', icon: '/assets/apps/mysql.svg', description: 'Connect to an external MySQL database', category: 'database' },
   { id: 'n8n', name: 'n8n', icon: '/assets/apps/n8n.svg', description: 'Connect your n8n automation workflows', category: 'automation' },
-  { id: 'mcp', name: 'MCP', icon: '/assets/apps/mcp.svg', description: 'Connect a Model Context Protocol server', category: 'ai' },
+  { id: 'mcp', name: 'MCP', icon: '/assets/icons/webhook_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg', description: 'Connect a Model Context Protocol server', category: 'ai' },
 ];
 
 const MyAppsView: React.FC = () => {
@@ -83,7 +83,7 @@ const MyAppsView: React.FC = () => {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ apps: [], connectedAppIds: [] }),
-      }).catch(() => {});
+      }).catch((e) => { console.error('[Apps] Failed to clear server app data:', e); });
     }
   }
 

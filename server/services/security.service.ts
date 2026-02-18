@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { execSync } from 'child_process';
 import { pool } from '../db/connection.js';
 
 // ─── TOTP (Two-Factor Authentication) ──────────────────────────────────────
@@ -242,7 +243,6 @@ export function regenerateSSL(): { subject: string; validUntil: string; fingerpr
   const keyPath = path.join(KEYS_DIR, 'ssl_key.pem');
 
   try {
-    const { execSync } = require('child_process');
     execSync(
       `openssl req -new -x509 -key "${keyPath}" -out "${certPath}" -days 365 -subj "/CN=arcellite.local/O=Arcellite/C=US" -sha256 2>/dev/null`,
       { timeout: 10000 }
@@ -375,14 +375,38 @@ export async function isIpAllowed(userId: number, ip: string): Promise<boolean> 
   if (!prefs.secStrictIsolation) return true; // isolation disabled
 
   const allowlist: string[] = prefs.ipAllowlist || [];
-  if (allowlist.length === 0) return true; // no list set = allow all
+  if (allowlist.length === 0) return true; // no list set = allow all (avoid lockout on first enable)
 
   // Normalize IP (handle ::ffff: mapped IPv4)
   const normalizedIp = ip.replace(/^::ffff:/, '');
+  
+  // Check if IP is in allowlist
   return allowlist.some(allowed => {
     const normalizedAllowed = allowed.replace(/^::ffff:/, '');
-    return normalizedIp === normalizedAllowed || normalizedIp === '127.0.0.1' || normalizedIp === '::1';
+    return normalizedIp === normalizedAllowed;
   });
+}
+
+/** Pre-auth check: should this IP see the access-denied page (no login at all)? */
+export async function shouldDenyAccessByIp(clientIp: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT user_id, preferences FROM user_settings`
+  );
+  const normalizedIp = (clientIp || '').replace(/^::ffff:/, '');
+  let anyStrictWithList = false;
+  for (const row of result.rows) {
+    const prefs = row.preferences || {};
+    if (!prefs.secStrictIsolation) continue;
+    const allowlist: string[] = prefs.ipAllowlist || [];
+    if (allowlist.length === 0) continue;
+    anyStrictWithList = true;
+    const inList = allowlist.some((allowed: string) => {
+      const n = (allowed || '').replace(/^::ffff:/, '');
+      return normalizedIp === n;
+    });
+    if (inList) return false; // IP is allowed for at least one user → show login
+  }
+  return anyStrictWithList; // at least one user has strict isolation and IP is in no allowlist → deny
 }
 
 // ─── Traffic Masking Headers ───────────────────────────────────────────────

@@ -11,10 +11,15 @@ import {
   ChevronRight,
   Pencil,
   Sparkles,
+  X,
+  Check,
 } from 'lucide-react';
 import { FileItem } from '../../types';
 import FileIcon from './FileIcon';
 import { usePdfThumbnail } from './usePdfThumbnail';
+
+const LOCK_ICON_SRC = '/assets/icons/password_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
+const STACKS_ICON_SRC = '/assets/icons/stacks_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
 
 interface FileGridProps {
   files: FileItem[];
@@ -27,6 +32,8 @@ interface FileGridProps {
   aiRenamedSet?: Set<string>; // Set of "category/relPath" keys for AI-renamed files
   mobileColumns?: 2 | 3; // Number of columns on mobile (default: 2)
   onFileDrop?: (file: FileItem, targetFolder: FileItem) => void; // Drag-and-drop into folder
+  isFolderLocked?: (file: FileItem) => boolean; // True if folder requires PIN to open (Security Vault)
+  onBulkAction?: (action: string, files: FileItem[]) => void; // Bulk actions on drag-selected files
 }
 
 const CustomFolderIcon = ({ className }: { className?: string }) => (
@@ -105,12 +112,110 @@ const PdfBookThumbnail: React.FC<{ file: FileItem; isPdf?: boolean; enabled?: bo
   );
 };
 
-const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [], pdfThumbnails = true, aiRenamedSet, mobileColumns = 2, onFileDrop }) => {
+const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [], pdfThumbnails = true, aiRenamedSet, mobileColumns = 2, onFileDrop, isFolderLocked, onBulkAction }) => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
+
+  // --- Drag-to-select (rubber band) ---
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [dragSelectRect, setDragSelectRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const dragSelectRef = useRef<{ startX: number; startY: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Mouse listeners for rubber band drag
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragSelectRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const { startX, startY } = dragSelectRef.current;
+      const selW = Math.abs(x - startX);
+      const selH = Math.abs(y - startY);
+      if (selW > 5 || selH > 5) {
+        const selX = Math.min(startX, x);
+        const selY = Math.min(startY, y);
+        setDragSelectRect({ x: selX, y: selY, w: selW, h: selH });
+        const selLeft = selX + rect.left;
+        const selTop = selY + rect.top;
+        const selRight = selLeft + selW;
+        const selBottom = selTop + selH;
+        const fileElements = containerRef.current.querySelectorAll('[data-file-id]');
+        const newSelected = new Set<string>();
+        fileElements.forEach(el => {
+          const fileRect = el.getBoundingClientRect();
+          if (fileRect.left < selRight && fileRect.right > selLeft && fileRect.top < selBottom && fileRect.bottom > selTop) {
+            const fileId = el.getAttribute('data-file-id');
+            if (fileId) newSelected.add(fileId);
+          }
+        });
+        setSelectedIds(newSelected);
+      }
+    };
+    const handleMouseUp = () => {
+      dragSelectRef.current = null;
+      setDragSelectRect(null);
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  // Escape to clear selection
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedIds.size > 0) setSelectedIds(new Set());
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIds.size]);
+
+  const handleGridMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-file-id]') || target.closest('button')) return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    if (!e.ctrlKey && !e.metaKey) setSelectedIds(new Set());
+    dragSelectRef.current = { startX: e.clientX - rect.left, startY: e.clientY - rect.top };
+    e.preventDefault();
+  };
+
+  const handleCardClick = (e: React.MouseEvent, file: FileItem) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.stopPropagation();
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        if (next.has(file.id)) next.delete(file.id);
+        else next.add(file.id);
+        return next;
+      });
+      return;
+    }
+    if (selectedIds.size > 0) {
+      setSelectedIds(new Set());
+      return;
+    }
+    onFileClick(file);
+  };
+
+  const handleBulkDelete = () => {
+    const sel = files.filter(f => selectedIds.has(f.id));
+    if (onBulkAction) onBulkAction('Delete', sel);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDownload = () => {
+    const sel = files.filter(f => selectedIds.has(f.id));
+    if (onBulkAction) onBulkAction('Download', sel);
+    setSelectedIds(new Set());
+  };
 
   const handleDragStart = (e: React.DragEvent, file: FileItem) => {
     if (file.isFolder) return; // Don't drag folders
@@ -210,9 +315,15 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
   };
 
   return (
+    <div
+      ref={containerRef}
+      className="relative"
+      onMouseDown={handleGridMouseDown}
+    >
     <div className={`grid ${mobileColumns === 3 ? 'grid-cols-3 gap-2' : 'grid-cols-2 gap-3'} sm:grid-cols-2 sm:gap-3 md:grid-cols-[repeat(auto-fill,minmax(200px,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(220px,1fr))] md:gap-6 lg:gap-8`}>
       {files.map((file) => {
         const isSelected = selectedFileId === file.id;
+        const isDragSelected = selectedIds.has(file.id);
         const isMenuOpen = activeMenuId === file.id;
         const isImage = file.type === 'image';
         const isVideo = file.type === 'video';
@@ -222,16 +333,30 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
           return (
             <div 
               key={file.id}
-              onClick={() => onFileClick(file)}
+              data-file-id={file.id}
+              onClick={(e) => handleCardClick(e, file)}
               onDragOver={(e) => handleFolderDragOver(e, file.id)}
               onDragLeave={handleFolderDragLeave}
               onDrop={(e) => handleFolderDrop(e, file)}
               className={`group relative flex flex-col cursor-pointer select-none transition-all duration-300 touch-manipulation active:scale-[0.97] md:hover:-translate-y-1 ${isMenuOpen ? 'z-50' : 'z-0'} ${dragOverFolderId === file.id ? 'ring-4 ring-[#5D5FEF] ring-offset-2 scale-[1.03]' : ''}`}
             >
+              {/* Drag-select checkbox */}
+              {(isDragSelected || selectedIds.size > 0) && (
+                <div
+                  className={`absolute -top-2 -left-2 z-[70] w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                    isDragSelected ? 'bg-[#5D5FEF] border-[#5D5FEF] text-white shadow-lg' : 'bg-white/90 border-gray-300 backdrop-blur-sm opacity-0 md:group-hover:opacity-100'
+                  }`}
+                  onClick={(e) => { e.stopPropagation(); handleCardClick({ ...e, ctrlKey: true } as any, file); }}
+                >
+                  {isDragSelected && <Check className="w-3.5 h-3.5" />}
+                </div>
+              )}
               <div className="absolute -top-1.5 left-5 w-14 h-5 bg-[#5D5FEF] rounded-t-2xl transition-opacity md:group-hover:opacity-100 opacity-100 shadow-md" />
               
               <div className={`relative w-full aspect-[1.6/1] rounded-2xl sm:rounded-3xl bg-[#5D5FEF] transition-all duration-300 border border-[#5D5FEF] ${
-                isSelected 
+                isDragSelected
+                  ? 'ring-4 ring-[#5D5FEF]/40 shadow-2xl'
+                  : isSelected 
                   ? 'ring-4 ring-[#5D5FEF]/30 shadow-2xl' 
                   : 'shadow-xl shadow-[#5D5FEF]/15 md:hover:shadow-2xl md:hover:shadow-[#5D5FEF]/40'
               }`}>
@@ -269,6 +394,26 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                   </div>
                 </div>
 
+                {isFolderLocked?.(file) && (
+                  <img
+                    src={LOCK_ICON_SRC}
+                    alt=""
+                    className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-10 w-5 h-5 sm:w-6 sm:h-6 opacity-90 pointer-events-none"
+                    title="Locked — enter PIN to open"
+                    aria-hidden
+                  />
+                )}
+
+                {!isFolderLocked?.(file) && file.hasSubfolders && (
+                  <img
+                    src={STACKS_ICON_SRC}
+                    alt=""
+                    className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-10 w-5 h-5 sm:w-6 sm:h-6 opacity-70 pointer-events-none"
+                    title="Contains subfolders"
+                    aria-hidden
+                  />
+                )}
+
                 {isMenuOpen && (
                   <div
                     ref={menuRef}
@@ -297,15 +442,29 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
         return (
           <div 
             key={file.id}
-            draggable={!file.isFolder}
+            data-file-id={file.id}
+            draggable={!file.isFolder && selectedIds.size === 0}
             onDragStart={(e) => handleDragStart(e, file)}
-            onClick={() => onFileClick(file)}
+            onClick={(e) => handleCardClick(e, file)}
             className={`group relative flex flex-col p-3 sm:p-4 rounded-2xl sm:rounded-3xl border transition-all duration-300 cursor-pointer select-none bg-white aspect-[3/4] touch-manipulation active:scale-[0.97] ${
-              isSelected 
+              isDragSelected
+                ? 'border-[#5D5FEF] shadow-xl ring-4 ring-[#5D5FEF]/20'
+                : isSelected 
                 ? 'border-[#5D5FEF] shadow-xl ring-4 ring-[#5D5FEF]/5' 
                 : 'border-gray-200 shadow-md shadow-gray-200/20 md:hover:border-gray-300 md:hover:shadow-2xl md:hover:shadow-gray-200/40 md:hover:-translate-y-1'
             } ${isMenuOpen ? 'z-50' : 'z-0'}`}
           >
+            {/* Drag-select checkbox */}
+            {(isDragSelected || selectedIds.size > 0) && (
+              <div
+                className={`absolute top-1.5 left-1.5 z-[70] w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                  isDragSelected ? 'bg-[#5D5FEF] border-[#5D5FEF] text-white shadow-lg' : 'bg-white/80 border-gray-300 backdrop-blur-sm opacity-0 md:group-hover:opacity-100'
+                }`}
+                onClick={(e) => { e.stopPropagation(); handleCardClick({ ...e, ctrlKey: true } as any, file); }}
+              >
+                {isDragSelected && <Check className="w-3.5 h-3.5" />}
+              </div>
+            )}
             <button 
               onClick={(e) => toggleMenu(e, file.id)}
               className={`absolute top-2 right-2 z-[60] p-1.5 rounded-xl transition-all ${
@@ -524,6 +683,39 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
           </div>
         );
       })}
+    </div>
+
+      {/* Rubber band selection rectangle */}
+      {dragSelectRect && (
+        <div
+          className="absolute border-2 border-[#5D5FEF]/60 bg-[#5D5FEF]/[0.08] rounded-sm pointer-events-none z-[200]"
+          style={{
+            left: dragSelectRect.x,
+            top: dragSelectRect.y,
+            width: dragSelectRect.w,
+            height: dragSelectRect.h,
+          }}
+        />
+      )}
+
+      {/* Floating bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1000] bg-gray-900 text-white rounded-2xl shadow-2xl shadow-black/30 px-6 py-3 flex items-center gap-4">
+          <span className="text-sm font-black">{selectedIds.size} selected</span>
+          <div className="w-px h-5 bg-gray-700" />
+          <button onClick={handleBulkDownload} className="flex items-center gap-2 text-sm font-bold hover:text-[#5D5FEF] transition-colors">
+            <Download className="w-4 h-4" />
+            Download
+          </button>
+          <button onClick={handleBulkDelete} className="flex items-center gap-2 text-sm font-bold hover:text-red-400 transition-colors">
+            <Trash2 className="w-4 h-4" />
+            Delete
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="p-1 rounded-lg hover:bg-gray-800 transition-colors ml-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

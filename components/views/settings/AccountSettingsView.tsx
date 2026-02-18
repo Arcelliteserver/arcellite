@@ -345,9 +345,9 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   const handleSaveProfile = async () => {
     setEditSaving(true);
     try {
-      await authApi.updateProfile({ firstName: editFirstName, lastName: editLastName, avatarUrl: editAvatarUrl || undefined });
+      await authApi.updateProfile({ firstName: editFirstName, lastName: editLastName, avatarUrl: editAvatarUrl.trim() || null });
       if (onUserUpdate && user) {
-        onUserUpdate({ ...user, firstName: editFirstName, lastName: editLastName, avatarUrl: editAvatarUrl || null });
+        onUserUpdate({ ...user, firstName: editFirstName, lastName: editLastName, avatarUrl: editAvatarUrl.trim() || null });
       }
       setIsEditingProfile(false);
     } catch (err) {

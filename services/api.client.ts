@@ -37,6 +37,15 @@ async function apiRequest(path: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    // If blocked by Strict Isolation, show access-denied page on next load
+    if (response.status === 403 && (error.error?.includes('Strict Isolation') || error.error?.includes('not authorized'))) {
+      try {
+        sessionStorage.setItem('accessDenied', 'ip');
+      } catch {}
+      setSessionToken(null);
+      localStorage.removeItem('sessionToken');
+      window.location.href = '/';
+    }
     throw new Error(error.error || `Request failed with status ${response.status}`);
   }
 
@@ -88,7 +97,7 @@ export const authApi = {
       setSessionToken(null);
     }),
 
-  updateProfile: (updates: { firstName?: string; lastName?: string; avatarUrl?: string; storagePath?: string }) =>
+  updateProfile: (updates: { firstName?: string; lastName?: string; avatarUrl?: string | null; storagePath?: string }) =>
     apiRequest('/api/auth/profile', {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -130,6 +139,8 @@ export const authApi = {
     aiAutoRename?: boolean; pdfThumbnails?: boolean;
     secTwoFactor?: boolean; secFileObfuscation?: boolean; secGhostFolders?: boolean;
     secTrafficMasking?: boolean; secStrictIsolation?: boolean;
+    secAutoLock?: boolean; secAutoLockTimeout?: number; secAutoLockPin?: string;
+    secFolderLock?: boolean; secFolderLockPin?: string; secLockedFolders?: string[];
   }) =>
     apiRequest('/api/auth/settings', {
       method: 'PUT',

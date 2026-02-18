@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Bell, Search, X } from 'lucide-react';
+import { authApi } from '../../services/api.client';
 
 interface MobileHeaderProps {
   title: string;
@@ -22,58 +23,61 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
 }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const prevUnreadRef = useRef<number>(0);
-  const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
+  const audioUnlockedRef = useRef(false);
   const isFirstFetchRef = useRef(true);
 
-  // Initialize notification sound
-  useEffect(() => {
-    notificationSoundRef.current = new Audio('/audio/notification.wav');
-    notificationSoundRef.current.volume = 0.5;
+  // Play notification sound — creates a fresh Audio element each time for reliability
+  const playNotificationSound = useCallback(() => {
+    if (!audioUnlockedRef.current) return;
+    try {
+      const sound = new Audio('/audio/notification.wav');
+      sound.volume = 0.5;
+      sound.play().catch((e) => console.warn('[Notification] Sound play failed:', e.message));
+    } catch (e) {
+      console.warn('[Notification] Sound error:', e);
+    }
+  }, []);
 
-    // Unlock audio on first user interaction (mobile browsers require this)
+  // Unlock audio on first user interaction (mobile browsers require user gesture)
+  useEffect(() => {
     const unlockAudio = () => {
-      if (notificationSoundRef.current) {
-        notificationSoundRef.current.muted = true;
-        notificationSoundRef.current.play().then(() => {
-          notificationSoundRef.current!.pause();
-          notificationSoundRef.current!.muted = false;
-          notificationSoundRef.current!.currentTime = 0;
-        }).catch(() => {});
-      }
-      document.removeEventListener('touchstart', unlockAudio);
-      document.removeEventListener('click', unlockAudio);
+      const testSound = new Audio('/audio/notification.wav');
+      testSound.volume = 0;
+      testSound.play().then(() => {
+        testSound.pause();
+        audioUnlockedRef.current = true;
+      }).catch(() => {
+        audioUnlockedRef.current = true;
+      });
     };
-    document.addEventListener('touchstart', unlockAudio, { once: true });
     document.addEventListener('click', unlockAudio, { once: true });
+    document.addEventListener('touchstart', unlockAudio, { once: true });
 
     return () => {
-      document.removeEventListener('touchstart', unlockAudio);
       document.removeEventListener('click', unlockAudio);
+      document.removeEventListener('touchstart', unlockAudio);
     };
   }, []);
 
   useEffect(() => {
-    const fetchCount = async () => {
-      try {
-        const res = await fetch('/api/notifications/unread-count');
-        if (res.ok) {
-          const data = await res.json();
-          const count = data.count || 0;
+    const fetchCount = () => {
+      authApi.getNotifications(50)
+        .then(data => {
+          const count = (data.notifications || []).filter((n: any) => !n.read).length;
           // Play sound when new notifications arrive (not on initial load)
-          if (!isFirstFetchRef.current && count > prevUnreadRef.current && notificationSoundRef.current) {
-            notificationSoundRef.current.currentTime = 0;
-            notificationSoundRef.current.play().catch(() => {});
+          if (!isFirstFetchRef.current && count > prevUnreadRef.current) {
+            playNotificationSound();
           }
           isFirstFetchRef.current = false;
           prevUnreadRef.current = count;
           setUnreadCount(count);
-        }
-      } catch {}
+        })
+        .catch(() => {});
     };
     fetchCount();
-    const id = setInterval(fetchCount, 10000);
+    const id = setInterval(fetchCount, 6000);
     return () => clearInterval(id);
-  }, []);
+  }, [playNotificationSound]);
 
   return (
     <header className="fixed top-0 left-0 right-0 z-[200] safe-area-top">

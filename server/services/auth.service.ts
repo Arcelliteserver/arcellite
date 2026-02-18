@@ -55,7 +55,7 @@ function generateSessionToken(): string {
  * Generate random verification code (6 digits)
  */
 export function generateVerificationCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 /**
@@ -284,7 +284,7 @@ export async function updateUserProfile(
   updates: {
     firstName?: string;
     lastName?: string;
-    avatarUrl?: string;
+    avatarUrl?: string | null;
     storagePath?: string;
   }
 ): Promise<void> {
@@ -302,7 +302,7 @@ export async function updateUserProfile(
   }
   if (updates.avatarUrl !== undefined) {
     fields.push(`avatar_url = $${paramCount++}`);
-    values.push(updates.avatarUrl);
+    values.push(updates.avatarUrl || null);
   }
   if (updates.storagePath !== undefined) {
     fields.push(`storage_path = $${paramCount++}`);
@@ -533,16 +533,20 @@ export async function getRecentFiles(userId: number, limit: number = 20): Promis
   }
 
   return validRows.map(row => {
-    // For folders, compute item count from disk
+    // For folders, compute item count and subfolder status from disk
     let itemCount: number | undefined;
+    let hasSubfolders: boolean | undefined;
     if (row.file_type === 'folder' && row.category && row.file_path) {
       const dirName = catDirMap[row.category];
       if (dirName) {
         const fullPath = path.default.join(dataDir, dirName, row.file_path);
         try {
-          itemCount = fs.default.readdirSync(fullPath).length;
+          const children = fs.default.readdirSync(fullPath, { withFileTypes: true });
+          itemCount = children.length;
+          hasSubfolders = children.some(c => c.isDirectory());
         } catch {
           itemCount = 0;
+          hasSubfolders = false;
         }
       }
     }
@@ -556,6 +560,7 @@ export async function getRecentFiles(userId: number, limit: number = 20): Promis
       sizeBytes: row.size_bytes ? Number(row.size_bytes) : null,
       accessedAt: row.accessed_at,
       ...(itemCount !== undefined && { itemCount }),
+      ...(hasSubfolders !== undefined && { hasSubfolders }),
     };
   });
 }
@@ -624,6 +629,13 @@ export async function getUserSettings(userId: number): Promise<{
   secGhostFolders: boolean;
   secTrafficMasking: boolean;
   secStrictIsolation: boolean;
+  secAutoLock: boolean;
+  secAutoLockTimeout: number;
+  secAutoLockPin: string;
+  secFolderLock: boolean;
+  secFolderLockPin: string;
+  secLockedFolders: string[];
+  domainConfig: { tunnelToken?: string; customDomain?: string; tunnelName?: string };
 }> {
   // Ensure a settings row exists
   await pool.query(
@@ -668,6 +680,13 @@ export async function getUserSettings(userId: number): Promise<{
     secGhostFolders: prefs.secGhostFolders ?? false,
     secTrafficMasking: prefs.secTrafficMasking ?? false,
     secStrictIsolation: prefs.secStrictIsolation ?? false,
+    secAutoLock: prefs.secAutoLock ?? false,
+    secAutoLockTimeout: prefs.secAutoLockTimeout ?? 5,
+    secAutoLockPin: prefs.secAutoLockPin ?? '',
+    secFolderLock: prefs.secFolderLock ?? false,
+    secFolderLockPin: prefs.secFolderLockPin ?? '',
+    secLockedFolders: prefs.secLockedFolders ?? [],
+    domainConfig: prefs.domainConfig ?? {},
   };
 }
 
@@ -770,6 +789,12 @@ export async function updateUserSettings(
     secGhostFolders?: boolean;
     secTrafficMasking?: boolean;
     secStrictIsolation?: boolean;
+    secAutoLock?: boolean;
+    secAutoLockTimeout?: number;
+    secAutoLockPin?: string;
+    secFolderLock?: boolean;
+    secFolderLockPin?: string;
+    secLockedFolders?: string[];
   }
 ): Promise<void> {
   // Ensure row exists
@@ -790,7 +815,7 @@ export async function updateUserSettings(
   if (settings.autoMirroring !== undefined) updatedPrefs.autoMirroring = settings.autoMirroring;
   if (settings.vaultLockdown !== undefined) updatedPrefs.vaultLockdown = settings.vaultLockdown;
   if (settings.storageDevice !== undefined) updatedPrefs.storageDevice = settings.storageDevice;
-  // AI Security permissions
+  // AI Security permissions and other preference fields
   const aiKeys = [
     'aiFileCreate', 'aiFileModify', 'aiFileDelete', 'aiFolderCreate',
     'aiFileOrganize', 'aiTrashAccess', 'aiTrashRestore', 'aiTrashEmpty',
@@ -798,6 +823,8 @@ export async function updateUserSettings(
     'aiSendEmail', 'aiCastMedia', 'aiFileRead',
     'aiAutoRename', 'pdfThumbnails',
     'secTwoFactor', 'secFileObfuscation', 'secGhostFolders', 'secTrafficMasking', 'secStrictIsolation',
+    'secAutoLock', 'secAutoLockTimeout', 'secAutoLockPin',
+    'secFolderLock', 'secFolderLockPin', 'secLockedFolders',
   ] as const;
   for (const key of aiKeys) {
     if (settings[key] !== undefined) updatedPrefs[key] = settings[key];
@@ -812,6 +839,26 @@ export async function updateUserSettings(
      SET notifications_enabled = $1, preferences = $2, updated_at = NOW()
      WHERE user_id = $3`,
     [notif, JSON.stringify(updatedPrefs), userId]
+  );
+}
+
+/**
+ * Update domain configuration (Cloudflare tunnel settings)
+ */
+export async function updateDomainConfig(userId: number, domainConfig: Record<string, any>) {
+  await pool.query(
+    `INSERT INTO user_settings (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
+    [userId]
+  );
+  const current = await pool.query(
+    `SELECT preferences FROM user_settings WHERE user_id = $1`,
+    [userId]
+  );
+  const currentPrefs = current.rows[0]?.preferences || {};
+  currentPrefs.domainConfig = domainConfig;
+  await pool.query(
+    `UPDATE user_settings SET preferences = $1, updated_at = NOW() WHERE user_id = $2`,
+    [JSON.stringify(currentPrefs), userId]
   );
 }
 
@@ -924,7 +971,7 @@ export async function resetUserSettings(userId: number): Promise<void> {
   // Default preferences — matches the defaults in getUserSettings
   const defaultPrefs = {
     autoMirroring: true,
-    vaultLockdown: true,
+    vaultLockdown: false,
     storageDevice: 'builtin',
     aiFileCreate: true,
     aiFileModify: true,
@@ -1001,7 +1048,7 @@ export async function deleteAccount(userId: number): Promise<void> {
       host: process.env.MYSQL_HOST || 'localhost',
       port: parseInt(process.env.MYSQL_PORT || '3306'),
       user: process.env.MYSQL_USER || 'arcellite_user',
-      password: process.env.MYSQL_PASSWORD || 'arcellite2024',
+      password: process.env.MYSQL_PASSWORD,
     });
     try {
       const [rows] = await mysqlConn.query(

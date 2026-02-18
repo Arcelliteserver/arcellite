@@ -27,6 +27,7 @@ import MountedDeviceView from './components/views/system/MountedDeviceView';
 import SecurityVaultView from './components/views/system/SecurityVaultView';
 import ActivityLogView from './components/views/system/ActivityLogView';
 import ExportDataView from './components/views/system/ExportDataView';
+import DomainSetupView from './components/views/settings/DomainSetupView';
 import StatsView from './components/views/system/StatsView';
 import SystemLogsView from './components/views/system/SystemLogsView';
 import TrashView from './components/views/system/TrashView';
@@ -37,12 +38,15 @@ import { FileItem, FileType, FileCategory } from './types';
 import type { RemovableDeviceInfo } from './types';
 import { AI_MODELS } from './constants';
 import AuthView from './components/auth/AuthView';
+import AccessDeniedView from './components/views/AccessDeniedView';
+import MobileAccessDeniedView from './components/mobile/MobileAccessDeniedView';
 import ConfirmModal from './components/common/ConfirmModal';
 import UploadProgress from './components/common/UploadProgress';
 import { unlockUploadAudio } from './components/common/UploadProgress';
 import Toast from './components/common/Toast';
 import type { ToastData } from './components/common/Toast';
 import type { UploadFileProgress } from './components/common/UploadProgress';
+import LockScreen from './components/common/LockScreen';
 import SetupWizard from './components/onboarding/SetupWizard';
 import { authApi, setSessionToken, getSessionToken } from './services/api.client';
 
@@ -62,10 +66,34 @@ function getFolderPath(folderId: string | null, category: string): string {
   return folderId.startsWith(prefix) ? folderId.slice(prefix.length) : '';
 }
 
+const CATEGORY_DIR_MAP: Record<FileCategory, string> = {
+  general: 'files',
+  media: 'photos',
+  video_vault: 'videos',
+  music: 'music',
+  shared: 'shared',
+  trash: 'trash',
+  external: 'external',
+};
+
+function getCategoryFromFileId(fileId: string): FileCategory | null {
+  const match = fileId.match(/^server-([^-]+)-/);
+  return match ? (match[1] as FileCategory) : null;
+}
+
+function getSecurityFolderPath(file: FileItem): string | null {
+  if (!file.id.startsWith('server-')) return null;
+  const relativePath = file.id.replace(/^server-[^-]+-/, '');
+  const category = file.category ?? getCategoryFromFileId(file.id);
+  if (!category) return null;
+  const categoryDir = CATEGORY_DIR_MAP[category];
+  return `${categoryDir}/${relativePath}`;
+}
+
 async function fetchFolderList(
   category: string,
   path: string
-): Promise<{ folders: { name: string; mtimeMs: number; itemCount?: number }[]; files: { name: string; mtimeMs: number; sizeBytes?: number }[] }> {
+): Promise<{ folders: { name: string; mtimeMs: number; itemCount?: number; hasSubfolders?: boolean }[]; files: { name: string; mtimeMs: number; sizeBytes?: number }[] }> {
   const params = new URLSearchParams({ category, path: path || '' });
   const res = await fetch(`${FILES_API}/list?${params}`);
   if (!res.ok) throw new Error('List failed');
@@ -75,7 +103,7 @@ async function fetchFolderList(
 function folderEntriesToFileItems(
   category: string,
   path: string,
-  folders: { name: string; mtimeMs: number; itemCount?: number }[]
+  folders: { name: string; mtimeMs: number; itemCount?: number; hasSubfolders?: boolean }[]
 ): FileItem[] {
   const parentId = path ? `server-${category}-${path}` : null;
   return folders.map((f) => ({
@@ -88,6 +116,7 @@ function folderEntriesToFileItems(
     parentId,
     category: category as FileCategory,
     itemCount: f.itemCount ?? 0,
+    hasSubfolders: f.hasSubfolders ?? false,
   }));
 }
 
@@ -222,7 +251,23 @@ const App: React.FC = () => {
   const [detailsWidth, setDetailsWidth] = useState(340);
   const [isResizing, setIsResizing] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1280);
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  // Detect actual mobile phones via userAgent (not tablets/desktops) — used for lock screen
+  const [isMobileDevice] = useState(() => {
+    if (typeof navigator === 'undefined') return false;
+    return /Android.*Mobile|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  });
+  const [showAccessDenied, setShowAccessDenied] = useState(() => {
+    try {
+      if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('accessDenied') === 'ip') {
+        sessionStorage.removeItem('accessDenied');
+        return true;
+      }
+    } catch {}
+    return false;
+  });
+  const [accessStatus, setAccessStatus] = useState<'pending' | 'login' | 'denied'>('pending');
   const [toast, setToast] = useState<ToastData | null>(null);
 
   // Upload progress state
@@ -233,6 +278,50 @@ const App: React.FC = () => {
   const [pdfThumbnails, setPdfThumbnails] = useState(true);
   const [aiAutoRename, setAiAutoRename] = useState(false);
   const [aiRenamedSet, setAiRenamedSet] = useState<Set<string>>(new Set());
+
+  // Auto-lock state — restore lock from localStorage on mount (shared across ALL tabs)
+  const [isScreenLocked, setIsScreenLocked] = useState(() => localStorage.getItem('arcellite_screen_locked') === 'true');
+  const [autoLockEnabled, setAutoLockEnabled] = useState(false);
+  const [autoLockTimeout, setAutoLockTimeout] = useState(5);
+  const [autoLockPin, setAutoLockPin] = useState('');
+  const autoLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Persist lock state changes to localStorage (cross-tab)
+  useEffect(() => {
+    if (isScreenLocked) {
+      localStorage.setItem('arcellite_screen_locked', 'true');
+    } else {
+      localStorage.removeItem('arcellite_screen_locked');
+    }
+  }, [isScreenLocked]);
+
+  // Sync lock state across ALL browser tabs via storage event
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'arcellite_screen_locked') {
+        setIsScreenLocked(e.newValue === 'true');
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // Folder lock & ghost folders
+  const [lockedFolders, setLockedFolders] = useState<string[]>([]);
+  const [folderLockPin, setFolderLockPin] = useState('');
+  const [ghostFolders, setGhostFolders] = useState<string[]>([]);
+  const [folderLockPrompt, setFolderLockPrompt] = useState<{ show: boolean; folderPath: string; folderId: string }>({ show: false, folderPath: '', folderId: '' });
+  const [folderLockInput, setFolderLockInput] = useState('');
+  const [folderLockError, setFolderLockError] = useState('');
+  // Folder lock attempt tracking & lockout (refs = source of truth, state = for rendering)
+  const [folderLockAttempts, setFolderLockAttempts] = useState(0);
+  const [folderLockoutUntil, setFolderLockoutUntil] = useState<number | null>(null);
+  const [folderLockoutLevel, setFolderLockoutLevel] = useState(0);
+  const [folderLockCountdown, setFolderLockCountdown] = useState('');
+  const folderLockAttemptsRef = useRef(0);
+  const folderLockoutUntilRef = useRef<number | null>(null);
+  const folderLockoutLevelRef = useRef(0);
+  const folderLockCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // New Folder modal state
   const [newFolderModal, setNewFolderModal] = useState<{ isOpen: boolean; folderName: string; error: string | null }>({
@@ -410,6 +499,7 @@ const App: React.FC = () => {
           category: rf.category as FileCategory || undefined,
           url: fileUrl,
           ...(rf.itemCount !== undefined && { itemCount: rf.itemCount }),
+          ...(rf.hasSubfolders !== undefined && { hasSubfolders: rf.hasSubfolders }),
         };
       });
       setRecentItems(items);
@@ -440,6 +530,21 @@ const App: React.FC = () => {
     }
   }, [mountedDevice]);
 
+  // Pre-auth: check if this IP is allowed to see login (strict isolation)
+  useEffect(() => {
+    if (checkingSetup || isAuthenticated || setupNeeded || showAccessDenied || accessStatus !== 'pending') return;
+    let cancelled = false;
+    fetch('/api/auth/access-status')
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setAccessStatus(data.access === 'denied' ? 'denied' : 'login');
+      })
+      .catch(() => {
+        if (!cancelled) setAccessStatus('login');
+      });
+    return () => { cancelled = true; };
+  }, [checkingSetup, isAuthenticated, setupNeeded, showAccessDenied, accessStatus]);
+
   // Check setup status and authenticate on mount
   useEffect(() => {
     const checkSetup = async () => {
@@ -462,10 +567,22 @@ const App: React.FC = () => {
             } else {
               setIsAuthenticated(true);
               loadRecentFiles();
-              // Load smart feature settings
-              authApi.getSettings().then(({ settings }) => {
+              // Load smart feature settings and security data
+              Promise.all([
+                authApi.getSettings().catch(() => ({ settings: {} })),
+                authApi.getSecurityStatus().catch(() => ({ ghostFolders: [] })),
+              ]).then(([settingsRes, secStatus]: [any, any]) => {
+                const settings = settingsRes.settings || {};
                 if (settings.pdfThumbnails !== undefined) setPdfThumbnails(settings.pdfThumbnails);
                 if (settings.aiAutoRename !== undefined) setAiAutoRename(settings.aiAutoRename);
+                if (settings.secAutoLock) {
+                  setAutoLockEnabled(true);
+                  setAutoLockTimeout(settings.secAutoLockTimeout ?? 5);
+                  setAutoLockPin(settings.secAutoLockPin ?? '');
+                }
+                if (settings.secLockedFolders) setLockedFolders(settings.secLockedFolders);
+                if (settings.secFolderLockPin) setFolderLockPin(settings.secFolderLockPin);
+                setGhostFolders(secStatus.ghostFolders || []);
               }).catch(() => {});
             }
           } catch (err) {
@@ -532,10 +649,22 @@ const App: React.FC = () => {
     setIsAuthenticated(true);
     loadRecentFiles();
     loadAiRenamedFiles();
-    // Load smart feature settings
-    authApi.getSettings().then(({ settings }) => {
+    // Load smart feature settings and security data
+    Promise.all([
+      authApi.getSettings().catch(() => ({ settings: {} })),
+      authApi.getSecurityStatus().catch(() => ({ ghostFolders: [] })),
+    ]).then(([settingsRes, secStatus]: [any, any]) => {
+      const settings = settingsRes.settings || {};
       if (settings.pdfThumbnails !== undefined) setPdfThumbnails(settings.pdfThumbnails);
       if (settings.aiAutoRename !== undefined) setAiAutoRename(settings.aiAutoRename);
+      if (settings.secAutoLock) {
+        setAutoLockEnabled(true);
+        setAutoLockTimeout(settings.secAutoLockTimeout ?? 5);
+        setAutoLockPin(settings.secAutoLockPin ?? '');
+      }
+      if (settings.secLockedFolders) setLockedFolders(settings.secLockedFolders);
+      if (settings.secFolderLockPin) setFolderLockPin(settings.secFolderLockPin);
+      setGhostFolders(secStatus.ghostFolders || []);
     }).catch(() => {});
   }, [loadRecentFiles]);
 
@@ -558,10 +687,156 @@ const App: React.FC = () => {
     setActiveTab('overview');
     setCurrentFolderId(null);
     setSelectedFile(null);
+    // Clear auto-lock state
+    setAutoLockEnabled(false);
+    setAutoLockPin('');
+    setIsScreenLocked(false);
+    localStorage.removeItem('arcellite_screen_locked');
+  }, []);
+
+  // Auto-lock idle timer (desktop only)
+  useEffect(() => {
+    if (!isAuthenticated || !autoLockEnabled || !autoLockPin || isMobileDevice) return;
+    const timeoutMs = autoLockTimeout * 60 * 1000;
+    const resetTimer = () => {
+      if (autoLockTimerRef.current) clearTimeout(autoLockTimerRef.current);
+      autoLockTimerRef.current = setTimeout(() => {
+        setIsScreenLocked(true);
+      }, timeoutMs);
+    };
+    const events = ['mousemove', 'keydown', 'touchstart', 'scroll', 'click'];
+    events.forEach(e => window.addEventListener(e, resetTimer, { passive: true }));
+    resetTimer();
+    return () => {
+      events.forEach(e => window.removeEventListener(e, resetTimer));
+      if (autoLockTimerRef.current) clearTimeout(autoLockTimerRef.current);
+    };
+  }, [isAuthenticated, autoLockEnabled, autoLockPin, autoLockTimeout]);
+
+  // Restore lockout state from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('arcellite_folder_lockout');
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data.until && data.until > Date.now()) {
+          folderLockoutUntilRef.current = data.until;
+          folderLockoutLevelRef.current = data.level || 0;
+          folderLockAttemptsRef.current = 4;
+          setFolderLockoutUntil(data.until);
+          setFolderLockoutLevel(data.level || 0);
+          setFolderLockAttempts(4);
+        } else {
+          localStorage.removeItem('arcellite_folder_lockout');
+          if (data.level) {
+            folderLockoutLevelRef.current = data.level;
+            setFolderLockoutLevel(data.level);
+          }
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Countdown timer for lockout
+  useEffect(() => {
+    if (folderLockCountdownRef.current) {
+      clearInterval(folderLockCountdownRef.current);
+      folderLockCountdownRef.current = null;
+    }
+    if (!folderLockoutUntil) {
+      setFolderLockCountdown('');
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(0, folderLockoutUntil - Date.now());
+      if (remaining <= 0) {
+        folderLockoutUntilRef.current = null;
+        folderLockAttemptsRef.current = 0;
+        setFolderLockoutUntil(null);
+        setFolderLockAttempts(0);
+        setFolderLockCountdown('');
+        setFolderLockError('');
+        localStorage.removeItem('arcellite_folder_lockout');
+        if (folderLockCountdownRef.current) clearInterval(folderLockCountdownRef.current);
+        return;
+      }
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      setFolderLockCountdown(`${mins}:${secs.toString().padStart(2, '0')}`);
+    };
+    tick();
+    folderLockCountdownRef.current = setInterval(tick, 1000);
+    return () => { if (folderLockCountdownRef.current) clearInterval(folderLockCountdownRef.current); };
+  }, [folderLockoutUntil]);
+
+  const handleFolderLockPinSubmit = useCallback(() => {
+    // Block if currently locked out (read from ref — always current)
+    if (folderLockoutUntilRef.current && folderLockoutUntilRef.current > Date.now()) return;
+
+    if (folderLockInput !== folderLockPin) {
+      const newAttempts = folderLockAttemptsRef.current + 1;
+      folderLockAttemptsRef.current = newAttempts;
+      setFolderLockAttempts(newAttempts);
+
+      if (newAttempts >= 4) {
+        // Lockout — double duration each time: 1min, 2min, 4min, 8min...
+        const newLevel = folderLockoutLevelRef.current + 1;
+        const lockoutMs = Math.pow(2, newLevel - 1) * 60 * 1000; // 1, 2, 4, 8 min...
+        const until = Date.now() + lockoutMs;
+        folderLockoutLevelRef.current = newLevel;
+        folderLockoutUntilRef.current = until;
+        setFolderLockoutLevel(newLevel);
+        setFolderLockoutUntil(until);
+        const mins = Math.pow(2, newLevel - 1);
+        setFolderLockError(`Too many failed attempts. Locked for ${mins} minute${mins > 1 ? 's' : ''}.`);
+        setFolderLockInput('');
+        localStorage.setItem('arcellite_folder_lockout', JSON.stringify({ until, level: newLevel }));
+      } else if (newAttempts === 3) {
+        setFolderLockError('Incorrect PIN — 1 attempt remaining');
+      } else {
+        setFolderLockError(`Incorrect PIN — ${4 - newAttempts} attempts remaining`);
+      }
+      return;
+    }
+    // PIN is correct, reset attempts & open the folder
+    folderLockAttemptsRef.current = 0;
+    setFolderLockAttempts(0);
+    // Keep lockout level so next lockout still escalates
+    const folderId = folderLockPrompt.folderId;
+    if (activeTab === 'overview') {
+      const cat = folderId.split('-')[1];
+      if (cat === 'media') setActiveTab('photos');
+      else if (cat === 'video_vault') setActiveTab('videos');
+      else setActiveTab('all');
+      setCurrentFolderId(folderId);
+    } else {
+      handleNavigate(folderId);
+    }
+    // Close PIN prompt
+    setFolderLockPrompt({ show: false, folderPath: '', folderId: '' });
+    setFolderLockInput('');
+    setFolderLockError('');
+  }, [folderLockInput, folderLockPin, folderLockPrompt.folderId, activeTab, handleNavigate]);
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success', icon?: ToastData['icon']) => {
+    setToast({ message, type, icon });
+    setTimeout(() => setToast(null), 4000);
   }, []);
 
   const handleFileClick = useCallback((file: FileItem) => {
     if (file.isFolder) {
+      // Check if folder is locked
+      const folderPath = file.id.replace(/^server-[^-]+-/, '');
+      const fullPath = getSecurityFolderPath(file);
+      if (lockedFolders.includes(fullPath ?? '') || lockedFolders.includes(folderPath)) {
+        // Show toast and PIN prompt for locked folder
+        showToast('This folder is locked', 'warning', 'lock');
+        setFolderLockPrompt({ show: true, folderPath: fullPath ?? folderPath, folderId: file.id });
+        setFolderLockInput('');
+        setFolderLockError('');
+        return;
+      }
+
       // If in Overview, navigate to the correct tab and open the folder
       if (activeTab === 'overview') {
         const cat = file.category;
@@ -585,7 +860,7 @@ const App: React.FC = () => {
       category: file.category || undefined,
       sizeBytes: file.sizeBytes || undefined,
     }).then(() => loadRecentFiles()).catch(() => {});
-  }, [activeTab, handleNavigate, loadRecentFiles]);
+  }, [activeTab, handleNavigate, loadRecentFiles, lockedFolders, showToast]);
 
   const createFolder = async () => {
     setNewFolderModal({ isOpen: true, folderName: '', error: null });
@@ -654,11 +929,6 @@ const App: React.FC = () => {
       setRenameModal(prev => ({ ...prev, error: (e as Error).message || 'Rename failed. Please try again.' }));
     }
   };
-
-  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success', icon?: ToastData['icon']) => {
-    setToast({ message, type, icon });
-    setTimeout(() => setToast(null), 4000);
-  }, []);
 
   const handleUploadSingle = useCallback(async (file: File, uploadCategory: string, uploadPath: string, progressId: string) => {
     const formData = new FormData();
@@ -1061,6 +1331,48 @@ const App: React.FC = () => {
     }
   }, [activeTab, currentPath, handleDelete, handleFileClick, loadServerFolders, loadRecentFiles, showToast]);
 
+  // --- Bulk file actions (drag-to-select) ---
+  const handleBulkFileAction = useCallback(async (action: string, selectedFiles: FileItem[]) => {
+    if (!selectedFiles.length) return;
+    try {
+      switch (action) {
+        case 'Delete':
+          setConfirmModal({
+            isOpen: true,
+            title: 'Move to Trash',
+            message: `Are you sure you want to move ${selectedFiles.length} item${selectedFiles.length > 1 ? 's' : ''} to trash? You can restore them later.`,
+            confirmText: 'Move to Trash',
+            variant: 'warning',
+            onConfirm: async () => {
+              setConfirmModal(prev => ({ ...prev, isOpen: false }));
+              let count = 0;
+              for (const file of selectedFiles) {
+                try {
+                  await handleDelete(file);
+                  count++;
+                } catch {}
+              }
+              showToast(`${count} item${count > 1 ? 's' : ''} moved to trash`, 'success', 'trash');
+            },
+          });
+          break;
+        case 'Download':
+          for (const file of selectedFiles) {
+            if (file.isFolder) continue;
+            const cat = file.category || getCategoryFromTab(activeTab);
+            if (!cat) continue;
+            const prefix = `server-${cat}-`;
+            const relativePath = file.id.startsWith(prefix) ? file.id.slice(prefix.length) : file.name;
+            const downloadUrl = `${FILES_API}/download?category=${cat}&path=${encodeURIComponent(relativePath)}`;
+            window.open(downloadUrl, '_blank');
+          }
+          break;
+      }
+    } catch (error) {
+      showToast(`Bulk ${action.toLowerCase()} failed: ${(error as Error).message}`, 'error');
+    }
+  }, [activeTab, handleDelete, showToast]);
+
   // --- Drag-and-drop handlers ---
   const tabToCategoryLabel: Record<string, string> = {
     all: 'Files',
@@ -1188,7 +1500,18 @@ const App: React.FC = () => {
       if (searchQuery) {
         list = list.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
       }
-      return list;
+      // Filter out ghost folders
+      return list.filter((f) => {
+        const relativePath = f.id.replace(/^server-[^-]+-/, '');
+        const fullPath = getSecurityFolderPath(f);
+        if (!fullPath) return true;
+        return !ghostFolders.some(gf => (
+          fullPath === gf ||
+          fullPath.startsWith(`${gf}/`) ||
+          relativePath === gf ||
+          relativePath.startsWith(`${gf}/`)
+        ));
+      });
     }
     
     let list = files.filter(f => f.isFolder);
@@ -1209,8 +1532,21 @@ const App: React.FC = () => {
       list = list.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
     }
 
+    // Filter out ghost folders
+    list = list.filter((f) => {
+      const relativePath = f.id.replace(/^server-[^-]+-/, '');
+      const fullPath = getSecurityFolderPath(f);
+      if (!fullPath) return true;
+      return !ghostFolders.some(gf => (
+        fullPath === gf ||
+        fullPath.startsWith(`${gf}/`) ||
+        relativePath === gf ||
+        relativePath.startsWith(`${gf}/`)
+      ));
+    });
+
     return list.sort((a, b) => a.name.localeCompare(b.name));
-  }, [files, activeTab, currentFolderId, recentItems, searchQuery]);
+  }, [files, activeTab, currentFolderId, recentItems, searchQuery, ghostFolders]);
 
   const filteredFilesOnly = useMemo(() => {
     if (activeTab === 'overview') {
@@ -1279,10 +1615,22 @@ const App: React.FC = () => {
           setIsAuthenticated(true);
           loadRecentFiles();
           loadAiRenamedFiles();
-          // Load smart feature settings
-          authApi.getSettings().then(({ settings }) => {
+          // Load smart feature settings and security data
+          Promise.all([
+            authApi.getSettings().catch(() => ({ settings: {} })),
+            authApi.getSecurityStatus().catch(() => ({ ghostFolders: [] })),
+          ]).then(([settingsRes, secStatus]: [any, any]) => {
+            const settings = settingsRes.settings || {};
             if (settings.pdfThumbnails !== undefined) setPdfThumbnails(settings.pdfThumbnails);
             if (settings.aiAutoRename !== undefined) setAiAutoRename(settings.aiAutoRename);
+            if (settings.secAutoLock) {
+              setAutoLockEnabled(true);
+              setAutoLockTimeout(settings.secAutoLockTimeout ?? 5);
+              setAutoLockPin(settings.secAutoLockPin ?? '');
+            }
+            if (settings.secLockedFolders) setLockedFolders(settings.secLockedFolders);
+            if (settings.secFolderLockPin) setFolderLockPin(settings.secFolderLockPin);
+            setGhostFolders(secStatus.ghostFolders || []);
           }).catch(() => {});
         }}
       />
@@ -1291,7 +1639,32 @@ const App: React.FC = () => {
 
   // Show auth view if not authenticated
   if (!isAuthenticated) {
-    return <AuthView onLogin={handleLogin} />;
+    const showDenied = showAccessDenied || accessStatus === 'denied';
+    if (showDenied) {
+      return isMobile ? <MobileAccessDeniedView /> : <AccessDeniedView />;
+    }
+    if (accessStatus === 'pending') {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-[#5D5FEF]/8 via-white to-[#5D5FEF]/5 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full border-2 border-[#5D5FEF]/30 border-t-[#5D5FEF] animate-spin" />
+        </div>
+      );
+    }
+    return <AuthView onLogin={handleLogin} onAccessDenied={() => setShowAccessDenied(true)} />;
+  }
+
+  // Auto-lock screen overlay (desktop & tablet — not mobile phones)
+  if (!isMobileDevice && isScreenLocked && autoLockPin) {
+    return <LockScreen correctPin={autoLockPin} onUnlock={() => setIsScreenLocked(false)} />;
+  }
+  // If lock is active but PIN hasn't loaded from settings yet, show blank screen (don't expose the app)
+  if (!isMobileDevice && isScreenLocked && !autoLockPin) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center z-[9999]"
+        style={{ background: 'linear-gradient(135deg, #0a0a1a 0%, #111128 25%, #0d0d24 50%, #0a0a1a 100%)' }}>
+        <div className="w-8 h-8 rounded-full border-2 border-white/10 border-t-[#5D5FEF] animate-spin" />
+      </div>
+    );
   }
 
   // ── Mobile Application ──
@@ -1362,6 +1735,21 @@ const App: React.FC = () => {
             setSelectedFile(null);
             setSetupNeeded(true);
           }}
+          onAutoLockChange={(enabled, timeout, pin) => {
+            setAutoLockEnabled(enabled);
+            setAutoLockTimeout(timeout);
+            setAutoLockPin(pin);
+          }}
+          onFolderLockChange={(enabled, lockedFolders, pin) => {
+            setLockedFolders(lockedFolders);
+            setFolderLockPin(pin);
+          }}
+          isFolderLocked={(file) => {
+            const fullPath = getSecurityFolderPath(file);
+            if (!fullPath) return false;
+            const relativePath = file.id.replace(/^server-[^-]+-/, '');
+            return lockedFolders.includes(fullPath) || lockedFolders.includes(relativePath);
+          }}
           mountedDevice={mountedDevice}
           onMountedDeviceOpen={(dev) => {
             setMountedDevice(dev);
@@ -1399,6 +1787,118 @@ const App: React.FC = () => {
             }
           }}
         />
+
+        {/* Folder Lock PIN Prompt */}
+        {folderLockPrompt.show && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/50 z-[600] animate-in fade-in duration-200"
+              onClick={() => setFolderLockPrompt({ show: false, folderPath: '', folderId: '' })}
+            />
+            <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-[2rem] shadow-2xl max-w-sm w-full p-8">
+                <div className="text-center mb-6">
+                  {/* Lock icon */}
+                  <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-red-500/10 to-orange-500/10 flex items-center justify-center">
+                    <svg className="w-7 h-7 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-black text-gray-900 mb-2">Folder Locked</h3>
+                  <p className="text-xs text-gray-400">Enter your 6-digit PIN to access <strong>{folderLockPrompt.folderPath}</strong></p>
+                </div>
+
+                {/* Lockout countdown */}
+                {folderLockoutUntil && folderLockoutUntil > Date.now() ? (
+                  <div className="mb-4">
+                    <div className="bg-red-50 border border-red-200 rounded-2xl p-5 text-center">
+                      <div className="w-10 h-10 mx-auto mb-3 rounded-full bg-red-100 flex items-center justify-center">
+                        <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                      </div>
+                      <p className="text-red-700 text-xs font-bold mb-1">Security Lockout</p>
+                      <p className="text-red-500 text-[11px]">Too many failed attempts</p>
+                      <div className="mt-3 bg-red-100 rounded-xl py-2 px-4">
+                        <p className="text-red-800 text-lg font-black font-mono tracking-wider">{folderLockCountdown}</p>
+                        <p className="text-red-500 text-[10px] font-semibold mt-0.5">Try again after countdown</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setFolderLockPrompt({ show: false, folderPath: '', folderId: '' })}
+                      className="w-full mt-3 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
+                    >
+                      Close
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={folderLockInput}
+                      onChange={(e) => {
+                        setFolderLockInput(e.target.value.replace(/\D/g, '').slice(0, 6));
+                        if (folderLockError && !folderLockError.startsWith('Incorrect PIN')) setFolderLockError('');
+                      }}
+                      onKeyDown={(e) => e.key === 'Enter' && folderLockInput.length === 6 && handleFolderLockPinSubmit()}
+                      placeholder="••••••"
+                      className="w-full px-4 py-3 bg-[#F5F5F7] rounded-xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-center text-lg font-black tracking-[0.3em] outline-none mb-4 placeholder:text-gray-300 placeholder:tracking-normal placeholder:font-medium placeholder:text-sm"
+                      autoFocus
+                    />
+
+                    {/* Attempt indicator dots */}
+                    {folderLockAttempts > 0 && folderLockAttempts < 4 && (
+                      <div className="flex items-center justify-center gap-1.5 mb-3">
+                        {[0, 1, 2, 3].map(i => (
+                          <div
+                            key={i}
+                            className={`w-2 h-2 rounded-full transition-all ${
+                              i < folderLockAttempts
+                                ? 'bg-red-400 scale-110'
+                                : 'bg-gray-200'
+                            }`}
+                          />
+                        ))}
+                        <span className="ml-2 text-[10px] font-bold text-gray-400">
+                          {folderLockAttempts}/4
+                        </span>
+                      </div>
+                    )}
+
+                    {folderLockError && (
+                      <div className={`rounded-xl p-3 mb-4 flex items-center gap-2 ${
+                        folderLockAttempts >= 3
+                          ? 'bg-orange-50 border border-orange-200'
+                          : 'bg-red-50 border border-red-100'
+                      }`}>
+                        <p className={`text-xs font-bold ${
+                          folderLockAttempts >= 3 ? 'text-orange-600' : 'text-red-600'
+                        }`}>{folderLockError}</p>
+                      </div>
+                    )}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setFolderLockPrompt({ show: false, folderPath: '', folderId: '' })}
+                        className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleFolderLockPinSubmit}
+                        disabled={folderLockInput.length !== 6}
+                        className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#5D5FEF] to-[#4D4FCF] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:from-[#4D4FCF] hover:to-[#3D3FBF] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Unlock
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* New Folder Modal */}
         {newFolderModal.isOpen && (
@@ -1534,9 +2034,9 @@ const App: React.FC = () => {
       )}
 
       {/* Sidebar - Hidden on mobile, shown on tablet+ */}
-      <div className={`fixed md:relative top-0 left-0 bottom-0 md:inset-y-0 md:left-0 z-[600] md:z-10 transform transition-transform duration-300 ${
-        isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-      }`}>
+      <div className={`fixed md:relative top-0 left-0 bottom-0 md:inset-y-0 md:left-0 z-[600] md:z-10 transform transition-all duration-300 ${
+        isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+      } ${sidebarCollapsed ? 'md:-translate-x-full md:w-0 md:min-w-0 md:overflow-hidden' : 'md:translate-x-0'}`}>
         <div className="h-full md:bg-white overflow-y-auto">
           <Sidebar
             activeTab={activeTab}
@@ -1548,6 +2048,8 @@ const App: React.FC = () => {
             }}
             onUpload={handleUpload}
             onSidebarDrop={handleSidebarDrop}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
           />
         </div>
       </div>
@@ -1563,6 +2065,8 @@ const App: React.FC = () => {
           onTabChange={setActiveTab}
           onSignOut={handleSignOut}
           onMobileMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          sidebarCollapsed={sidebarCollapsed}
+          onSidebarToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
           user={currentUser}
         />
 
@@ -1640,7 +2144,17 @@ const App: React.FC = () => {
                   }}
                 />
               ) : activeTab === 'security' ? (
-                <SecurityVaultView />
+                <SecurityVaultView
+                  onAutoLockChange={(enabled, timeout, pin) => {
+                    setAutoLockEnabled(enabled);
+                    setAutoLockTimeout(timeout);
+                    setAutoLockPin(pin);
+                  }}
+                  onFolderLockChange={(enabled, lockedFolders, pin) => {
+                    setLockedFolders(lockedFolders);
+                    setFolderLockPin(pin);
+                  }}
+                />
               ) : activeTab === 'notifications' ? (
                 <NotificationsView />
               ) : activeTab === 'appearance' ? (
@@ -1663,6 +2177,8 @@ const App: React.FC = () => {
                 <ActivityLogView />
               ) : activeTab === 'export' ? (
                 <ExportDataView />
+              ) : activeTab === 'domain' ? (
+                <DomainSetupView showToast={showToast} />
               ) : activeTab === 'help' ? (
                 <HelpSupportView user={currentUser} />
               ) : activeTab === 'trash' ? (
@@ -1695,6 +2211,13 @@ const App: React.FC = () => {
                   pdfThumbnails={pdfThumbnails}
                   aiRenamedSet={aiRenamedSet}
                   onFileDrop={handleFileDrop}
+                  isFolderLocked={(file) => {
+                    const fullPath = getSecurityFolderPath(file);
+                    if (!fullPath) return false;
+                    const relativePath = file.id.replace(/^server-[^-]+-/, '');
+                    return lockedFolders.includes(fullPath) || lockedFolders.includes(relativePath);
+                  }}
+                  onBulkAction={handleBulkFileAction}
                 />
               )}
             </div>

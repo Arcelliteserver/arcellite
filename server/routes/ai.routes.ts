@@ -254,8 +254,31 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
             }
           }
 
-          // If no actions were executed, AI has finished
+          // If no actions were executed, check if the AI hallucinated an action outcome
           if (actions.length === 0) {
+            // Detect potential hallucinated action outcomes (AI described doing something without an action block)
+            const lowerContent = (result.content || '').toLowerCase();
+            const hallucinationPatterns = [
+              /(?:sent|sending|delivered|posted).*(?:discord|webhook)/,
+              /(?:discord|webhook).*(?:failed|error|couldn't|could not|unable)/,
+              /(?:moved|created|deleted|renamed|emailed|cast).*(?:successfully|done|completed)/,
+              /(?:i(?:'ll| will) (?:try|send|create|delete|move)).*(?:failed|error|unavailable)/,
+            ];
+            const looksHallucinated = hallucinationPatterns.some(p => p.test(lowerContent));
+            
+            if (looksHallucinated && iteration === 0) {
+              // AI likely hallucinated — inject a correction and force a retry
+              console.warn('[AI] Detected possible hallucinated action outcome without action block, forcing retry...');
+              currentMessages.push({
+                role: 'assistant',
+                content: result.content,
+              });
+              currentMessages.push({
+                role: 'user',
+                content: `[SYSTEM — CORRECTION] You described performing an action or an action outcome, but you did NOT include any \`\`\`action blocks in your response. You CANNOT perform actions without action blocks. Please try again — emit the proper \`\`\`action block to actually execute the request. Do NOT describe the outcome — let the system execute the action and report the real result.`,
+              });
+              continue; // Retry the iteration
+            }
             break;
           }
 

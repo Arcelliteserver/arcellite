@@ -37,6 +37,8 @@ const DatabaseIcon: React.FC<{ className?: string; color?: string }> = ({ classN
   </svg>
 );
 
+const LOCK_ICON_SRC = '/assets/icons/password_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
+
 interface MobileOverviewProps {
   user: { firstName?: string | null; lastName?: string | null; avatarUrl?: string | null } | null;
   recentItems: FileItem[];
@@ -47,6 +49,7 @@ interface MobileOverviewProps {
   onUpload: () => void;
   pdfThumbnails?: boolean;
   aiRenamedSet?: Set<string>;
+  isFolderLocked?: (file: FileItem) => boolean;
 }
 
 interface StorageData {
@@ -107,6 +110,7 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
   onUpload,
   pdfThumbnails = true,
   aiRenamedSet,
+  isFolderLocked,
 }) => {
   const [storage, setStorage] = useState<StorageData | null>(null);
   const [myFolders, setMyFolders] = useState<FileItem[]>([]);
@@ -301,6 +305,24 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
                       </p>
                     </div>
                   </div>
+                  {isFolderLocked?.(folder) && (
+                    <img
+                      src={LOCK_ICON_SRC}
+                      alt=""
+                      className="absolute bottom-3 right-3 z-10 w-5 h-5 opacity-90 pointer-events-none"
+                      title="Locked — enter PIN to open"
+                      aria-hidden
+                    />
+                  )}
+                  {!isFolderLocked?.(folder) && folder.hasSubfolders && (
+                    <img
+                      src="/assets/icons/stacks_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg"
+                      alt=""
+                      className="absolute bottom-3 right-3 z-10 w-5 h-5 opacity-70 pointer-events-none"
+                      title="Contains subfolders"
+                      aria-hidden
+                    />
+                  )}
                 </div>
               </button>
             ))}

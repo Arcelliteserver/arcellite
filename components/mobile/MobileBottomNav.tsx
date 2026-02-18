@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { FolderOpen, Sparkles, User } from 'lucide-react';
 
 export type MobileTab = 'overview' | 'files' | 'chat' | 'photos' | 'settings';
@@ -23,22 +23,6 @@ const GalleryIcon: React.FC<{ color?: string }> = ({ color = 'currentColor' }) =
 );
 
 const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, onTabChange }) => {
-  const [hasUnread, setHasUnread] = useState(false);
-
-  useEffect(() => {
-    const fetchUnread = async () => {
-      try {
-        const res = await fetch('/api/notifications/unread-count');
-        if (res.ok) {
-          const data = await res.json();
-          setHasUnread((data.count || 0) > 0);
-        }
-      } catch {}
-    };
-    fetchUnread();
-    const id = setInterval(fetchUnread, 30000);
-    return () => clearInterval(id);
-  }, []);
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-5 pointer-events-none safe-area-bottom">
@@ -50,9 +34,6 @@ const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, onTabChang
         >
           <div className="relative">
             <HomeIcon color={activeTab === 'overview' ? '#5D5FEF' : '#666666'} />
-            {hasUnread && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#5D5FEF] rounded-full animate-pulse border border-[#111111]" />
-            )}
           </div>
           <span className={`text-[10px] transition-colors duration-200 ${
             activeTab === 'overview' ? 'font-semibold text-[#5D5FEF]' : 'font-medium text-[#666666]'

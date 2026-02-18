@@ -9,12 +9,14 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   onUpload: (files: File[]) => void;
   onSidebarDrop?: (tabId: string, file: any) => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onUpload, onSidebarDrop }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onUpload, onSidebarDrop, collapsed, onToggleCollapse }) => {
   return (
     <div className="w-64 h-full bg-white flex flex-col border-r border-gray-100 flex-shrink-0 transition-all duration-300 shadow-lg md:shadow-none overflow-hidden">
-      <SidebarHeader onLogoClick={() => setActiveTab('overview')} />
+      <SidebarHeader onLogoClick={() => setActiveTab('overview')} onToggleCollapse={onToggleCollapse} />
       <SidebarActions 
         activeTab={activeTab}
         onUpload={onUpload}

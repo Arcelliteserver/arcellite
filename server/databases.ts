@@ -33,7 +33,7 @@ const PG_CONFIG = {
   host: rawHost.startsWith('/') ? 'localhost' : rawHost,
   port: parseInt(process.env.DB_PORT || '5432'),
   user: process.env.DB_USER || 'arcellite_user',
-  password: process.env.DB_PASSWORD || 'changeme',
+  password: process.env.DB_PASSWORD,
 };
 
 // MySQL/MariaDB connection config
@@ -41,7 +41,7 @@ const MYSQL_CONFIG = {
   host: process.env.MYSQL_HOST || 'localhost',
   port: parseInt(process.env.MYSQL_PORT || '3306'),
   user: process.env.MYSQL_USER || 'arcellite_user',
-  password: process.env.MYSQL_PASSWORD || 'arcellite2024',
+  password: process.env.MYSQL_PASSWORD,
 };
 
 interface DatabaseMetadata {
@@ -123,7 +123,7 @@ async function getMysqlAdminConn(): Promise<mysql.Connection> {
     host: MYSQL_CONFIG.host,
     port: MYSQL_CONFIG.port,
     user: 'root',
-    password: process.env.MYSQL_ROOT_PASSWORD || 'arcellite_root2024',
+    password: process.env.MYSQL_ROOT_PASSWORD,
   });
 }
 
@@ -663,7 +663,12 @@ export async function createTable(id: string, tableName: string, columns: { name
     let def = `${colName} ${colType}`;
     if (col.primaryKey) def += ' PRIMARY KEY';
     if (col.nullable === false && !col.primaryKey) def += ' NOT NULL';
-    if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
+    if (col.defaultValue) {
+      // Whitelist safe DEFAULT expressions to prevent SQL injection (SEC-003)
+      const safeDefault = /^('[^']*'|-?\d+(\.\d+)?|NULL|CURRENT_TIMESTAMP|NOW\(\)|true|false)$/i.test(col.defaultValue.trim());
+      if (!safeDefault) throw new Error(`Invalid DEFAULT value for column "${col.name}". Use a string literal, number, NULL, or CURRENT_TIMESTAMP.`);
+      def += ` DEFAULT ${col.defaultValue}`;
+    }
     return def;
   });
 

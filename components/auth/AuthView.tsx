@@ -4,9 +4,10 @@ import { authApi } from '../../services/api.client';
 
 interface AuthViewProps {
   onLogin: () => void;
+  onAccessDenied?: () => void;
 }
 
-const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
+const AuthView: React.FC<AuthViewProps> = ({ onLogin, onAccessDenied }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -78,11 +79,17 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin }) => {
       }
       onLogin();
     } catch (err: any) {
+      const msg = err?.message || '';
+      const isIpDenied = msg.includes('IP') || msg.includes('authorized') || msg.includes('allowlist') || msg.includes('Contact the administrator');
+      if (isIpDenied && onAccessDenied) {
+        onAccessDenied();
+        return;
+      }
       if (needs2FA) {
         setTotpCode(['', '', '', '', '', '']);
         totpRefs.current[0]?.focus();
       }
-      setError(err.message || 'Invalid email or password');
+      setError(msg || 'Invalid email or password');
     } finally {
       setLoading(false);
     }

@@ -68,59 +68,105 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
   // File upload
   if (url === '/api/files/upload' && req.method === 'POST') {
     // Check vault lockdown before processing upload
-    authService.isVaultLocked().then(locked => {
+    // BUG-004: await vault lock check before touching request stream
+    authService.isVaultLocked().then(async locked => {
       if (locked) { sendVaultLockedError(res); return; }
 
-    const busboy = Busboy({ headers: req.headers as any });
-    let category = 'general';
-    let relativePath = '';
-    const fileBuffers: { filename: string; buffer: Buffer }[] = [];
+      const baseDir = await getBaseDir();
 
-    busboy.on('field', (name: string, value: string) => {
-      if (name === 'category') category = value;
-      if (name === 'path') relativePath = value;
-    });
+      // SEC-005: limit individual file size to 10 GB
+      // BUG-R01: stream files to temp first, then move after ALL fields are received so
+      // category/path are always available regardless of multipart field ordering.
+      const busboy = Busboy({ headers: req.headers as any, limits: { fileSize: 10 * 1024 * 1024 * 1024 } });
+      const fields: Record<string, string> = {};
+      const pendingMoves: { filename: string; tmpPath: string }[] = [];
+      const writePromises: Promise<void>[] = [];
+      let uploadError: Error | null = null;
 
-    busboy.on('file', (name: string, file: any, info: { filename: string }) => {
-      const chunks: Buffer[] = [];
-      file.on('data', (chunk: Buffer) => chunks.push(chunk));
-      file.on('end', () => {
-        fileBuffers.push({ filename: info.filename, buffer: Buffer.concat(chunks) });
+      busboy.on('field', (name: string, value: string) => {
+        fields[name] = value;
       });
-    });
 
-    busboy.on('finish', () => {
-      getBaseDir().then(baseDir => {
-      try {
-        const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
-        const categoryDir = catMap[category] || 'files';
-        const targetDir = path.join(baseDir, categoryDir, relativePath);
+      busboy.on('file', (_name: string, file: any, info: { filename: string }) => {
+        // BUG-002: stream directly to temp file on disk — never buffer entire file in RAM
+        const safeFilename = path.basename(info.filename);
+        const tmpPath = path.join(os.tmpdir(), `arcellite-${Date.now()}-${Math.random().toString(36).slice(2)}-${safeFilename}`);
 
-        if (!fs.existsSync(targetDir)) {
-          fs.mkdirSync(targetDir, { recursive: true });
-        }
+        const writeStream = fs.createWriteStream(tmpPath);
+        pendingMoves.push({ filename: safeFilename, tmpPath });
 
-        const uploadedFiles = fileBuffers.map(({ filename, buffer }) => {
-          const targetPath = path.join(targetDir, filename);
-          fs.writeFileSync(targetPath, buffer);
-          return { filename, path: targetPath };
+        const p = new Promise<void>((resolve, reject) => {
+          writeStream.on('finish', resolve);
+          writeStream.on('error', reject);
+          file.on('error', reject);
         });
-
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: true, files: uploadedFiles }));
-      } catch (e) {
-        res.statusCode = 500;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: String((e as Error).message) }));
-      }
-      }).catch(e => {
-        res.statusCode = 500;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: String((e as Error).message) }));
+        writePromises.push(p);
+        file.pipe(writeStream);
       });
-    });
 
-    req.pipe(busboy);
+      busboy.on('finish', async () => {
+        try {
+          await Promise.all(writePromises);
+          if (uploadError) throw uploadError;
+
+          // BUG-R01: resolve final destination now that ALL fields are available
+          const category = fields['category'] || 'general';
+          const relativePath = fields['path'] || '';
+          const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
+          const categoryDir = catMap[category] || 'files';
+          const targetDir = path.resolve(baseDir, categoryDir, relativePath);
+
+          // BUG-003: path traversal guard on the resolved target directory
+          if (!targetDir.startsWith(path.resolve(baseDir) + path.sep) && targetDir !== path.resolve(baseDir)) {
+            for (const { tmpPath } of pendingMoves) {
+              try { fs.unlinkSync(tmpPath); } catch {}
+            }
+            throw new Error('Path traversal attempt detected');
+          }
+
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+
+          const movedFiles: { filename: string; path: string }[] = [];
+          for (const { filename, tmpPath } of pendingMoves) {
+            const targetPath = path.resolve(targetDir, filename);
+            if (!targetPath.startsWith(path.resolve(baseDir) + path.sep)) {
+              try { fs.unlinkSync(tmpPath); } catch {}
+              throw new Error('Path traversal attempt detected');
+            }
+            try {
+              fs.renameSync(tmpPath, targetPath);
+            } catch {
+              // Cross-device (tmpdir on different filesystem): copy then delete
+              fs.copyFileSync(tmpPath, targetPath);
+              fs.unlinkSync(tmpPath);
+            }
+            movedFiles.push({ filename, path: targetPath });
+          }
+
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ ok: true, files: movedFiles }));
+        } catch (e) {
+          for (const { tmpPath } of pendingMoves) {
+            try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+          }
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: String((e as Error).message) }));
+        }
+      });
+
+      busboy.on('error', (e: Error) => {
+        for (const { tmpPath } of pendingMoves) {
+          try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+        }
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: String(e.message) }));
+      });
+
+      req.pipe(busboy);
     }).catch(() => { sendVaultLockedError(res); });
     return true;
   }
@@ -168,10 +214,13 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
             const fullPath = path.join(targetDir, e.name);
             const stat = fs.statSync(fullPath);
             let itemCount = 0;
+            let hasSubfolders = false;
             try {
-              itemCount = fs.readdirSync(fullPath).length;
+              const children = fs.readdirSync(fullPath, { withFileTypes: true });
+              itemCount = children.length;
+              hasSubfolders = children.some(c => c.isDirectory());
             } catch {}
-            return { name: e.name, mtimeMs: stat.mtimeMs, itemCount };
+            return { name: e.name, mtimeMs: stat.mtimeMs, itemCount, hasSubfolders };
           });
 
         // Apply ghost folders filter (hide unless explicitly searched)
@@ -197,6 +246,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
           folders = folders.map(f => ({
             ...securityService.obfuscateFileEntry({ name: f.name, mtimeMs: f.mtimeMs, isFolder: true }),
             itemCount: f.itemCount,
+            hasSubfolders: f.hasSubfolders,
           }));
         }
 

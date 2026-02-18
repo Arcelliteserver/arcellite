@@ -38,11 +38,35 @@ function sendJson(res: ServerResponse, status: number, data: any) {
   res.end(JSON.stringify(data));
 }
 
+/** Simple in-memory rate limiter: max 10 requests per IP per 60 s (SEC-006) */
+const _rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 60_000;
+
+function checkRateLimit(req: IncomingMessage): boolean {
+  const ip =
+    req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ||
+    req.socket.remoteAddress ||
+    'unknown';
+  const now = Date.now();
+  const entry = _rateLimitMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    _rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= RATE_LIMIT;
+}
+
 /**
  * POST /api/auth/register
  * Create new admin user (only if no users exist)
  */
 export async function handleRegister(req: IncomingMessage, res: ServerResponse) {
+  if (!checkRateLimit(req)) {
+    sendJson(res, 429, { error: 'Too many requests. Please wait before trying again.' });
+    return;
+  }
   try {
     const { email, password, firstName, lastName } = await parseBody(req);
 
@@ -111,6 +135,10 @@ export async function handleRegister(req: IncomingMessage, res: ServerResponse) 
  * Authenticate user
  */
 export async function handleLogin(req: IncomingMessage, res: ServerResponse) {
+  if (!checkRateLimit(req)) {
+    sendJson(res, 429, { error: 'Too many requests. Please wait before trying again.' });
+    return;
+  }
   try {
     const { email, password, totpCode } = await parseBody(req);
 
@@ -144,6 +172,14 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse) {
 
     const loginUa = req.headers['user-agent'] || '';
     const loginIp = req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() || req.socket.remoteAddress || '';
+
+    // Strict Isolation: block login from unauthorized IPs
+    const ipAllowed = await securityService.isIpAllowed(user.id, loginIp);
+    if (!ipAllowed) {
+      sendJson(res, 403, { error: 'Access denied: your IP address is not authorized. Contact the administrator.' });
+      return;
+    }
+
     const session = await authService.createSession(user.id, { userAgent: loginUa, ipAddress: loginIp });
 
     // Log login activity
@@ -178,10 +214,30 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse) {
 }
 
 /**
+ * GET /api/auth/access-status
+ * Pre-auth check: should this IP see access-denied (no login) or login page?
+ * No authentication required. Used to block unauthorized IPs before showing login.
+ */
+export async function handleAccessStatus(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      || req.socket?.remoteAddress || '';
+    const deny = await securityService.shouldDenyAccessByIp(clientIp);
+    sendJson(res, 200, { access: deny ? 'denied' : 'login' });
+  } catch (err: any) {
+    sendJson(res, 500, { access: 'login' });
+  }
+}
+
+/**
  * POST /api/auth/verify-email
  * Verify email with code
  */
 export async function handleVerifyEmail(req: IncomingMessage, res: ServerResponse) {
+  if (!checkRateLimit(req)) {
+    sendJson(res, 429, { error: 'Too many requests. Please wait before trying again.' });
+    return;
+  }
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -232,6 +288,10 @@ export async function handleVerifyEmail(req: IncomingMessage, res: ServerRespons
  * Resend verification code
  */
 export async function handleResendCode(req: IncomingMessage, res: ServerResponse) {
+  if (!checkRateLimit(req)) {
+    sendJson(res, 429, { error: 'Too many requests. Please wait before trying again.' });
+    return;
+  }
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -690,6 +750,7 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
       aiSendEmail, aiCastMedia, aiFileRead,
       aiAutoRename, pdfThumbnails,
       secTwoFactor, secFileObfuscation, secGhostFolders, secTrafficMasking, secStrictIsolation,
+      secAutoLock, secAutoLockTimeout, secAutoLockPin, secFolderLock, secFolderLockPin, secLockedFolders,
     } = body;
 
     await authService.updateUserSettings(user.id, {
@@ -703,6 +764,7 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
       aiSendEmail, aiCastMedia, aiFileRead,
       aiAutoRename, pdfThumbnails,
       secTwoFactor, secFileObfuscation, secGhostFolders, secTrafficMasking, secStrictIsolation,
+      secAutoLock, secAutoLockTimeout, secAutoLockPin, secFolderLock, secFolderLockPin, secLockedFolders,
     });
 
     // Log the settings change
@@ -723,6 +785,8 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
       secTwoFactor: 'Two-Factor Auth', secFileObfuscation: 'File Obfuscation',
       secGhostFolders: 'Ghost Folders', secTrafficMasking: 'Traffic Masking',
       secStrictIsolation: 'Strict Isolation',
+      secAutoLock: 'Auto-Lock Screen', secAutoLockTimeout: 'Auto-Lock Timeout', secAutoLockPin: 'Auto-Lock PIN',
+      secFolderLock: 'Folder Lock', secFolderLockPin: 'Folder Lock PIN', secLockedFolders: 'Locked Folders',
     };
     for (const [key, label] of Object.entries(aiLabels)) {
       if ((body as any)[key] !== undefined) {
@@ -1040,7 +1104,14 @@ export async function handleProtocolAction(req: IncomingMessage, res: ServerResp
           result.errors.length === 0 ? 'success' : 'warning',
           'security'
         ).catch(() => {});
-        sendJson(res, 200, { success: true, ...result, message: `Integrity check complete: ${result.errors.length} issues found` });
+        sendJson(res, 200, {
+          success: true,
+          ...result,
+          hasIssues: result.errors.length > 0,
+          message: result.errors.length === 0
+            ? `Integrity check passed — ${result.checkedFiles} files verified, no issues found`
+            : `Integrity check complete — ${result.errors.length} issue${result.errors.length !== 1 ? 's' : ''} detected in ${result.checkedFiles} files`
+        });
         break;
       }
       default:
@@ -1153,47 +1224,114 @@ export async function handleUpdateIpAllowlist(req: IncomingMessage, res: ServerR
   }
 }
 
-// ── Helper: recursively count files ──────────────────────────────────────────
-function countFilesRecursive(dir: string): number {
-  if (!fs.existsSync(dir)) return 0;
+// ── Storage transfer: only these subdirectories are transferred ───────────────
+const ARCELLITE_DATA_DIRS = ['files', 'photos', 'videos', 'music', 'shared', 'databases', '.trash', 'config'];
+
+// ── Helper: recursively count files under specific subdirectories ─────────────
+function countFilesRecursive(baseDir: string, subDirs?: string[]): number {
+  const dirsToCount = subDirs
+    ? subDirs.map(d => path.join(baseDir, d)).filter(d => fs.existsSync(d))
+    : [baseDir];
+
   let count = 0;
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      count += countFilesRecursive(path.join(dir, entry.name));
-    } else {
-      count++;
+  const countDir = (dir: string) => {
+    if (!fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        countDir(path.join(dir, entry.name));
+      } else {
+        count++;
+      }
     }
-  }
+  };
+  for (const d of dirsToCount) countDir(d);
   return count;
 }
 
-// ── Helper: recursively move all contents from src to dest ───────────────────
-function moveContentsRecursive(
+// ── Helper: Phase 1 — recursively COPY all contents from src to dest ─────────
+// Returns { copied: number, failed: string[] }
+function copyContentsRecursive(
   srcDir: string, destDir: string,
   onProgress: (file: string) => void
-): void {
-  if (!fs.existsSync(srcDir)) return;
+): { copied: number; failed: string[] } {
+  const result = { copied: 0, failed: [] as string[] };
+  if (!fs.existsSync(srcDir)) return result;
   if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
-  const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+  let entries: import('fs').Dirent[];
+  try {
+    entries = fs.readdirSync(srcDir, { withFileTypes: true });
+  } catch (e: any) {
+    console.error(`[Storage] Cannot read directory ${srcDir}: ${e.message}`);
+    result.failed.push(srcDir);
+    return result;
+  }
+
   for (const entry of entries) {
     const srcPath = path.join(srcDir, entry.name);
     const destPath = path.join(destDir, entry.name);
 
     if (entry.isDirectory()) {
-      moveContentsRecursive(srcPath, destPath, onProgress);
-      // Remove the now-empty source dir
-      try { fs.rmdirSync(srcPath); } catch { /* not empty yet or permission issue */ }
+      const sub = copyContentsRecursive(srcPath, destPath, onProgress);
+      result.copied += sub.copied;
+      result.failed.push(...sub.failed);
     } else {
-      // Move file: try rename first (instant if same filesystem), fall back to copy+delete
       try {
-        fs.renameSync(srcPath, destPath);
-      } catch {
+        // Copy file to destination
         fs.copyFileSync(srcPath, destPath);
-        fs.unlinkSync(srcPath);
+        // Verify: check destination exists and size matches
+        const srcStat = fs.statSync(srcPath);
+        const destStat = fs.statSync(destPath);
+        if (destStat.size !== srcStat.size) {
+          // Size mismatch — remove bad copy, mark as failed
+          try { fs.unlinkSync(destPath); } catch {}
+          result.failed.push(srcPath);
+          console.error(`[Storage] Size mismatch for ${entry.name}: src=${srcStat.size} dest=${destStat.size}`);
+        } else {
+          result.copied++;
+          onProgress(entry.name);
+        }
+      } catch (e: any) {
+        console.error(`[Storage] Failed to copy ${srcPath}: ${e.message}`);
+        result.failed.push(srcPath);
+        // Continue with next file — don't abort the entire transfer
       }
-      onProgress(entry.name);
+    }
+  }
+  return result;
+}
+
+// ── Helper: Phase 2 — recursively DELETE source files that exist at dest ──────
+function deleteSourceAfterVerifiedCopy(
+  srcDir: string, destDir: string
+): void {
+  if (!fs.existsSync(srcDir)) return;
+
+  let entries: import('fs').Dirent[];
+  try {
+    entries = fs.readdirSync(srcDir, { withFileTypes: true });
+  } catch { return; }
+
+  for (const entry of entries) {
+    const srcPath = path.join(srcDir, entry.name);
+    const destPath = path.join(destDir, entry.name);
+
+    if (entry.isDirectory()) {
+      deleteSourceAfterVerifiedCopy(srcPath, destPath);
+      // Remove dir only if empty now
+      try { fs.rmdirSync(srcPath); } catch { /* not empty or permission */ }
+    } else {
+      // Only delete source if destination file exists with matching size
+      try {
+        if (fs.existsSync(destPath)) {
+          const srcStat = fs.statSync(srcPath);
+          const destStat = fs.statSync(destPath);
+          if (destStat.size === srcStat.size) {
+            fs.unlinkSync(srcPath);
+          }
+        }
+      } catch { /* leave source intact on any error */ }
     }
   }
 }
@@ -1253,30 +1391,53 @@ export async function handleTransferStorage(req: IncomingMessage, res: ServerRes
         }
       }
 
-      // 2. Count total files to move
+      // 2. Count total files to move (only arcellite data dirs, not .security etc.)
       sendSSE('progress', { phase: 'counting', message: 'Counting files...', percent: 5 });
-      const totalFiles = countFilesRecursive(currentStoragePath);
+      const totalFiles = countFilesRecursive(currentStoragePath, ARCELLITE_DATA_DIRS);
 
       if (totalFiles === 0) {
         // No files to transfer, just update the path
         sendSSE('progress', { phase: 'updating', message: 'Updating storage path...', percent: 90 });
       } else {
-        // 3. Move files with progress
-        let movedCount = 0;
-        sendSSE('progress', { phase: 'transferring', message: `Transferring ${totalFiles} files...`, percent: 10, totalFiles });
+        // 3. PHASE 1: Copy files with progress (don't delete source yet)
+        let copiedCount = 0;
+        const allFailed: string[] = [];
+        sendSSE('progress', { phase: 'copying', message: `Copying ${totalFiles} files...`, percent: 10, totalFiles });
 
-        moveContentsRecursive(currentStoragePath, resolvedNew, (fileName) => {
-          movedCount++;
-          const percent = Math.round(10 + (movedCount / totalFiles) * 75);
-          if (movedCount % 5 === 0 || movedCount === totalFiles) {
-            sendSSE('progress', { phase: 'transferring', message: `Moving: ${fileName}`, percent, movedCount, totalFiles });
-          }
-        });
+        for (const subDir of ARCELLITE_DATA_DIRS) {
+          const srcSub = path.join(currentStoragePath, subDir);
+          const destSub = path.join(resolvedNew, subDir);
+          if (!fs.existsSync(srcSub)) continue;
 
-        // 4. Clean up empty old directory
-        sendSSE('progress', { phase: 'cleanup', message: 'Cleaning up old storage...', percent: 88 });
+          const result = copyContentsRecursive(srcSub, destSub, (fileName) => {
+            copiedCount++;
+            const percent = Math.round(10 + (copiedCount / totalFiles) * 55);
+            if (copiedCount % 5 === 0 || copiedCount === totalFiles) {
+              sendSSE('progress', { phase: 'copying', message: `Copying: ${fileName}`, percent, copiedCount, totalFiles });
+            }
+          });
+          allFailed.push(...result.failed);
+        }
+
+        // 4. PHASE 2: Verify and delete source files
+        sendSSE('progress', { phase: 'verifying', message: 'Verifying copied files...', percent: 70 });
+
+        if (allFailed.length > 0) {
+          console.error(`[Storage] ${allFailed.length} files failed to copy:`, allFailed.slice(0, 10));
+          sendSSE('progress', { phase: 'verifying', message: `${allFailed.length} file(s) could not be copied — originals preserved`, percent: 72 });
+        }
+
+        sendSSE('progress', { phase: 'cleanup', message: 'Removing source files...', percent: 75 });
+        for (const subDir of ARCELLITE_DATA_DIRS) {
+          const srcSub = path.join(currentStoragePath, subDir);
+          const destSub = path.join(resolvedNew, subDir);
+          if (!fs.existsSync(srcSub)) continue;
+          deleteSourceAfterVerifiedCopy(srcSub, destSub);
+        }
+
+        // 5. Clean up empty dirs from old path (only arcellite data dirs)
+        sendSSE('progress', { phase: 'cleanup', message: 'Cleaning up old storage...', percent: 85 });
         try {
-          // Remove remaining empty dirs from old path
           const removeEmptyDirs = (dir: string) => {
             if (!fs.existsSync(dir)) return;
             const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -1285,26 +1446,28 @@ export async function handleTransferStorage(req: IncomingMessage, res: ServerRes
                 removeEmptyDirs(path.join(dir, entry.name));
               }
             }
-            // Re-read after recursive cleanup
             const remaining = fs.readdirSync(dir);
             if (remaining.length === 0) {
               try { fs.rmdirSync(dir); } catch { /* ok */ }
             }
           };
-          removeEmptyDirs(currentStoragePath);
+          for (const subDir of ARCELLITE_DATA_DIRS) {
+            const srcSub = path.join(currentStoragePath, subDir);
+            removeEmptyDirs(srcSub);
+          }
         } catch (e) {
           console.error('[Storage] Cleanup warning:', e);
         }
       }
 
-      // 5. Update DB storage_path
+      // 6. Update DB storage_path
       sendSSE('progress', { phase: 'updating', message: 'Updating storage configuration...', percent: 92 });
       await authService.updateUserProfile(user.id, { storagePath: newPath });
 
-      // 6. Update global cache
+      // 7. Update global cache
       (globalThis as any).__arcellite_storage_path = resolvedNew;
 
-      // 7. Update storageDevice preference
+      // 8. Update storageDevice preference
       const isExternal = resolvedNew.startsWith('/media/') || resolvedNew.startsWith('/mnt/');
       await authService.updateUserSettings(user.id, { storageDevice: isExternal ? 'external' : 'builtin' });
 

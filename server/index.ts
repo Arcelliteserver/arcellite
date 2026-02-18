@@ -12,21 +12,48 @@ import { fileURLToPath } from 'url';
 import { getRootStorage, getRemovableDevices, getFirstPartition } from './storage.js';
 import { ensureBaseExists, listDir, listExternal, mkdir, getBaseDir } from './files.js';
 import { getPublicIp } from './stats.js';
+import { validateSession } from './services/auth.service.js';
 // Note: use .js extension so compiled output (dist/storage.js, dist/files.js) is resolved
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORTS = [Number(process.env.PORT) || 3999, 3998, 3997];
 
+/** 1 MB limit for JSON bodies (BUG-001) */
+const BODY_LIMIT = 1 * 1024 * 1024;
+
+/** Configurable CORS origin (SEC-N04). Set ALLOWED_ORIGIN=http://your-domain.com in .env. Empty = no CORS header (same-origin policy). */
+const CORS_ORIGIN = process.env.ALLOWED_ORIGIN || '';
+
+/** Add security headers to every response (SEC-007) */
+function addSecurityHeaders(res: http.ServerResponse): void {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+}
+
 function sendJson(res: http.ServerResponse, status: number, data: object): void {
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+  addSecurityHeaders(res);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (CORS_ORIGIN) headers['Access-Control-Allow-Origin'] = CORS_ORIGIN;
+  res.writeHead(status, headers);
   res.end(JSON.stringify(data));
 }
 
 function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
+    let size = 0;
     const chunks: Buffer[] = [];
-    req.on('data', (c) => chunks.push(c));
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > BODY_LIMIT) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => {
       try {
         const body = Buffer.concat(chunks).toString('utf8');
@@ -39,13 +66,39 @@ function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> 
   });
 }
 
-function handleStorage(_req: http.IncomingMessage, res: http.ServerResponse): void {
+/**
+ * Validate Bearer token. Returns true if authenticated, sends 401 and returns false if not.
+ * (SEC-001)
+ */
+async function requireAuth(req: http.IncomingMessage, res: http.ServerResponse): Promise<boolean> {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) {
+    sendJson(res, 401, { error: 'Authentication required' });
+    return false;
+  }
+  try {
+    const user = await validateSession(token);
+    if (!user) {
+      sendJson(res, 401, { error: 'Invalid or expired session' });
+      return false;
+    }
+    return true;
+  } catch {
+    sendJson(res, 401, { error: 'Authentication check failed' });
+    return false;
+  }
+}
+
+async function handleStorage(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  if (!await requireAuth(req, res)) return;
   const root = getRootStorage();
   const removable = getRemovableDevices();
   sendJson(res, 200, { rootStorage: root, removable });
 }
 
-function handleFilesList(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+async function handleFilesList(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+  if (!await requireAuth(req, res)) return;
   const category = (url.searchParams.get('category') || 'general') as string;
   const relativePath = url.searchParams.get('path') || '';
   const allowed = ['general', 'media', 'video_vault'];
@@ -66,6 +119,7 @@ async function handleFilesMkdir(req: http.IncomingMessage, res: http.ServerRespo
     sendJson(res, 405, { error: 'Method not allowed' });
     return;
   }
+  if (!await requireAuth(req, res)) return;
   const body = await parseBody(req);
   const category = (body.category as string) || 'general';
   const relativePath = (body.path as string) || (body.name as string);
@@ -82,7 +136,8 @@ async function handleFilesMkdir(req: http.IncomingMessage, res: http.ServerRespo
   }
 }
 
-function handleFilesListExternal(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+async function handleFilesListExternal(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+  if (!await requireAuth(req, res)) return;
   const rawPath = url.searchParams.get('path') || '';
   if (!rawPath.trim()) {
     sendJson(res, 400, { error: 'Missing path' });
@@ -105,6 +160,7 @@ async function handleMount(req: http.IncomingMessage, res: http.ServerResponse):
     sendJson(res, 405, { error: 'Method not allowed' });
     return;
   }
+  if (!await requireAuth(req, res)) return;
   const body = await parseBody(req);
   const device = (body.device as string)?.trim();
   if (!device || !/^[a-z0-9]+$/.test(device)) {
@@ -132,6 +188,7 @@ async function handleUnmount(req: http.IncomingMessage, res: http.ServerResponse
     sendJson(res, 405, { error: 'Method not allowed' });
     return;
   }
+  if (!await requireAuth(req, res)) return;
   const body = await parseBody(req);
   const device = (body.device as string)?.trim();
   if (!device || !/^[a-z0-9]+$/.test(device)) {
@@ -157,6 +214,7 @@ async function handleFormat(req: http.IncomingMessage, res: http.ServerResponse)
     sendJson(res, 405, { error: 'Method not allowed' });
     return;
   }
+  if (!await requireAuth(req, res)) return;
   const body = await parseBody(req);
   const device = (body.device as string)?.trim();
   const fsType = (body.filesystem as string)?.trim() || 'exfat';
@@ -289,21 +347,34 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, url: s
     '.svg': 'image/svg+xml',
     '.json': 'application/json',
   };
+  addSecurityHeaders(res);
   res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
   fs.createReadStream(full).pipe(res);
 }
 
 const server = http.createServer(async (req, res) => {
   const rawUrl = req.url ?? '';
-  const [pathname, search] = rawUrl.split('?');
+  const [pathname] = rawUrl.split('?');
   const url = new URL(rawUrl, `http://localhost`);
 
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    const preflightHeaders: Record<string, string> = {
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    };
+    if (CORS_ORIGIN) preflightHeaders['Access-Control-Allow-Origin'] = CORS_ORIGIN;
+    res.writeHead(204, preflightHeaders);
+    res.end();
+    return;
+  }
+
   if (pathname === '/api/system/storage' || pathname === '/api/system/storage/') {
-    handleStorage(req, res);
+    await handleStorage(req, res);
     return;
   }
   if (pathname === '/api/files/list') {
-    handleFilesList(req, res, url);
+    await handleFilesList(req, res, url);
     return;
   }
   if (pathname === '/api/files/mkdir') {
@@ -311,10 +382,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (pathname === '/api/files/list-external') {
-    handleFilesListExternal(req, res, url);
+    await handleFilesListExternal(req, res, url);
     return;
   }
   if (pathname === '/api/system/public-ip') {
+    if (!await requireAuth(req, res)) return;
     try {
       const ip = await getPublicIp();
       sendJson(res, 200, { ip });

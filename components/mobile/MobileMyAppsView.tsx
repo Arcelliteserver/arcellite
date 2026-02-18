@@ -69,7 +69,7 @@ const ALL_POSSIBLE_APPS = [
   { id: 'postgresql', name: 'PostgreSQL', icon: '/assets/apps/postgresql.svg' },
   { id: 'mysql', name: 'MySQL', icon: '/assets/apps/mysql.svg' },
   { id: 'n8n', name: 'n8n', icon: '/assets/apps/n8n.svg' },
-  { id: 'mcp', name: 'MCP', icon: '/assets/apps/mcp.svg' },
+  { id: 'mcp', name: 'MCP', icon: '/assets/icons/webhook_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg' },
 ];
 
 /* ────────────────────────────────────────────────────────
@@ -218,6 +218,38 @@ const MobileMyAppsView: React.FC = () => {
       setPendingConnectId(null);
     }
   }, [apps, pendingConnectId]);
+
+  // Must run before any early return so hook count is stable (React #300)
+  const unifiedApps = useMemo(() => {
+    const connected: (AppConnection & { isInState: boolean })[] = [];
+    const disconnected: (AppConnection & { isInState: boolean })[] = [];
+    const processedIds = new Set<string>();
+
+    for (const app of apps) {
+      processedIds.add(app.id);
+      const enriched = { ...app, isInState: true };
+      if (app.status === 'connected' || connectedAppIds.has(app.id)) {
+        connected.push(enriched);
+      } else {
+        disconnected.push(enriched);
+      }
+    }
+
+    for (const meta of ALL_POSSIBLE_APPS) {
+      if (!processedIds.has(meta.id)) {
+        disconnected.push({
+          id: meta.id,
+          name: meta.name,
+          icon: meta.icon,
+          status: 'disconnected' as const,
+          children: (meta as any).children,
+          isInState: false,
+        });
+      }
+    }
+
+    return [...connected, ...disconnected];
+  }, [apps, connectedAppIds]);
 
   /* ═══════ Handlers — IDENTICAL to desktop ═══════ */
   const fetchN8nWorkflows = async (apiUrl: string, apiKey: string, appId?: string) => {
@@ -982,38 +1014,6 @@ const MobileMyAppsView: React.FC = () => {
       </div>
     );
   }
-
-  // Merge apps state with ALL_POSSIBLE_APPS (connected first, then disconnected)
-  const unifiedApps = useMemo(() => {
-    const connected: (AppConnection & { isInState: boolean })[] = [];
-    const disconnected: (AppConnection & { isInState: boolean })[] = [];
-    const processedIds = new Set<string>();
-
-    for (const app of apps) {
-      processedIds.add(app.id);
-      const enriched = { ...app, isInState: true };
-      if (app.status === 'connected' || connectedAppIds.has(app.id)) {
-        connected.push(enriched);
-      } else {
-        disconnected.push(enriched);
-      }
-    }
-
-    for (const meta of ALL_POSSIBLE_APPS) {
-      if (!processedIds.has(meta.id)) {
-        disconnected.push({
-          id: meta.id,
-          name: meta.name,
-          icon: meta.icon,
-          status: 'disconnected' as const,
-          children: (meta as any).children,
-          isInState: false,
-        });
-      }
-    }
-
-    return [...connected, ...disconnected];
-  }, [apps, connectedAppIds]);
 
   /* ═══════════════════════════════════════════════════════
      MAIN APPS LIST (default view)

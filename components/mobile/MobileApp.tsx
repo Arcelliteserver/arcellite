@@ -76,6 +76,9 @@ export interface MobileAppProps {
   // Settings callbacks
   onSettingsChange: (s: { pdfThumbnails: boolean; aiAutoRename: boolean }) => void;
   onDeleteAccount: () => void;
+  onAutoLockChange?: (enabled: boolean, timeout: number, pin: string) => void;
+  onFolderLockChange?: (enabled: boolean, lockedFolders: string[], pin: string) => void;
+  isFolderLocked?: (file: FileItem) => boolean;
 
   // Mounted device
   mountedDevice: any;
@@ -116,6 +119,9 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
     onNavigateToFile,
     onSettingsChange,
     onDeleteAccount,
+    onAutoLockChange,
+    onFolderLockChange,
+    isFolderLocked,
     mountedDevice,
     onMountedDeviceOpen,
     onDeselectFile,
@@ -459,7 +465,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
                 onDeleteAccount={onDeleteAccount}
               />
             )}
-            {subPage === 'security' && <MobileSecurityVaultView />}
+            {subPage === 'security' && <MobileSecurityVaultView onAutoLockChange={onAutoLockChange} onFolderLockChange={onFolderLockChange} />}
             {subPage === 'notifications' && <NotificationsView />}
             {subPage === 'appearance' && (
               <AppearanceView showToast={showToast} onSettingsChange={onSettingsChange} />
@@ -486,6 +492,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
               onUpload={handleUploadTrigger}
               pdfThumbnails={pdfThumbnails}
               aiRenamedSet={aiRenamedSet}
+              isFolderLocked={isFolderLocked}
             />
           </div>
         ) : mobileTab === 'files' ? (
@@ -504,6 +511,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
               pdfThumbnails={pdfThumbnails}
               aiRenamedSet={aiRenamedSet}
               onTabChange={onTabChange}
+              isFolderLocked={isFolderLocked}
             />
           </div>
         ) : mobileTab === 'photos' ? (

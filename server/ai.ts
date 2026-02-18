@@ -332,7 +332,7 @@ async function getDatabaseContext(): Promise<string> {
             host: process.env.DB_HOST?.startsWith('/') ? 'localhost' : (process.env.DB_HOST || 'localhost'),
             port: parseInt(process.env.DB_PORT || '5432'),
             user: process.env.DB_USER || 'arcellite_user',
-            password: process.env.DB_PASSWORD || 'changeme',
+            password: process.env.DB_PASSWORD,
             database: db.pgDatabaseName,
             max: 2,
             idleTimeoutMillis: 5000,
@@ -769,6 +769,13 @@ MULTI-STEP TASKS (CRITICAL):
 - When ALL steps of the user's original request are complete, you MUST provide a clear completion message. Something like: "All done! Your social_network database is set up with users, followers, and posts tables, including foreign key constraints and a privacy column." Keep it to 1-2 sentences that confirm success and summarize what was built.
 - NEVER stop after just one step if the user asked for multiple things. Always continue until the entire request is fulfilled.
 - After the final step completes, ALWAYS end with a confident confirmation that everything is done. Never leave the conversation hanging without a wrap-up.
+
+ACTION EXECUTION (CRITICAL — MANDATORY RULES):
+- You CANNOT perform ANY action (send to Discord, create files, delete, move, email, cast, query databases, etc.) WITHOUT emitting a \`\`\`action block. You have ZERO ability to do anything without action blocks. Action blocks are your ONLY way to interact with the system.
+- NEVER describe the outcome of an action you didn't actually perform. If you want to send something to Discord, you MUST include the \`\`\`action{"type":"discord_send",...}\`\`\` block. If you didn't include the action block, IT DID NOT HAPPEN.
+- NEVER say "I'll send it" or "I tried sending it" or "the connection failed" unless you actually emitted an action block and received a real result from the system. You cannot try anything — you can only emit action blocks.
+- If you're unsure whether an action will work, emit the action block anyway. The system will execute it and tell you the real result. NEVER pre-judge or guess the outcome.
+- If the user asks you to do something and you know the action type, ALWAYS emit the action block immediately. Do NOT just describe what you would do — actually do it by including the action block.
 
 VERIFICATION (CRITICAL — DO NOT HALLUCINATE):
 - NEVER assume an action worked. Each action returns a real result (✅ success or ❌ failure). Read the result CAREFULLY before saying anything succeeded.
@@ -1692,77 +1699,105 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
           return { success: false, message: 'Discord send requires both "channel" and "message" fields.' };
         }
 
-        // Look up the user's Discord send webhook URL from connected apps
+        // Look up the user's Discord send webhook URL from connected apps (with retry)
         let sendUrl: string | null = null;
-        try {
-          const { pool } = await import('./db/connection.js');
-          let userId: number | null = null;
-          if (userEmail) {
-            const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [userEmail]);
-            if (userResult.rows.length > 0) userId = userResult.rows[0].id;
-          }
-          if (userId) {
-            const result = await pool.query(
-              `SELECT config FROM connected_apps WHERE user_id = $1 AND app_type = 'myapps_state' AND is_active = true ORDER BY updated_at DESC LIMIT 1`,
-              [userId]
-            );
-            if (result.rows.length > 0 && result.rows[0].config?.apps) {
-              const apps = result.rows[0].config.apps;
-              const discordApp = apps.find((a: any) => a.id === 'discord' && a.status === 'connected');
-              if (discordApp?.discordWebhooks?.sendUrl) {
-                sendUrl = discordApp.discordWebhooks.sendUrl;
+        const MAX_URL_RETRIES = 2;
+        for (let urlAttempt = 0; urlAttempt <= MAX_URL_RETRIES; urlAttempt++) {
+          try {
+            const { pool } = await import('./db/connection.js');
+            let userId: number | null = null;
+            if (userEmail) {
+              const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [userEmail]);
+              if (userResult.rows.length > 0) userId = userResult.rows[0].id;
+            }
+            if (userId) {
+              const result = await pool.query(
+                `SELECT config FROM connected_apps WHERE user_id = $1 AND app_type = 'myapps_state' AND is_active = true ORDER BY updated_at DESC LIMIT 1`,
+                [userId]
+              );
+              if (result.rows.length > 0 && result.rows[0].config?.apps) {
+                const apps = result.rows[0].config.apps;
+                const discordApp = apps.find((a: any) => a.id === 'discord' && a.status === 'connected');
+                if (discordApp?.discordWebhooks?.sendUrl) {
+                  sendUrl = discordApp.discordWebhooks.sendUrl;
+                }
               }
             }
+            if (sendUrl) break; // Got it, stop retrying
+            if (urlAttempt < MAX_URL_RETRIES) {
+              console.warn(`[Discord] Webhook URL lookup attempt ${urlAttempt + 1} returned null, retrying in 1s...`);
+              await new Promise(r => setTimeout(r, 1000));
+            }
+          } catch (dbErr) {
+            console.error(`[Discord] DB lookup attempt ${urlAttempt + 1} failed:`, (dbErr as Error).message);
+            if (urlAttempt < MAX_URL_RETRIES) {
+              await new Promise(r => setTimeout(r, 1000));
+            }
           }
-        } catch {
-          // Fall through to error
         }
 
         if (!sendUrl) {
           return { success: false, message: 'Discord is not connected. Please connect Discord in My Apps first and provide the Send Message webhook URL.' };
         }
 
-        try {
-          const payload: any = { channel, message };
-          if (action.fileUrl) payload.fileUrl = action.fileUrl;
-
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 30000);
-          const resp = await fetch(sendUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            signal: controller.signal,
-          });
-          clearTimeout(timeoutId);
-
-          if (!resp.ok) {
-            const errorText = await resp.text().catch(() => '');
-            return { success: false, message: `Discord send failed (${resp.status}): ${errorText || resp.statusText}` };
-          }
-
-          let respData: any = {};
+        // Send to Discord with retry for transient connection failures
+        const MAX_SEND_RETRIES = 2;
+        for (let sendAttempt = 0; sendAttempt <= MAX_SEND_RETRIES; sendAttempt++) {
           try {
-            respData = await resp.json();
-          } catch { /* empty response is ok */ }
+            const payload: any = { channel, message };
+            if (action.fileUrl) payload.fileUrl = action.fileUrl;
 
-          return {
-            success: true,
-            message: `Message sent to Discord #${channel}.`,
-            data: {
-              type: 'discord_sent',
-              channel,
-              message,
-              messageId: respData.messageId,
-              fileUrl: action.fileUrl,
-            },
-          };
-        } catch (e) {
-          const errMsg = (e as Error).name === 'AbortError'
-            ? 'Discord webhook timed out after 30 seconds. The webhook URL may be unreachable — check that your n8n/webhook server is running and accessible.'
-            : `Discord webhook connection failed: ${(e as Error).message}. Check that your webhook server is running.`;
-          return { success: false, message: errMsg };
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            const resp = await fetch(sendUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+
+            if (!resp.ok) {
+              const errorText = await resp.text().catch(() => '');
+              // Retry on 5xx server errors
+              if (resp.status >= 500 && sendAttempt < MAX_SEND_RETRIES) {
+                console.warn(`[Discord] Send attempt ${sendAttempt + 1} got ${resp.status}, retrying in 2s...`);
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+              }
+              return { success: false, message: `Discord send failed (${resp.status}): ${errorText || resp.statusText}` };
+            }
+
+            let respData: any = {};
+            try {
+              respData = await resp.json();
+            } catch { /* empty response is ok */ }
+
+            return {
+              success: true,
+              message: `Message sent to Discord #${channel}.`,
+              data: {
+                type: 'discord_sent',
+                channel,
+                message,
+                messageId: respData.messageId,
+                fileUrl: action.fileUrl,
+              },
+            };
+          } catch (e) {
+            // Retry on connection errors (not AbortError which means timeout)
+            if ((e as Error).name !== 'AbortError' && sendAttempt < MAX_SEND_RETRIES) {
+              console.warn(`[Discord] Send attempt ${sendAttempt + 1} failed (${(e as Error).message}), retrying in 2s...`);
+              await new Promise(r => setTimeout(r, 2000));
+              continue;
+            }
+            const errMsg = (e as Error).name === 'AbortError'
+              ? 'Discord webhook timed out after 30 seconds. The webhook URL may be unreachable — check that your n8n/webhook server is running and accessible.'
+              : `Discord webhook connection failed: ${(e as Error).message}. Check that your webhook server is running.`;
+            return { success: false, message: errMsg };
+          }
         }
+        return { success: false, message: 'Discord send failed after multiple retries.' };
       }
 
       default:
