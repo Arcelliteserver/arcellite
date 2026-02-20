@@ -75,7 +75,7 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
         .catch(() => {});
     };
     fetchCount();
-    const id = setInterval(fetchCount, 6000);
+    const id = setInterval(fetchCount, 15000);
     return () => clearInterval(id);
   }, [playNotificationSound]);
 
@@ -84,7 +84,7 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
       <div className="flex items-center gap-3 px-5 h-[72px] pt-1">
         {/* Search input — individual container with border */}
         <div className="flex-1 relative">
-          <div className="flex items-center h-[48px] bg-white border border-gray-200/80 rounded-[14px] px-3.5 shadow-sm">
+          <div className="flex items-center h-[48px] bg-white border border-[#5D5FEF]/30 rounded-[14px] px-3.5 shadow-sm">
             <Search className="w-[18px] h-[18px] text-gray-400 flex-shrink-0" />
             <input
               type="text"
@@ -107,7 +107,7 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
         {/* Notification Bell — individual container with border */}
         <button
           onClick={onNotificationsClick}
-          className="w-[48px] h-[48px] flex items-center justify-center active:scale-95 transition-all relative flex-shrink-0 bg-white border border-gray-200/80 rounded-[14px] shadow-sm"
+          className="w-[48px] h-[48px] flex items-center justify-center active:scale-95 transition-all relative flex-shrink-0 bg-white border border-[#5D5FEF]/30 rounded-[14px] shadow-sm"
           aria-label="Notifications"
         >
           <Bell className="w-[21px] h-[21px] text-gray-700" />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, Upload, Download, Share2, Trash2, Edit, FileText, LogIn, UserPlus, Settings, Loader2 } from 'lucide-react';
-import { authApi } from '../../../services/api.client';
+import { authApi } from '@/services/api.client';
 
 interface ActivityItem {
   id: number;

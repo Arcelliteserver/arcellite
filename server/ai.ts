@@ -42,7 +42,7 @@ export function saveApiKeys(keys: Record<string, string>): void {
   for (const k in merged) {
     if (!merged[k]) delete merged[k];
   }
-  fs.writeFileSync(getKeysFile(), JSON.stringify(merged, null, 2), 'utf8');
+  fs.writeFileSync(getKeysFile(), JSON.stringify(merged, null, 2), { encoding: 'utf8', mode: 0o600 });
 }
 
 export function loadApiKeys(): Record<string, string> {
@@ -133,6 +133,23 @@ const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
       return map[id] || id;
     },
   },
+  Ollama: {
+    apiUrl: 'https://ollama.com/v1/chat/completions',
+    resolveModel: (id) => {
+      const map: Record<string, string> = {
+        'ollama-mistral': 'mistral',
+        'gpt-oss-120b-cloud': 'gpt-oss:120b-cloud',
+        'gpt-oss-20b-cloud': 'gpt-oss:20b-cloud',
+        'deepseek-v3.1-671b-cloud': 'deepseek-v3.1:671b-cloud',
+        'qwen3-coder-480b-cloud': 'qwen3-coder:480b-cloud',
+        'qwen3-vl-235b-cloud': 'qwen3-vl:235b-cloud',
+        'minimax-m2-cloud': 'minimax-m2:cloud',
+        'alm-4.6-cloud': 'alm-4.6:cloud',
+        'kimi-k2.5': 'kimi-k2.5',
+      };
+      return map[id] || id;
+    },
+  },
 };
 
 /** Model ID → Provider name mapping (built from constants) */
@@ -146,7 +163,9 @@ const MODEL_PROVIDER_MAP: Record<string, string> = {
   'llama-3.1-405b': 'Meta', 'llama-3-70b': 'Meta', 'llama-3-8b': 'Meta',
   'grok-4-1-fast-reasoning': 'Grok', 'grok-4-1-fast-non-reasoning': 'Grok',
   'grok-4-fast-reasoning': 'Grok', 'grok-4-fast-non-reasoning': 'Grok',
-  'ollama-llama3': 'Ollama', 'ollama-mistral': 'Ollama', 'gpt-oss': 'Ollama', 'kimi-k2.5': 'Ollama',
+  'ollama-mistral': 'Ollama', 'gpt-oss-120b-cloud': 'Ollama', 'gpt-oss-20b-cloud': 'Ollama',
+  'deepseek-v3.1-671b-cloud': 'Ollama', 'qwen3-coder-480b-cloud': 'Ollama', 'qwen3-vl-235b-cloud': 'Ollama',
+  'minimax-m2-cloud': 'Ollama', 'alm-4.6-cloud': 'Ollama', 'kimi-k2.5': 'Ollama',
   'qwen-2.5-72b': 'Qwen', 'qwen-2.5-32b': 'Qwen',
   'deepseek-chat': 'DeepSeek', 'deepseek-reasoner': 'DeepSeek',
 };
@@ -215,7 +234,7 @@ function resolveFilePath(category: string, filePath: string): string {
 /**
  * Build filesystem context for the AI: lists files/folders so the AI knows what's available.
  */
-function getFilesystemContext(): string {
+function getFilesystemContext(baseDir?: string): string {
   const catMap: Record<string, string> = {
     general: 'files',
     media: 'photos',
@@ -223,10 +242,11 @@ function getFilesystemContext(): string {
     music: 'music',
   };
 
+  const dataDir = baseDir || getDataDir();
   const sections: string[] = [];
 
   for (const [category, dir] of Object.entries(catMap)) {
-    const fullDir = path.join(getDataDir(), dir);
+    const fullDir = path.join(dataDir, dir);
     if (!fs.existsSync(fullDir)) continue;
 
     try {
@@ -282,7 +302,7 @@ function getFilesystemContext(): string {
   }
 
   // Also list shared
-  const sharedDir = path.join(getDataDir(), 'shared');
+  const sharedDir = path.join(dataDir, 'shared');
   if (fs.existsSync(sharedDir)) {
     try {
       const entries = fs.readdirSync(sharedDir).map((name) => `  - ${name}`);
@@ -470,12 +490,18 @@ function resolveDatabaseId(ref: string): string | null {
   }
 }
 
-function buildSystemPrompt(filesCtx: string, dbCtx: string, appsCtx: string, userEmail?: string): string {
+function buildSystemPrompt(filesCtx: string, dbCtx: string, appsCtx: string, userEmail?: string, userName?: string): string {
   const emailCtx = userEmail ? `\nUSER EMAIL: ${userEmail}\n` : '';
+  const nameCtx = userName ? `\nUSER NAME: ${userName}\n` : '';
   const publicUrl = process.env.ARCELLITE_PUBLIC_URL || 'https://cloud.arcelliteserver.com';
   return `You are Arcellite — the personal AI assistant for the Arcellite file management system. You are helpful, concise, and conversational.
-${emailCtx}
+${emailCtx}${nameCtx}
 SERVER PUBLIC URL: ${publicUrl}
+
+TONE:
+- Be friendly and natural. You know the user's name — use it occasionally and casually, like a friend would.
+- Don't force the name into every response. Just weave it in naturally when it fits.
+
 CAPABILITIES YOU CAN HELP WITH:
 1. **File Management**: Create files, create folders, delete files/folders, rename items, move items to trash, list contents
 2. **Database Management**: Create databases (PostgreSQL, MySQL, or SQLite), create tables, drop tables, run queries
@@ -761,6 +787,27 @@ FORMATTING (CRITICAL):
 - Do NOT use markdown headers (# or ##). Do NOT use bold (**text**) for section titles. You CAN use **bold** for emphasis on individual words/phrases within a sentence.
 - Use bullet points (• or -) sparingly and only for short lists of 2-4 items. Never create long formatted summaries.
 
+CLICKABLE OPTIONS:
+Whenever the user needs to CHOOSE from a set of options, format them on their own line using this exact syntax:
+[options: Option A | Option B | Option C]
+This applies to ALL types of choices, including:
+- Database engine selection, file categories, cast devices
+- Multiple-choice quiz/trivia answers (A, B, C, D)
+- Topic or difficulty selection
+- Any yes/no or preference question
+Examples:
+- "Which engine would you like?\n[options: PostgreSQL | MySQL | SQLite]"
+- "Which section should I create it in?\n[options: Files | Photos | Videos | Music]"
+- "What is 12 × 8?\n[options: A) 86 | B) 96 | C) 106 | D) 78]"
+- "Choose a topic:\n[options: Algebra | Geometry | Calculus]"
+- "Difficulty?\n[options: Easy | Medium | Hard]"
+Rules:
+- Put [options: ...] on its OWN line, never inline with other text.
+- Separate options with " | " (space-pipe-space).
+- Keep option text short (1-5 words each). For quiz answers include the letter prefix: "A) answer".
+- ALWAYS use [options: ...] when asking the user to pick from alternatives. NEVER list choices as bullet points, numbered lists, or plain text — always [options: ...].
+- Do NOT combine [options: ...] with bullet lists or numbered lists of the same choices — use ONLY [options: ...].
+
 MULTI-STEP TASKS (CRITICAL):
 - When the user asks for something that requires MULTIPLE sequential steps (e.g. "create a database with 3 tables and insert data"), you MUST emit action blocks for as many steps as you can in EACH response.
 - For INDEPENDENT actions (that don't depend on each other's results), include ALL action blocks in a single response.
@@ -837,13 +884,170 @@ ${dbCtx}`;
 }
 
 /**
+ * Build a restricted system prompt for family member accounts.
+ * No database management, no admin operations. Discord requires their own connection.
+ */
+function buildFamilySystemPrompt(filesCtx: string, appsCtx: string, userEmail?: string, userName?: string): string {
+  const emailCtx = userEmail ? `\nUSER EMAIL: ${userEmail}\n` : '';
+  const nameCtx = userName ? `\nUSER NAME: ${userName}\n` : '';
+  const publicUrl = process.env.ARCELLITE_PUBLIC_URL || 'https://cloud.arcelliteserver.com';
+  return `You are Arcellite — the personal AI assistant for a family member on the Arcellite file management system. You are helpful, concise, and conversational.
+${emailCtx}${nameCtx}
+SERVER PUBLIC URL: ${publicUrl}
+
+TONE:
+- Be friendly and natural. You know the user's name — use it occasionally and casually, like a friend would.
+- Don't force the name into every response. Just weave it in naturally when it fits.
+
+IMPORTANT — YOU ARE ASSISTING A FAMILY MEMBER (NOT THE SERVER OWNER):
+- This user has their own isolated storage space with Files, Photos, Videos, and Music folders.
+- You do NOT have access to the server owner's files or any other family member's files.
+- You CANNOT create, manage, or query databases. Database management is an admin-only feature. If the user asks about databases, politely explain: "Database management is only available to the server administrator. You can ask them to set one up for you if needed!"
+- You CANNOT access server settings, system configuration, or admin tools.
+- You CANNOT manage other users or family members.
+
+CAPABILITIES YOU CAN HELP WITH:
+1. **File Management**: Create files, create folders, delete files/folders, rename items, move items to trash, list contents — all within the user's own storage
+2. **Media**: Help find photos, videos, music files in their storage
+3. **Email**: Send files from their storage to their email
+4. **Organization**: Move, rename, organize files into folders
+5. **Connected Apps**: If they have connected their OWN Discord, you can send messages to their channels. If they haven't connected Discord, tell them: "You'll need to connect your own Discord first! Go to **My Apps** to set it up."
+6. **General Help**: Answer questions, provide guidance
+
+THINGS YOU CANNOT DO (admin-only):
+- Create, delete, or query databases
+- Access server system settings
+- Manage other users
+- Cast to devices (this uses the owner's configured devices)
+- Access the server owner's files
+
+WHEN THE USER ASKS YOU TO PERFORM AN ACTION, respond with a JSON action block wrapped in \`\`\`action tags.
+
+IMPORTANT — FILES vs FOLDERS:
+- create_folder: Creates an empty DIRECTORY (folder). Use when the user says "create a folder", "make a directory", etc.
+- create_file: Creates a FILE with text content. Use when the user says "create a file", "make a text file", "write a file", etc.
+- NEVER use create_folder when the user asks to create a file.
+
+To create a TEXT FILE with content:
+\`\`\`action
+{"type":"create_file","category":"general","path":"test.txt","content":"This is the file content."}
+\`\`\`
+
+To create a folder:
+\`\`\`action
+{"type":"create_folder","category":"general","name":"My Folder","path":""}
+\`\`\`
+
+IMPORTANT: The "path" field is the path WITHIN the category directory, NOT the category display name.
+- "Photos" / "Photo" → category="media", "Videos" → category="video_vault", "Files" → category="general", "Music" → category="music"
+- NEVER put category display names in the path field.
+- When the user asks to create a folder WITHOUT specifying where, ask which section they want it in.
+
+To delete a file or folder:
+\`\`\`action
+{"type":"delete","category":"general","path":"My Folder"}
+\`\`\`
+
+To rename a file or folder:
+\`\`\`action
+{"type":"rename","category":"general","oldPath":"old name","newName":"new name"}
+\`\`\`
+
+To move a file/folder to trash:
+\`\`\`action
+{"type":"trash","category":"general","path":"filename.txt"}
+\`\`\`
+
+To list files/folders in a category:
+\`\`\`action
+{"type":"list","category":"media","path":""}
+\`\`\`
+
+To list with a filter:
+\`\`\`action
+{"type":"list","category":"media","path":"","filter":"sunset"}
+\`\`\`
+
+To move a file into a folder:
+\`\`\`action
+{"type":"move_file","category":"general","sourcePath":"main.py","targetFolder":"codes"}
+\`\`\`
+
+To organize files:
+\`\`\`action
+{"type":"organize","category":"general"}
+\`\`\`
+
+To show an image inline:
+\`\`\`action
+{"type":"show_image","category":"media","path":"photo.jpg","fileName":"photo.jpg"}
+\`\`\`
+
+To show a file with preview card:
+\`\`\`action
+{"type":"show_file","category":"general","path":"document.pdf","fileName":"document.pdf"}
+\`\`\`
+
+To send a file to email:
+\`\`\`action
+{"type":"send_email","category":"general","path":"file.pdf","fileName":"file.pdf"}
+\`\`\`
+
+To list items in trash:
+\`\`\`action
+{"type":"list_trash"}
+\`\`\`
+
+To empty trash:
+\`\`\`action
+{"type":"empty_trash"}
+\`\`\`
+
+To restore from trash:
+\`\`\`action
+{"type":"restore_from_trash","trashId":"1234567890_filename.jpg"}
+\`\`\`
+
+DISCORD:
+- ONLY works if the user has connected their OWN Discord via My Apps.
+- If they haven't connected it, say: "To send messages to Discord, you'll need to connect your own Discord account first. Head to **My Apps** in the menu to set it up!"
+- If Discord IS connected, you can send messages:
+\`\`\`action
+{"type":"discord_send","channel":"general","message":"Hello from Arcellite!"}
+\`\`\`
+- Auto-select the best channel based on content type (images→"images", documents→"documents", etc.)
+
+CLICKABLE OPTIONS:
+When the user needs to choose from options, format on their own line:
+[options: Option A | Option B | Option C]
+
+RULES:
+- Always provide a friendly, complete message with action blocks.
+- Categories: "general" = Files, "media" = Photos, "video_vault" = Videos, "music" = Music
+- Keep responses concise but helpful.
+- If a database-related request is made, politely redirect: "Database management is an admin-only feature. I can help you with your files, photos, videos, and music instead!"
+
+FORMATTING:
+- Keep responses SHORT — 1-3 sentences per step. Action cards speak for themselves.
+- Do NOT use markdown headers (# or ##). Use **bold** sparingly for emphasis.
+- Use bullet points only for short lists.
+
+${appsCtx}
+
+${filesCtx}`;
+}
+
+/**
  * Send a chat to the appropriate AI provider and return the response.
  * Automatically routes to the correct API based on the model ID.
  */
 export async function chatWithAI(
   messages: ChatMessage[],
   model: string = 'deepseek-chat',
-  userEmail?: string
+  userEmail?: string,
+  isFamilyMember: boolean = false,
+  userStoragePath?: string,
+  userName?: string
 ): Promise<{ content: string; error?: string }> {
   const provider = getProviderForModel(model);
   const apiKey = getApiKey(provider);
@@ -856,11 +1060,27 @@ export async function chatWithAI(
     return { content: '', error: `Provider "${provider}" is not yet supported for chat. Please use a supported model.` };
   }
 
-  // Build context
-  const filesCtx = getFilesystemContext();
-  const dbCtx = await getDatabaseContext();
+  // Resolve the user's actual base directory (family members have isolated storage)
+  let resolvedBaseDir: string | undefined;
+  if (userStoragePath && userStoragePath !== 'pending') {
+    if (userStoragePath.startsWith('~/') || userStoragePath === '~') {
+      resolvedBaseDir = path.join(os.homedir(), userStoragePath.slice(userStoragePath === '~' ? 1 : 2));
+    } else {
+      resolvedBaseDir = userStoragePath;
+    }
+  }
+
+  // Build context — family members get a restricted prompt (no database context)
+  const filesCtx = getFilesystemContext(resolvedBaseDir);
   const appsCtx = await getConnectedAppsContext(userEmail);
-  const systemPrompt = buildSystemPrompt(filesCtx, dbCtx, appsCtx, userEmail);
+
+  let systemPrompt: string;
+  if (isFamilyMember) {
+    systemPrompt = buildFamilySystemPrompt(filesCtx, appsCtx, userEmail, userName);
+  } else {
+    const dbCtx = await getDatabaseContext();
+    systemPrompt = buildSystemPrompt(filesCtx, dbCtx, appsCtx, userEmail, userName);
+  }
 
   // Resolve the actual API model name
   const apiModel = config.resolveModel(model);
@@ -989,19 +1209,43 @@ export async function chatWithAI(
 
 /**
  * Generate a short, concise title for a chat conversation based on the first exchange.
- * Uses the same AI provider/model as the conversation to generate a 3-8 word title.
+ * Prefers DeepSeek for fast, reliable title generation; falls back to conversation model.
  */
 export async function generateChatTitle(
   userMessage: string,
   assistantMessage: string,
   model: string = 'deepseek-chat'
 ): Promise<{ ok: boolean; title?: string; error?: string }> {
-  const provider = getProviderForModel(model);
-  const apiKey = getApiKey(provider);
-  if (!apiKey) return { ok: false, error: 'No API key configured' };
+  // Prefer DeepSeek for title generation (fast, cheap, reliable)
+  // Fall back to conversation model if DeepSeek key is not available
+  const preferredProviders = ['DeepSeek', 'Google', 'OpenAI'];
+  let provider = '';
+  let apiKey: string | null = null;
+
+  for (const p of preferredProviders) {
+    const k = getApiKey(p);
+    if (k) { provider = p; apiKey = k; break; }
+  }
+
+  // If no preferred provider, use the conversation model's provider
+  if (!apiKey) {
+    provider = getProviderForModel(model);
+    apiKey = getApiKey(provider);
+  }
+
+  if (!apiKey) return { ok: false, error: 'No API key configured for title generation' };
 
   const config = PROVIDER_CONFIGS[provider];
   if (!config) return { ok: false, error: `Provider "${provider}" not supported` };
+
+  // Use a simple model for the chosen provider
+  const titleModelMap: Record<string, string> = {
+    DeepSeek: 'deepseek-chat',
+    Google: 'gemini-2.0-flash',
+    OpenAI: 'gpt-4o-mini',
+    Qwen: 'qwen-turbo',
+  };
+  const apiModel = titleModelMap[provider] || config.resolveModel(model);
 
   const titlePrompt = 'Generate a short title (3-8 words) for this conversation. Reply with ONLY the title, no quotes, no punctuation at the end, no explanation.';
   const messages = [
@@ -1009,8 +1253,6 @@ export async function generateChatTitle(
     { role: 'assistant' as const, content: assistantMessage.substring(0, 500) },
     { role: 'user' as const, content: titlePrompt },
   ];
-
-  const apiModel = config.resolveModel(model);
 
   try {
     let titleText = '';
@@ -1025,7 +1267,7 @@ export async function generateChatTitle(
         },
         body: JSON.stringify({
           model: apiModel,
-          max_tokens: 30,
+          max_tokens: 50,
           system: 'You generate short, concise conversation titles. Reply with only the title.',
           messages: messages.map(m => ({ role: m.role, content: m.content })),
         }),
@@ -1039,19 +1281,16 @@ export async function generateChatTitle(
         ...messages,
       ];
 
-      // deepseek-reasoner doesn't support temperature
       const bodyParams: any = {
         model: apiModel,
         messages: fullMessages,
-        max_tokens: 30,
+        max_tokens: 100,
         stream: false,
+        temperature: 0.3,
       };
-      if (apiModel !== 'deepseek-reasoner') {
-        bodyParams.temperature = 0.3;
-      }
 
       const titleController = new AbortController();
-      const titleTimeout = setTimeout(() => titleController.abort(), 30000); // 30s timeout for title generation
+      const titleTimeout = setTimeout(() => titleController.abort(), 30000);
       try {
         const response = await fetch(config.apiUrl, {
           method: 'POST',
@@ -1064,7 +1303,9 @@ export async function generateChatTitle(
         });
         if (!response.ok) return { ok: false, error: `API error ${response.status}` };
         const data: any = await response.json();
-        titleText = data.choices?.[0]?.message?.content || '';
+        const msg = data.choices?.[0]?.message;
+        // Handle reasoning models that put output in reasoning/reasoning_content field
+        titleText = msg?.content || msg?.reasoning_content || msg?.reasoning || '';
       } finally {
         clearTimeout(titleTimeout);
       }
@@ -1072,6 +1313,12 @@ export async function generateChatTitle(
 
     // Clean up the title
     let title = titleText.trim().replace(/^["']|["']$/g, '').replace(/\.+$/, '').trim();
+    // If reasoning model returned a long chain-of-thought, try to extract the last line as the title
+    if (title.length > 100) {
+      const lines = title.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      title = lines[lines.length - 1] || title;
+      title = title.replace(/^["']|["']$/g, '').replace(/\.+$/, '').trim();
+    }
     if (title.length > 80) title = title.substring(0, 77) + '...';
     if (!title) return { ok: false, error: 'Empty title generated' };
 
@@ -1092,7 +1339,7 @@ export async function testConnection(provider: string): Promise<{ ok: boolean; m
 
   const config = PROVIDER_CONFIGS[provider];
   if (!config) {
-    // Providers without a config entry (Meta, Ollama) — just validate key exists
+    // Providers without a config entry (Meta) — just validate key exists
     return { ok: true, message: `API key saved for ${provider}.` };
   }
 
@@ -1160,7 +1407,19 @@ export interface ActionResult {
   data?: any;
 }
 
-export async function executeAction(action: any, userEmail?: string): Promise<ActionResult> {
+export async function executeAction(action: any, userEmail?: string, userStoragePath?: string): Promise<ActionResult> {
+  // For family members, temporarily override the storage path so file operations
+  // target their isolated directory. Restore after execution.
+  const prevStoragePath = (globalThis as any).__arcellite_storage_path;
+  let resolvedOverride: string | undefined;
+  if (userStoragePath && userStoragePath !== 'pending') {
+    if (userStoragePath.startsWith('~/') || userStoragePath === '~') {
+      resolvedOverride = path.join(os.homedir(), userStoragePath.slice(userStoragePath === '~' ? 1 : 2));
+    } else {
+      resolvedOverride = userStoragePath;
+    }
+    (globalThis as any).__arcellite_storage_path = resolvedOverride;
+  }
   try {
     switch (action.type) {
       case 'create_file': {
@@ -1478,6 +1737,11 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
         const { executeQuery } = await import('./databases.js');
         const dbId = resolveDatabaseId(action.database);
         if (!dbId) return { success: false, message: `Database "${action.database}" not found.` };
+        // SEC-SQL-007: Block destructive DDL from AI-generated SQL
+        const trimmedSql = (action.sql || '').trim().toUpperCase();
+        if (/^(DROP|ALTER|TRUNCATE|GRANT|REVOKE)/.test(trimmedSql)) {
+          return { success: false, message: `Destructive SQL commands (${trimmedSql.split(/\s/)[0]}) are not allowed via AI. Please execute them manually in the Database view.` };
+        }
         const result = await executeQuery(dbId, action.sql);
         return {
           success: true,
@@ -1749,13 +2013,17 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
-            const resp = await fetch(sendUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-              signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
+            let resp: Response;
+            try {
+              resp = await fetch(sendUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: controller.signal,
+              });
+            } finally {
+              clearTimeout(timeoutId);
+            }
 
             if (!resp.ok) {
               const errorText = await resp.text().catch(() => '');
@@ -1805,6 +2073,11 @@ export async function executeAction(action: any, userEmail?: string): Promise<Ac
     }
   } catch (e) {
     return { success: false, message: `Action failed: ${(e as Error).message}` };
+  } finally {
+    // Restore original storage path after family member action
+    if (resolvedOverride) {
+      (globalThis as any).__arcellite_storage_path = prevStoragePath;
+    }
   }
 }
 

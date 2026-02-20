@@ -1,0 +1,141 @@
+{
+  "name": "Google Drive File Manager",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "google-files",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        720
+      ],
+      "id": "bc6bf6a6-3fd6-4dfb-985b-312dba38c12e",
+      "name": "GET Files Webhook",
+      "webhookId": "google-drive-files"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "returnAll": true,
+        "filter": {},
+        "options": {
+          "fields": [
+            "id",
+            "name",
+            "mimeType",
+            "webViewLink",
+            "size",
+            "createdTime",
+            "modifiedTime"
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2400,
+        720
+      ],
+      "id": "5a3064f6-e62b-4e59-8301-26d9e3501bc8",
+      "name": "Google Drive",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "91FMXzKX6z0wicNT",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter and format - ONLY Google Docs, Sheets, Slides\nconst allowedTypes = {\n  'application/vnd.google-apps.document': 'doc',\n  'application/vnd.google-apps.spreadsheet': 'sheet',\n  'application/vnd.google-apps.presentation': 'slide'\n};\n\nconst files = items\n  .filter(item => {\n    const mimeType = item.json.mimeType;\n    return allowedTypes[mimeType]; // Only keep docs, sheets, slides\n  })\n  .map(item => {\n    const file = item.json;\n    const fileType = allowedTypes[file.mimeType];\n    \n    return {\n      id: file.id,\n      name: file.name,\n      type: fileType,\n      mimeType: file.mimeType,\n      url: file.webViewLink,\n      size: file.size ? parseInt(file.size) : 0,\n      created: file.createdTime,\n      modified: file.modifiedTime\n    };\n  });\n\nreturn [\n  {\n    json: {\n      success: true,\n      count: files.length,\n      files: files\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2624,
+        720
+      ],
+      "id": "fe11dc1c-5bcd-4b7c-86e1-9dcf00d9d0b1",
+      "name": "Format Files"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2848,
+        720
+      ],
+      "id": "7b07f079-93f0-49ce-abb5-b487a05352dc",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "GET Files Webhook": {
+      "main": [
+        [
+          {
+            "node": "Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Format Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Files": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "d64edc87-bb0d-4ee1-b846-f1f9b1746086",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "de60ded3609ed675dd3435a79fde884038d2348f816754f1f978c92a10e2da20"
+  },
+  "id": "rUtnuaHr1a3UMpru2s18f",
+  "tags": []
+}

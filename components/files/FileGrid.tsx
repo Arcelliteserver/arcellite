@@ -302,6 +302,11 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
       actions.push({ label: 'Move', icon: FolderInput, color: 'text-gray-700', hasSubmenu: true });
     }
 
+    // Add Share option for files
+    if (!isFolder) {
+      actions.push({ label: 'Share', icon: Share2, color: 'text-[#5D5FEF]' });
+    }
+
     actions.push({ label: 'Delete', icon: Trash2, color: 'text-red-500', divider: true });
 
     return actions;
@@ -346,6 +351,9 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                   className={`absolute -top-2 -left-2 z-[70] w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
                     isDragSelected ? 'bg-[#5D5FEF] border-[#5D5FEF] text-white shadow-lg' : 'bg-white/90 border-gray-300 backdrop-blur-sm opacity-0 md:group-hover:opacity-100'
                   }`}
+                  role="checkbox"
+                  aria-checked={isDragSelected}
+                  aria-label={`Select ${file.name}`}
                   onClick={(e) => { e.stopPropagation(); handleCardClick({ ...e, ctrlKey: true } as any, file); }}
                 >
                   {isDragSelected && <Check className="w-3.5 h-3.5" />}
@@ -460,6 +468,9 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                 className={`absolute top-1.5 left-1.5 z-[70] w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
                   isDragSelected ? 'bg-[#5D5FEF] border-[#5D5FEF] text-white shadow-lg' : 'bg-white/80 border-gray-300 backdrop-blur-sm opacity-0 md:group-hover:opacity-100'
                 }`}
+                role="checkbox"
+                aria-checked={isDragSelected}
+                aria-label={`Select ${file.name}`}
                 onClick={(e) => { e.stopPropagation(); handleCardClick({ ...e, ctrlKey: true } as any, file); }}
               >
                 {isDragSelected && <Check className="w-3.5 h-3.5" />}
@@ -467,6 +478,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
             )}
             <button 
               onClick={(e) => toggleMenu(e, file.id)}
+              aria-label={`More actions for ${file.name}`}
               className={`absolute top-2 right-2 z-[60] p-1.5 rounded-xl transition-all ${
                 isMenuOpen ? 'opacity-100 text-[#5D5FEF] bg-[#5D5FEF]/5' : 'text-gray-300 md:hover:text-[#5D5FEF] md:hover:bg-[#5D5FEF]/5 opacity-0 md:group-hover:opacity-100'
               }`}
@@ -495,9 +507,10 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                       />
                     ) : (
                       <img
-                        src={`https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=400&q=80`}
-                        className="w-full h-full object-cover opacity-60"
+                        src="/images/video_placeholder.png"
+                        className="w-full h-full object-cover opacity-40"
                         alt="video preview"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                       />
                     )}
                     <div className="absolute inset-0 flex items-center justify-center">
@@ -593,7 +606,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
 
             <div className="overflow-hidden">
               <div className="flex items-center gap-1 mb-0.5 pr-4 sm:pr-6">
-                <h3 className="text-xs sm:text-sm md:text-[14px] font-bold text-gray-800 truncate group-hover:text-[#5D5FEF] transition-colors">
+                <h3 className="text-xs sm:text-sm md:text-[14px] font-bold text-gray-800 truncate min-w-0 group-hover:text-[#5D5FEF] transition-colors">
                   {file.name}
                 </h3>
                 {aiRenamedSet && file.category && (() => {

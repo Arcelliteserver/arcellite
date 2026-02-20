@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Lock, ShieldCheck, Key, Activity, RefreshCw, AlertTriangle, ShieldAlert, ChevronRight, Loader2, CheckCircle2, XCircle, Copy, Check, Trash2, Plus, FolderClosed, Timer, FolderLock, ChevronDown, Folder, EyeOff, Eye, Shield } from 'lucide-react';
-import { authApi } from '../../../services/api.client';
+import { authApi } from '@/services/api.client';
 
 interface SessionData {
   id: number;

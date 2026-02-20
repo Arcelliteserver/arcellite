@@ -31,6 +31,12 @@ const CadenceIcon: React.FC<{ className?: string; color?: string }> = ({ classNa
   </svg>
 );
 
+const QueueMusicIcon: React.FC<{ className?: string; color?: string }> = ({ className, color = 'currentColor' }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" className={className} fill={color}>
+    <path d="M640-160q-50 0-85-35t-35-85q0-50 35-85t85-35q11 0 21 1.5t19 6.5v-328h200v80H760v360q0 50-35 85t-85 35ZM120-320v-80h320v80H120Zm0-160v-80h480v80H120Zm0-160v-80h480v80H120Z"/>
+  </svg>
+);
+
 const DatabaseIcon: React.FC<{ className?: string; color?: string }> = ({ className, color = 'currentColor' }) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" className={className} fill={color}>
     <path d="M480-120q-151 0-255.5-46.5T120-280v-400q0-66 105.5-113T480-840q149 0 254.5 47T840-680v400q0 67-104.5 113.5T480-120Zm0-479q89 0 179-25.5T760-679q-11-29-100.5-55T480-760q-91 0-178.5 25.5T200-679q14 30 101.5 55T480-599Zm0 199q42 0 81-4t74.5-11.5q35.5-7.5 67-18.5t57.5-25v-120q-26 14-57.5 25t-67 18.5Q600-528 561-524t-81 4q-42 0-82-4t-75.5-11.5Q287-543 256-554t-56-25v120q25 14 56 25t66.5 18.5Q358-408 398-404t82 4Zm0 200q46 0 93.5-7t87.5-18.5q40-11.5 67-26t32-29.5v-98q-26 14-57.5 25t-67 18.5Q600-328 561-324t-81 4q-42 0-82-4t-75.5-11.5Q287-343 256-354t-56-25v99q5 15 31.5 29t66.5 25.5q40 11.5 88 18.5t94 7Z"/>
@@ -118,10 +124,20 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
   useEffect(() => {
     const fetchStorage = async () => {
       try {
-        const res = await fetch('/api/system/storage');
+        const token = localStorage.getItem('sessionToken');
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const res = await fetch('/api/system/storage', { headers });
         if (res.ok) {
           const data = await res.json();
-          if (data.rootStorage) {
+          if (data.familyMemberStorage) {
+            const fm = data.familyMemberStorage;
+            setStorage({
+              totalHuman: fm.quotaHuman,
+              usedHuman: fm.usedHuman,
+              availableHuman: fm.freeHuman,
+              usedPercent: fm.usedPercent,
+            });
+          } else if (data.rootStorage) {
             setStorage({
               totalHuman: data.rootStorage.totalHuman,
               usedHuman: data.rootStorage.usedHuman,
@@ -139,7 +155,9 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
   useEffect(() => {
     const fetchFolders = async () => {
       try {
-        const res = await fetch('/api/files/list?category=general&path=');
+        const token = localStorage.getItem('sessionToken');
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const res = await fetch('/api/files/list?category=general&path=', { headers });
         if (res.ok) {
           const data = await res.json();
           const folders = (data.folders || []).map((f: any) => ({
@@ -182,16 +200,17 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
   const quickActions = [
     { id: 'upload', label: 'Upload', icon: Upload, isSvg: false },
     { id: 'database', label: 'Database', icon: DatabaseIcon, isSvg: true },
-    { id: 'music', label: 'Music', icon: CadenceIcon, isSvg: true },
+    { id: 'music', label: 'Music', icon: QueueMusicIcon, isSvg: true },
     { id: 'usb', label: 'USB', icon: CableIcon, isSvg: true },
   ];
 
   return (
     <div className="animate-in fade-in duration-300 pb-4">
       {/* ===== Greeting ===== */}
-      <div className="mb-7">
-        <p className="text-[12px] font-semibold text-gray-400 leading-none mb-1">Welcome back</p>
-        <h1 className="text-[28px] font-extrabold text-gray-900 tracking-tight leading-tight flex items-center gap-2">
+      <div className="mb-7 relative">
+        <div className="absolute -left-3 top-0 w-[3px] h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full" />
+        <p className="text-[12px] font-semibold text-gray-400 leading-none mb-1 pl-1">Welcome back</p>
+        <h1 className="text-[28px] font-extrabold text-gray-900 tracking-tight leading-tight flex items-center gap-2 pl-1">
           {firstName}
           <DrawIcon color="#5D5FEF" size={24} />
         </h1>

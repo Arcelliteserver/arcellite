@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, ArrowRight, RotateCcw, CheckCircle, XCircle, FolderPlus, Trash2, Database, FileText, Sparkles, Folder, File, ExternalLink, Image as ImageIcon, Film, Music, BookOpen, FileArchive, Table, Settings, FileCode, Mail, MessageSquare, Plus, Clock, ChevronLeft, X, Cloud } from 'lucide-react';
+import { Send, Loader2, ArrowRight, RotateCcw, CheckCircle, XCircle, FolderPlus, Trash2, Database, FileText, Sparkles, Folder, File, ExternalLink, Image as ImageIcon, Film, Music, BookOpen, FileArchive, Table, Settings, FileCode, Mail, MessageSquare, Plus, Clock, ChevronLeft, X, Cloud, Copy, RefreshCw, Volume2, Square, Check } from 'lucide-react';
 import { usePdfThumbnail } from '../../files/usePdfThumbnail';
 
 /** Strip download-site tags like "(z-lib.org)", "(libgen)", "(Anna's Archive)" etc. from file names */
@@ -82,13 +82,18 @@ interface ChatViewProps {
   onNavigateToFile?: (category: string, itemPath: string, isFolder: boolean) => void;
   onNavigateToDatabase?: () => void;
   user?: { firstName: string | null; lastName: string | null; avatarUrl: string | null; email: string } | null;
+  isFamilyMember?: boolean;
 }
 
-const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNavigateToFile, onNavigateToDatabase, user }) => {
+const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNavigateToFile, onNavigateToDatabase, user, isFamilyMember }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [ttsLoadingIndex, setTtsLoadingIndex] = useState<number | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const speakingAudioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -196,6 +201,194 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
   const handleClearChat = () => {
     setMessages([]);
     setCurrentConversationId(null);
+  };
+
+  // Retry: regenerate the AI response in-place using existing conversation history
+  const handleRetry = async (aiMsgIndex: number) => {
+    if (isLoading) return;
+    // Build history from messages up to (but not including) this AI message
+    const historyUpTo = messages.slice(0, aiMsgIndex).map(m => ({ role: m.role, content: m.content }));
+    if (historyUpTo.length === 0) return;
+
+    // Remove the AI message being retried
+    setMessages(prev => prev.filter((_, idx) => idx !== aiMsgIndex));
+    setIsLoading(true);
+
+    const assistantTimestamp = Date.now() + 1;
+
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: historyUpTo,
+          model: selectedModel,
+          userEmail: user?.email,
+        }),
+      });
+
+      if (!response.ok || !response.body) {
+        setMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          content: 'Failed to regenerate. Please try again.',
+          timestamp: assistantTimestamp,
+        }]);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accContent = '';
+      let accActions: ActionResult[] = [];
+      let accBlocks: ContentBlock[] = [];
+      let messageAdded = false;
+
+      const addOrUpdateMessage = () => {
+        const payload: ChatMessage = {
+          role: 'assistant' as const,
+          content: accContent || '',
+          actions: accActions.length > 0 ? [...accActions] : undefined,
+          blocks: [...accBlocks],
+          timestamp: assistantTimestamp,
+        };
+        if (!messageAdded) {
+          messageAdded = true;
+          setMessages(prev => [...prev, payload]);
+        } else {
+          setMessages(prev => prev.map(m => m.timestamp === assistantTimestamp ? payload : m));
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop()!;
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          const lines = part.split('\n');
+          let eventType = '', eventData = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) eventType = line.slice(7);
+            if (line.startsWith('data: ')) eventData = line.slice(6);
+          }
+          if (eventType === 'text' && eventData) {
+            try {
+              const { content } = JSON.parse(eventData);
+              if (content) {
+                if (!messageAdded) setIsStreaming(true);
+                if (accContent) accContent += '\n\n';
+                accContent += content;
+                accBlocks.push({ type: 'text', text: content });
+                addOrUpdateMessage();
+              }
+            } catch {}
+          } else if (eventType === 'action' && eventData) {
+            try {
+              const actionResult = JSON.parse(eventData);
+              accActions = [...accActions, actionResult];
+              accBlocks.push({ type: 'action', actionResult });
+              addOrUpdateMessage();
+              if (onRefreshFiles) onRefreshFiles();
+            } catch {}
+          } else if (eventType === 'error' && eventData) {
+            try {
+              const { error } = JSON.parse(eventData);
+              accContent = error || 'Something went wrong.';
+              accBlocks = [{ type: 'text', text: accContent }];
+              addOrUpdateMessage();
+            } catch {}
+          }
+        }
+      }
+
+      if (!messageAdded) {
+        setMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          content: accContent || 'Done.',
+          actions: accActions.length > 0 ? accActions : undefined,
+          blocks: accBlocks.length > 0 ? accBlocks : [{ type: 'text', text: accContent || 'Done.' }],
+          timestamp: assistantTimestamp,
+        }]);
+      }
+
+      // Save regenerated message to DB
+      if (currentConversationId) {
+        saveMessage(currentConversationId, {
+          role: 'assistant',
+          content: accContent || 'Done.',
+          actions: accActions.length > 0 ? accActions : undefined,
+          blocks: accBlocks.length > 0 ? accBlocks : [{ type: 'text', text: accContent || 'Done.' }],
+          timestamp: assistantTimestamp,
+        });
+      }
+    } catch {
+      setMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        content: 'Failed to regenerate. Please try again.',
+        timestamp: Date.now(),
+      }]);
+    } finally {
+      setIsLoading(false);
+      setIsStreaming(false);
+    }
+  };
+
+  // TTS: speak an AI response using ElevenLabs
+  const handleSpeak = async (text: string, msgIndex: number) => {
+    // If already speaking or loading this message, stop
+    if (speakingIndex === msgIndex || ttsLoadingIndex === msgIndex) {
+      speakingAudioRef.current?.pause();
+      speakingAudioRef.current = null;
+      setSpeakingIndex(null);
+      setTtsLoadingIndex(null);
+      return;
+    }
+    // Stop any current playback
+    if (speakingAudioRef.current) {
+      speakingAudioRef.current.pause();
+      speakingAudioRef.current = null;
+      setSpeakingIndex(null);
+    }
+    setTtsLoadingIndex(msgIndex);
+    try {
+      const res = await fetch('/api/ai/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'TTS failed' }));
+        setTtsLoadingIndex(null);
+        // Show inline feedback — key not configured
+        if (res.status === 400 && errData.error?.includes('not configured')) {
+          alert('ElevenLabs API key not configured. Go to Settings → API Keys to add it.');
+        }
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      speakingAudioRef.current = audio;
+      setTtsLoadingIndex(null);
+      setSpeakingIndex(msgIndex);
+      audio.onended = () => {
+        setSpeakingIndex(null);
+        speakingAudioRef.current = null;
+        URL.revokeObjectURL(url);
+      };
+      audio.onerror = () => {
+        setSpeakingIndex(null);
+        speakingAudioRef.current = null;
+        URL.revokeObjectURL(url);
+      };
+      audio.play();
+    } catch {
+      setTtsLoadingIndex(null);
+      setSpeakingIndex(null);
+    }
   };
 
   const handleSend = async () => {
@@ -346,21 +539,10 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         });
         loadConversations(); // Refresh sidebar list
 
-        // Auto-generate a concise AI title for new conversations
+        // Backend auto-generates AI title for first exchange; refresh after a delay to pick it up
         if (isFirstExchange && accContent) {
-          fetch('/api/chat/generate-title', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              conversationId: convoId,
-              userMessage: userMessage,
-              assistantMessage: accContent,
-              model: selectedModel,
-            }),
-          })
-            .then(r => r.json())
-            .then(() => loadConversations())
-            .catch(() => {});
+          setTimeout(() => loadConversations(), 3000);
+          setTimeout(() => loadConversations(), 6000);
         }
       }
     } catch (error) {
@@ -378,12 +560,46 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
     }
   };
 
-  const suggestions = [
-    { text: 'Create a new database for my app', icon: Database, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'hover:border-violet-400 hover:shadow-violet-200/60' },
-    { text: 'Organize my files into folders', icon: FolderPlus, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'hover:border-violet-400 hover:shadow-violet-200/60' },
-    { text: 'Send my latest photos to Discord', icon: Send, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'hover:border-violet-400 hover:shadow-violet-200/60' },
-    { text: 'Find all PDF documents in my files', icon: FileText, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'hover:border-violet-400 hover:shadow-violet-200/60' },
+  const suggestions = isFamilyMember ? [
+    { text: 'Organize my files into folders', icon: FolderPlus },
+    { text: 'Find all my photos', icon: ImageIcon },
+    { text: 'Show me my music collection', icon: Music },
+    { text: 'Find all PDF documents in my files', icon: FileText },
+  ] : [
+    { text: 'Create a new database for my app', icon: Database },
+    { text: 'Organize my files into folders', icon: FolderPlus },
+    { text: 'Send my latest photos to Discord', icon: Send },
+    { text: 'Find all PDF documents in my files', icon: FileText },
   ];
+
+  /** Color presets for clickable option text — purple by default, unique colors only for database engines */
+  const optionColorMap: Record<string, string> = {
+    postgresql: 'text-emerald-600',
+    postgres: 'text-emerald-600',
+    mysql: 'text-emerald-600',
+    sqlite: 'text-emerald-600',
+  };
+
+  const dbKeywords = new Set(['postgresql', 'postgres', 'mysql', 'sqlite']);
+  const castKeywords = new Set(['gamingtv tv', 'smarttv 4k', 'my room display', 'space tv', 'chromecast', 'nest hub']);
+
+  const isDbOption = (label: string) => dbKeywords.has(label.toLowerCase().trim());
+  const isCastOption = (label: string) => {
+    const key = label.toLowerCase().trim();
+    return castKeywords.has(key) || key.includes('tv') || key.includes('display') || key.includes('chromecast');
+  };
+
+  const getOptionTextColor = (label: string) => {
+    const key = label.toLowerCase().trim();
+    if (optionColorMap[key]) return optionColorMap[key];
+    return 'text-[#5D5FEF]';
+  };
+
+  const handleOptionClick = (option: string) => {
+    if (isLoading) return;
+    setInput(option);
+    inputRef.current?.focus();
+  };
 
   /** Render markdown-lite content: bold, code, lists */
   const renderContent = (text: string) => {
@@ -399,7 +615,8 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
     const lines = textWithPlaceholders.split('\n');
     const elements: React.ReactNode[] = [];
 
-    lines.forEach((line, lineIdx) => {
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const line = lines[lineIdx];
       // Code block placeholder
       const codeBlockMatch = line.match(/^__CODE_BLOCK_(\d+)__$/);
       if (codeBlockMatch) {
@@ -414,7 +631,47 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
             </pre>
           </div>
         );
-        return;
+        continue;
+      }
+      // Markdown table: collect consecutive | lines
+      if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+        const tableLines: string[] = [line];
+        while (lineIdx + 1 < lines.length && lines[lineIdx + 1].trim().startsWith('|') && lines[lineIdx + 1].trim().endsWith('|')) {
+          lineIdx++;
+          tableLines.push(lines[lineIdx]);
+        }
+        if (tableLines.length >= 2) {
+          const parseRow = (r: string) => r.split('|').slice(1, -1).map(c => c.trim());
+          const isSeparator = (r: string) => /^\|[\s:?-]+\|/.test(r.trim()) && r.includes('-');
+          const headerCells = parseRow(tableLines[0]);
+          const startRow = isSeparator(tableLines[1]) ? 2 : 1;
+          const dataRows = tableLines.slice(startRow).filter(r => !isSeparator(r)).map(parseRow);
+          elements.push(
+            <div key={lineIdx} className="my-2 rounded-xl overflow-hidden border border-gray-200">
+              <div className="overflow-x-auto">
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      {headerCells.map((h, hi) => (
+                        <th key={hi} className="px-4 py-2.5 text-left text-[11px] font-black text-gray-500 uppercase tracking-wider whitespace-nowrap">{renderInline(h)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dataRows.map((row, ri) => (
+                      <tr key={ri} className={`border-b border-gray-100 last:border-0 ${ri % 2 === 1 ? 'bg-gray-50/50' : ''}`}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className="px-4 py-2 text-gray-700 whitespace-nowrap">{renderInline(cell)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+          continue;
+        }
       }
       // Heading
       if (line.startsWith('### ')) {
@@ -451,6 +708,40 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
           );
         }
       }
+      // Clickable options: [options: A | B | C]
+      else if (line.match(/^\[options:\s*.+\]$/)) {
+        const inner = line.replace(/^\[options:\s*/, '').replace(/\]$/, '');
+        const opts = inner.split('|').map(o => o.trim()).filter(Boolean);
+        if (opts.length > 0) {
+          elements.push(
+            <div key={lineIdx} className="flex flex-col gap-1.5 mt-3 mb-1 ml-4 px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 w-fit min-w-[180px]">
+              {opts.map((opt, oi) => {
+                const color = getOptionTextColor(opt);
+                const isDb = isDbOption(opt);
+                const isCast = isCastOption(opt);
+                return (
+                  <button
+                    key={oi}
+                    onClick={() => handleOptionClick(opt)}
+                    disabled={isLoading}
+                    className={`flex items-center gap-2 ${color} text-[14px] font-bold transition-all hover:opacity-70 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer w-fit`}
+                  >
+                    {isDb ? (
+                      <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor"><path d="M480-120q-151 0-255.5-46.5T120-280v-400q0-66 105.5-113T480-840q149 0 254.5 47T840-680v400q0 67-104.5 113.5T480-120Zm0-479q89 0 179-25.5T760-679q-11-29-100.5-55T480-760q-91 0-178.5 25.5T200-679q14 30 101.5 55T480-599Zm0 199q42 0 81-4t74.5-11.5q35.5-7.5 67-18.5t57.5-25v-120q-26 14-57.5 25t-67 18.5Q600-528 561-524t-81 4q-42 0-82-4t-75.5-11.5Q287-543 256-554t-56-25v120q25 14 56 25t66.5 18.5Q358-408 398-404t82 4Zm0 200q46 0 93.5-7t87.5-18.5q40-11.5 67-26t32-29.5v-98q-26 14-57.5 25t-67 18.5Q600-328 561-324t-81 4q-42 0-82-4t-75.5-11.5Q287-343 256-354t-56-25v99q5 15 31.5 29t66.5 25.5q40 11.5 88 18.5t94 7Z"/></svg>
+                    ) : isCast ? (
+                      <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor"><path d="M480-480Zm320 320H600q0-20-1.5-40t-4.5-40h206v-480H160v46q-20-3-40-4.5T80-680v-40q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160Zm-720 0v-120q50 0 85 35t35 85H80Zm200 0q0-83-58.5-141.5T80-360v-80q117 0 198.5 81.5T360-160h-80Zm160 0q0-75-28.5-140.5t-77-114q-48.5-48.5-114-77T80-520v-80q91 0 171 34.5T391-471q60 60 94.5 140T520-160h-80Z"/></svg>
+                    ) : (
+                      <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor"><path d="M468-240q-96-5-162-74t-66-166q0-100 70-170t170-70q97 0 166 66t74 162l-84-25q-13-54-56-88.5T480-640q-66 0-113 47t-47 113q0 57 34.5 100t88.5 56l25 84Zm48 158q-9 2-18 2h-18q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480v18q0 9-2 18l-78-24v-12q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93h12l24 78Zm305 22L650-231 600-80 480-480l400 120-151 50 171 171-79 79Z"/></svg>
+                    )}
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+          );
+          return;
+        }
+      }
       // Empty line
       else if (!line.trim()) {
         elements.push(<div key={lineIdx} className="h-2" />);
@@ -461,7 +752,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
           <p key={lineIdx} className="leading-relaxed">{renderInline(line)}</p>
         );
       }
-    });
+    }
 
     return <div className="space-y-1">{elements}</div>;
   };
@@ -481,6 +772,8 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
       const italicMatch = remaining.match(/(?<!\*)\*(?!\*)(.*?)\*(?!\*)/);
       // #channel-name
       const channelMatch = remaining.match(/#([a-zA-Z][a-zA-Z0-9_-]*)/);
+      // User's first name — highlight in purple
+      const nameMatch = user?.firstName ? remaining.match(new RegExp(`\\b(${user.firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\b`, 'i')) : null;
 
       // Find earliest match
       const matches = [
@@ -488,6 +781,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         codeMatch ? { type: 'code', match: codeMatch, idx: remaining.indexOf(codeMatch[0]) } : null,
         italicMatch ? { type: 'italic', match: italicMatch, idx: remaining.indexOf(italicMatch[0]) } : null,
         channelMatch ? { type: 'channel', match: channelMatch, idx: remaining.indexOf(channelMatch[0]) } : null,
+        nameMatch ? { type: 'name', match: nameMatch, idx: nameMatch.index! } : null,
       ].filter(Boolean).sort((a, b) => a!.idx - b!.idx);
 
       if (matches.length === 0) {
@@ -503,7 +797,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
       }
 
       if (first.type === 'bold') {
-        parts.push(<strong key={keyIdx++} className="font-black text-gray-900">{first.match![1]}</strong>);
+        parts.push(<strong key={keyIdx++} className="font-black text-[#5D5FEF]">{first.match![1]}</strong>);
       } else if (first.type === 'code') {
         parts.push(
           <code key={keyIdx++} className="px-1.5 py-0.5 bg-gray-100 rounded-md text-[12px] font-mono text-[#5D5FEF]">
@@ -518,6 +812,8 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
             <span className="opacity-60">#</span>{first.match![1]}
           </span>
         );
+      } else if (first.type === 'name') {
+        parts.push(<span key={keyIdx++} className="text-[#5D5FEF] font-semibold">{first.match![1]}</span>);
       }
 
       remaining = remaining.slice(first.idx + first.match![0].length);
@@ -1170,17 +1466,6 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         </>
       )}
 
-      {/* Clear Chat - Phone & Desktop */}
-      {messages.length > 0 && (
-        <button
-          onClick={handleClearChat}
-          className="absolute top-20 sm:top-24 md:top-6 right-4 sm:right-8 z-30 flex items-center gap-2 px-3 py-1.5 bg-gray-50/50 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-lg transition-all font-bold text-[10px] backdrop-blur-sm border border-transparent hover:border-red-100 group"
-        >
-          <RotateCcw className="w-3 h-3 group-hover:rotate-[-45deg] transition-transform" />
-          <span>Clear Chat</span>
-        </button>
-      )}
-
       <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-smooth min-h-0">
         <div className="w-full max-w-[95%] mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-6 sm:space-y-8 pb-32 sm:pb-44 pt-20 sm:pt-24 md:pt-0">
           {/* Empty state */}
@@ -1194,23 +1479,23 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
                   Organic Assistance
                 </h3>
                 <p className="text-gray-400 font-semibold text-[10px] sm:text-xs uppercase tracking-[0.25em] leading-relaxed">
-                  Search, analyze, and automate.
+                  {isFamilyMember ? 'Your personal file assistant.' : 'Search, analyze, and automate.'}
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-2 gap-3 sm:gap-4 w-full max-w-3xl px-2 sm:px-0">
+              <div className="grid grid-cols-2 gap-2.5 sm:gap-3 w-full max-w-2xl px-2 sm:px-0">
                 {suggestions.map((item, i) => {
                   const Icon = item.icon;
                   return (
                     <button
                       key={i}
                       onClick={() => setInput(item.text)}
-                      className={`flex flex-col gap-3 p-4 sm:p-6 ${item.bg} border ${item.border} rounded-2xl sm:rounded-3xl text-left ${item.hover} hover:shadow-xl transition-all group active:scale-[0.97] duration-200`}
+                      className="flex items-center gap-2.5 sm:gap-3 px-4 sm:px-5 py-2.5 sm:py-3 bg-[#5D5FEF]/[0.06] border border-[#5D5FEF]/15 rounded-full text-left hover:border-[#5D5FEF]/30 hover:shadow-lg hover:shadow-[#5D5FEF]/10 transition-all group active:scale-[0.97] duration-200"
                     >
-                      <div className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-gradient-to-br ${item.gradient} flex items-center justify-center shadow-lg`}>
-                        <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                      <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#5D5FEF]/10 border border-[#5D5FEF]/20 flex items-center justify-center flex-shrink-0">
+                        <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#5D5FEF]" />
                       </div>
-                      <span className="text-[12px] sm:text-[15px] font-bold text-gray-700 leading-snug">
+                      <span className="text-[11px] sm:text-[13px] font-bold text-gray-700 leading-snug">
                         {item.text}
                       </span>
                     </button>
@@ -1270,7 +1555,57 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
                       </>
                     )}
                   </div>
-                  <p className="text-[9px] font-bold text-gray-300 mt-1.5">
+                  {/* Action buttons for AI messages */}
+                  <div className="flex items-center gap-3 mt-2 px-1">
+                    <button
+                      onClick={() => {
+                        const text = msg.content;
+                        if (navigator.clipboard && window.isSecureContext) {
+                          navigator.clipboard.writeText(text);
+                        } else {
+                          const ta = document.createElement('textarea');
+                          ta.value = text;
+                          ta.style.position = 'fixed';
+                          ta.style.left = '-9999px';
+                          document.body.appendChild(ta);
+                          ta.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(ta);
+                        }
+                        setCopiedIndex(i);
+                        setTimeout(() => setCopiedIndex(prev => prev === i ? null : prev), 1500);
+                      }}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                      title={copiedIndex === i ? 'Copied!' : 'Copy response'}
+                    >
+                      {copiedIndex === i ? (
+                        <Check className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <Copy className="w-4 h-4 text-gray-400" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleRetry(i)}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                      title="Regenerate response"
+                    >
+                      <RefreshCw className="w-4 h-4 text-gray-400" />
+                    </button>
+                    <button
+                      onClick={() => handleSpeak(msg.content, i)}
+                      className="p-1.5 rounded-lg hover:bg-[#5D5FEF]/10 transition-colors"
+                      title={ttsLoadingIndex === i ? 'Generating audio...' : speakingIndex === i ? 'Stop speaking' : 'Read aloud'}
+                    >
+                      {ttsLoadingIndex === i ? (
+                        <Loader2 className="w-4 h-4 text-[#5D5FEF] animate-spin" />
+                      ) : speakingIndex === i ? (
+                        <Square className="w-4 h-4 text-[#5D5FEF]" />
+                      ) : (
+                        <img src="/assets/icons/select_to_speak_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg" alt="Speak" className="w-4 h-4 brightness-[0.55]" />
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-[9px] font-bold text-gray-300 mt-1">
                     {formatTime(msg.timestamp)}
                   </p>
                 </div>

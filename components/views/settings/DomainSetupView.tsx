@@ -806,7 +806,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
       } ${currentStep < 3 ? 'opacity-40 pointer-events-none' : ''}`}>
         <div className={`px-6 py-5 flex items-start gap-4 ${currentStep >= 3 ? 'bg-gradient-to-r from-[#5D5FEF]/[0.03] to-transparent' : ''}`}>
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-            status.customDomain ? 'bg-[#5D5FEF]/10' : 'bg-purple-50'
+            status.customDomain ? 'bg-[#5D5FEF]/10' : 'bg-[#5D5FEF]/5'
           }`}>
             {status.customDomain ? (
               <CheckCircle2 className="w-5 h-5 text-[#5D5FEF]" />

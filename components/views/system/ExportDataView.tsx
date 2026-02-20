@@ -38,7 +38,9 @@ const ExportDataView: React.FC = () => {
     setError(null);
 
     try {
-      const response = await fetch(option.endpoint);
+      const response = await fetch(option.endpoint, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('sessionToken')}` },
+      });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({ error: 'Export failed' }));

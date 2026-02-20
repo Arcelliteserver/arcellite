@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { MoreVertical, Download, Trash2, ExternalLink, Pencil, FolderInput, ChevronRight } from 'lucide-react';
+import { MoreVertical, Download, Trash2, ExternalLink, Pencil, FolderInput, ChevronRight, Share2 } from 'lucide-react';
 import { FileItem } from '../../types';
 import FileIcon from './FileIcon';
 
@@ -167,6 +167,7 @@ const FileListView: React.FC<FileListViewProps> = ({ files, onFileClick, selecte
               <div className="flex items-center ml-6 relative" ref={isMenuOpen ? menuRef : undefined}>
                 <button
                   onClick={(e) => toggleMenu(e, file.id)}
+                  aria-label={`More actions for ${file.name}`}
                   className={`p-2 rounded-xl transition-colors ${isMenuOpen ? 'bg-gray-100 text-gray-600' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-50'}`}
                 >
                   <MoreVertical className="w-4 h-4" />
@@ -198,6 +199,15 @@ const FileListView: React.FC<FileListViewProps> = ({ files, onFileClick, selecte
                       <Pencil className="w-3.5 h-3.5" />
                       Rename
                     </button>
+                    {!file.isFolder && (
+                      <button
+                        onClick={(e) => executeAction(e, 'Share', file)}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-semibold text-[#5D5FEF] hover:bg-gray-50 transition-colors"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        Share
+                      </button>
+                    )}
                     {!file.isFolder && availableFolders && availableFolders.length > 0 && (
                       <div
                         className="relative"

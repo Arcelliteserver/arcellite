@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import {
   ChevronLeft,
   Folder,
@@ -96,6 +96,51 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
 }) => {
   const [showAllFolders, setShowAllFolders] = useState(false);
 
+  // Long-press to share
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = useCallback((file: FileItem, e: React.TouchEvent) => {
+    longPressFired.current = false;
+    const touch = e.touches[0];
+    touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      // Haptic feedback if available
+      if (navigator.vibrate) navigator.vibrate(30);
+      onFileAction('Share', file);
+    }, 500);
+  }, [onFileAction]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStartPos.current || !longPressTimer.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartPos.current.x);
+    const dy = Math.abs(touch.clientY - touchStartPos.current.y);
+    // Cancel if finger moved more than 10px (scrolling)
+    if (dx > 10 || dy > 10) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleFileClick = useCallback((file: FileItem) => {
+    // Don't trigger click if long-press just fired
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
+    onFileClick(file);
+  }, [onFileClick]);
+
   const sortedFiles = [...filteredFiles].sort((a, b) => b.modifiedTimestamp - a.modifiedTimestamp);
 
   const groupedByDate = useMemo(() => {
@@ -121,7 +166,10 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
       {/* App-Style Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-[32px] font-black text-gray-900 tracking-tight leading-none">Files</h1>
+          <div className="relative">
+            <div className="absolute -left-3 top-0 w-[3px] h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full" />
+            <h1 className="text-[32px] font-black text-gray-900 tracking-tight leading-none pl-1">Files</h1>
+          </div>
           {currentFolderId ? (
             <button
               onClick={onGoBack}
@@ -224,10 +272,14 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
                   const IconComp = getFileIconComponent(ext);
                   const colorClass = getFileColor(ext);
                   const thumbnailUrl = isImage && file.url ? file.url : null;
-                  return (
+                    return (
                     <button
                       key={file.id}
-                      onClick={() => onFileClick(file)}
+                      onClick={() => handleFileClick(file)}
+                      onTouchStart={(e) => handleTouchStart(file, e)}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      onContextMenu={(e) => { e.preventDefault(); }}
                       className="bg-white border border-gray-200/80 rounded-2xl shadow-sm active:scale-[0.97] transition-all overflow-hidden text-left touch-manipulation min-w-0"
                     >
                       {isPdfBook ? (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Bell, AlertCircle, CheckCircle, Info, AlertTriangle, CheckCheck } from 'lucide-react';
-import { authApi } from '../../../services/api.client';
+import { authApi } from '@/services/api.client';
 
 interface Notification {
   id: string;

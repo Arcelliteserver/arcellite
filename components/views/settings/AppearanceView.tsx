@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Palette, Moon, Sun, Monitor, Type, Sparkles, FileImage, BookOpen, Loader2, Wand2 } from 'lucide-react';
-import { authApi } from '../../../services/api.client';
+import { authApi } from '@/services/api.client';
 
 interface AppearanceViewProps {
   showToast?: (message: string, type: 'success' | 'error' | 'info') => void;

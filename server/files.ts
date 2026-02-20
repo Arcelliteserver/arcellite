@@ -5,7 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 
 const CATEGORY_DIR: Record<string, string> = {
   general: 'files',
@@ -289,10 +289,11 @@ export function listExternal(absolutePath: string): ListEntry[] {
   // Fallback: use sudo to list (for root-owned mount points like /media/root/...)
   console.log(`[listExternal] Permission denied for "${resolved}", falling back to sudo ls`);
   try {
-    const out = execSync(
-      `sudo -n ls -la --time-style=+%s ${JSON.stringify(resolved)}`,
-      { encoding: 'utf8', timeout: 10000 }
-    );
+    // SEC-CI-007: Use spawnSync with argument array instead of string interpolation
+    const result = spawnSync('sudo', ['-n', 'ls', '-la', '--time-style=+%s', resolved],
+      { encoding: 'utf8', timeout: 10000 });
+    if (result.error) throw result.error;
+    const out = result.stdout;
     const entries: ListEntry[] = [];
     const lines = out.trim().split('\n');
     for (const line of lines) {
@@ -351,9 +352,11 @@ export function deleteExternal(absolutePath: string): void {
     if (err.code !== 'EACCES' && err.code !== 'EPERM') throw err;
   }
 
-  // Fallback: sudo rm
+  // Fallback: sudo rm — SEC-CI-007: use spawnSync with argument array
   try {
-    execSync(`sudo -n rm -rf ${JSON.stringify(resolved)}`, { timeout: 15000 });
+    const result = spawnSync('sudo', ['-n', 'rm', '-rf', resolved], { timeout: 15000 });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(result.stderr?.toString() || 'sudo rm failed');
   } catch (sudoErr: any) {
     console.error('[deleteExternal] sudo rm failed:', sudoErr.message);
     throw new Error('Permission denied: cannot delete');
@@ -385,9 +388,11 @@ export function renameExternal(oldPath: string, newName: string): string {
     if (err.code !== 'EACCES' && err.code !== 'EPERM') throw err;
   }
 
-  // Fallback: sudo mv
+  // Fallback: sudo mv — SEC-CI-007: use spawnSync
   try {
-    execSync(`sudo -n mv ${JSON.stringify(resolvedOld)} ${JSON.stringify(resolvedNew)}`, { timeout: 15000 });
+    const result = spawnSync('sudo', ['-n', 'mv', resolvedOld, resolvedNew], { timeout: 15000 });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(result.stderr?.toString() || 'sudo mv failed');
     return resolvedNew;
   } catch (sudoErr: any) {
     console.error('[renameExternal] sudo mv failed:', sudoErr.message);
@@ -412,9 +417,11 @@ export function mkdirExternal(absolutePath: string): void {
     if (err.code !== 'EACCES' && err.code !== 'EPERM') throw err;
   }
 
-  // Fallback: sudo mkdir
+  // Fallback: sudo mkdir — SEC-CI-007: use spawnSync
   try {
-    execSync(`sudo -n mkdir -p ${JSON.stringify(resolved)}`, { timeout: 10000 });
+    const result = spawnSync('sudo', ['-n', 'mkdir', '-p', resolved], { timeout: 10000 });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(result.stderr?.toString() || 'sudo mkdir failed');
   } catch (sudoErr: any) {
     console.error('[mkdirExternal] sudo mkdir failed:', sudoErr.message);
     throw new Error('Permission denied: cannot create folder');

@@ -17,6 +17,8 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
+  Users,
+  HardDrive,
 } from 'lucide-react';
 
 /* Custom SVG icons from assets/icons */
@@ -32,6 +34,9 @@ const DatabaseIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+// Admin-only item IDs hidden from family member sessions
+const FAMILY_HIDDEN_ITEMS = new Set(['database', 'stats', 'server', 'logs', 'activity', 'security', 'export', 'family']);
+
 interface MobileMoreProps {
   onNavigate: (tab: string) => void;
   user: {
@@ -40,6 +45,7 @@ interface MobileMoreProps {
     avatarUrl?: string | null;
     email?: string;
   } | null;
+  isFamilyMember?: boolean;
 }
 
 interface MenuItem {
@@ -59,6 +65,7 @@ const sections: { title: string; items: MenuItem[] }[] = [
     title: 'CONTENT',
     items: [
       { id: 'shared', label: 'Shared Files', icon: Share2 },
+      { id: 'family', label: 'Family Sharing', icon: Users },
       { id: 'database', label: 'Databases', icon: DatabaseIcon },
       { id: 'trash', label: 'Trash', icon: Trash2 },
       { id: 'myapps', label: 'Integrations', icon: Blocks },
@@ -88,10 +95,28 @@ const sections: { title: string; items: MenuItem[] }[] = [
   },
 ];
 
-const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user }) => {
+const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user, isFamilyMember }) => {
   const [storage, setStorage] = useState<StorageData | null>(null);
   const [fileCount, setFileCount] = useState(0);
   const [folderCount, setFolderCount] = useState(0);
+  const [shareCount, setShareCount] = useState(0);
+
+  useEffect(() => {
+    const fetchShareCount = async () => {
+      try {
+        const token = localStorage.getItem('sessionToken');
+        if (!token) return;
+        const resp = await fetch('/api/share/count', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          setShareCount(data.count || 0);
+        }
+      } catch { /* ignore */ }
+    };
+    fetchShareCount();
+  }, []);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     CONTENT: true,
     SYSTEM: true,
@@ -101,13 +126,22 @@ const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const token = localStorage.getItem('sessionToken');
+        const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
         const [storageRes, countRes] = await Promise.all([
-          fetch('/api/system/storage'),
-          fetch('/api/files/total-count'),
+          fetch('/api/system/storage', { headers: authHeader }),
+          fetch('/api/files/total-count', { headers: authHeader }),
         ]);
         if (storageRes.ok) {
           const data = await storageRes.json();
-          if (data.rootStorage) {
+          if (data.familyMemberStorage) {
+            const fm = data.familyMemberStorage;
+            setStorage({
+              totalHuman: fm.quotaHuman,
+              usedHuman: fm.usedHuman,
+              usedPercent: fm.usedPercent,
+            });
+          } else if (data.rootStorage) {
             setStorage({
               totalHuman: data.rootStorage.totalHuman,
               usedHuman: data.rootStorage.usedHuman,
@@ -188,7 +222,7 @@ const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user }) => {
       {/* ===== Account Settings CTA ===== */}
       <button
         onClick={() => onNavigate('settings')}
-        className="w-full bg-white rounded-[20px] border border-gray-100 shadow-sm p-4 mb-5 flex items-center gap-4 active:scale-[0.98] transition-all"
+        className="w-full bg-white rounded-[20px] border border-gray-100 shadow-sm p-4 mb-3 flex items-center gap-4 active:scale-[0.98] transition-all"
       >
         <div className="w-10 h-10 rounded-[12px] bg-gradient-to-br from-[#5D5FEF] to-[#4D4FCF] flex items-center justify-center shadow-md shadow-[#5D5FEF]/20">
           <Sparkles className="w-5 h-5 text-white" />
@@ -200,55 +234,84 @@ const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user }) => {
         <ChevronRight className="w-5 h-5 text-gray-300" />
       </button>
 
-      {/* ===== Grouped Sections — Arcnota style ===== */}
-      {sections.map((section) => (
-        <div
-          key={section.title}
-          className="bg-white rounded-[20px] border border-gray-100 shadow-sm mb-5 overflow-hidden"
+      {/* ===== Manage Storage CTA (family members) ===== */}
+      {isFamilyMember && (
+        <button
+          onClick={() => onNavigate('manage-storage')}
+          className="w-full bg-white rounded-[20px] border border-gray-100 shadow-sm p-4 mb-5 flex items-center gap-4 active:scale-[0.98] transition-all"
         >
-          {/* Section Header */}
-          <button
-            onClick={() => toggleSection(section.title)}
-            className="w-full flex items-center justify-between px-[18px] py-[18px] active:bg-gray-50 transition-colors"
-          >
-            <span className="text-[12px] font-semibold tracking-[1px] uppercase text-gray-400">
-              {section.title}
-            </span>
-            {expandedSections[section.title] ? (
-              <ChevronUp className="w-4 h-4 text-gray-400" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-gray-400" />
-            )}
-          </button>
+          <div className="w-10 h-10 rounded-[12px] bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md shadow-blue-500/20">
+            <HardDrive className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1 text-left">
+            <p className="text-[16px] font-bold text-gray-900">Manage Storage</p>
+            <p className="text-[13px] text-gray-400 font-medium">View usage & request more space</p>
+          </div>
+          <ChevronRight className="w-5 h-5 text-gray-300" />
+        </button>
+      )}
+      {!isFamilyMember && <div className="mb-2" />}
 
-          {/* Section Items — Arcnota-style: icon in secondaryBg, consistent colors */}
-          {expandedSections[section.title] && (
-            <div>
-              {section.items.map((item, idx) => {
-                const Icon = item.icon;
-                const isLast = idx === section.items.length - 1;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => onNavigate(item.id)}
-                    className={`w-full flex items-center gap-3 px-[18px] py-[18px] active:bg-gray-50 transition-colors ${
-                      !isLast ? 'border-b border-gray-50' : ''
-                    }`}
-                  >
-                    <div className="w-9 h-9 rounded-[10px] flex items-center justify-center bg-[#F7F7F7] flex-shrink-0">
-                      <Icon className="w-[18px] h-[18px] text-gray-600" />
-                    </div>
-                    <span className="flex-1 text-left text-[16px] font-semibold text-gray-800 tracking-tight">
-                      {item.label}
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      ))}
+      {/* ===== Grouped Sections — Arcnota style ===== */}
+      {sections.map((section) => {
+        const visibleItems = isFamilyMember
+          ? section.items.filter(item => !FAMILY_HIDDEN_ITEMS.has(item.id))
+          : section.items;
+        if (visibleItems.length === 0) return null;
+        return (
+          <div
+            key={section.title}
+            className="bg-white rounded-[20px] border border-gray-100 shadow-sm mb-5 overflow-hidden"
+          >
+            {/* Section Header */}
+            <button
+              onClick={() => toggleSection(section.title)}
+              className="w-full flex items-center justify-between px-[18px] py-[18px] active:bg-gray-50 transition-colors"
+            >
+              <span className="text-[12px] font-semibold tracking-[1px] uppercase text-gray-400">
+                {section.title}
+              </span>
+              {expandedSections[section.title] ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+
+            {/* Section Items — Arcnota-style: icon in secondaryBg, consistent colors */}
+            {expandedSections[section.title] && (
+              <div>
+                {visibleItems.map((item, idx) => {
+                  const Icon = item.icon;
+                  const isLast = idx === visibleItems.length - 1;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => onNavigate(item.id)}
+                      className={`w-full flex items-center gap-3 px-[18px] py-[18px] active:bg-gray-50 transition-colors ${
+                        !isLast ? 'border-b border-gray-50' : ''
+                      }`}
+                    >
+                      <div className="w-9 h-9 rounded-[10px] flex items-center justify-center bg-[#F7F7F7] flex-shrink-0">
+                        <Icon className="w-[18px] h-[18px] text-gray-600" />
+                      </div>
+                      <span className="flex-1 text-left text-[16px] font-semibold text-gray-800 tracking-tight">
+                        {item.label}
+                      </span>
+                      {item.id === 'shared' && shareCount > 0 && (
+                        <span className="min-w-[20px] h-[20px] flex items-center justify-center px-1.5 rounded-full bg-[#5D5FEF] text-white text-[11px] font-black leading-none mr-1">
+                          {shareCount > 99 ? '99+' : shareCount}
+                        </span>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* ===== Version ===== */}
       <p className="text-center text-[12px] text-gray-300 font-medium mt-4 mb-2">

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Sparkles, Check, ExternalLink } from 'lucide-react';
-import { AI_MODELS } from '../../../constants';
+import { AI_MODELS } from '@/constants';
 
 const AIModelsView: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);

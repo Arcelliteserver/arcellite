@@ -144,4 +144,37 @@ CREATE INDEX IF NOT EXISTS idx_file_metadata_user ON file_metadata(user_id, file
 CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
 
+-- Family sharing / sub-accounts
+CREATE TABLE IF NOT EXISTS family_members (
+  id SERIAL PRIMARY KEY,
+  owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  role VARCHAR(20) DEFAULT 'viewer',          -- 'viewer', 'editor', 'admin'
+  storage_quota BIGINT DEFAULT 5368709120,    -- 5 GB default (bytes)
+  storage_used BIGINT DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'pending',       -- 'pending', 'active', 'disabled'
+  invite_token VARCHAR(255) UNIQUE,
+  avatar_url TEXT,
+  notes TEXT,
+  last_active TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(owner_id, email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_family_members_owner ON family_members(owner_id);
+CREATE INDEX IF NOT EXISTS idx_family_members_invite ON family_members(invite_token);
+
+-- Migration: link accepted invites to a real user account
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='family_members' AND column_name='user_id'
+  ) THEN
+    ALTER TABLE family_members
+      ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
 -- Chat tables are managed in the arcellite_chat_history database (see server/routes/chat.routes.ts)

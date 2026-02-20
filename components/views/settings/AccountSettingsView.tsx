@@ -47,11 +47,13 @@ import {
   FileText,
   History,
   Server,
+  Link,
+  Upload,
+  Camera,
 } from 'lucide-react';
-import { AI_MODELS } from '../../../constants';
-import { authApi, setSessionToken } from '../../../services/api.client';
-import type { UserData } from '../../../App';
-import type { RemovableDeviceInfo } from '../../../types';
+import { AI_MODELS } from '@/constants';
+import { authApi, setSessionToken } from '@/services/api.client';
+import type { UserData, RemovableDeviceInfo } from '@/types';
 
 interface DeviceSession {
   id: number;
@@ -87,7 +89,11 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   const [editFirstName, setEditFirstName] = useState('');
   const [editLastName, setEditLastName] = useState('');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
+  const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
+  const [editAvatarPreview, setEditAvatarPreview] = useState('');
+  const [editAvatarMode, setEditAvatarMode] = useState<'none' | 'upload' | 'link'>('none');
   const [editSaving, setEditSaving] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const [devices, setDevices] = useState<DeviceSession[]>([]);
   const [devicesLoading, setDevicesLoading] = useState(true);
   const [revokingId, setRevokingId] = useState<number | null>(null);
@@ -123,8 +129,11 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   const [storageTransferDone, setStorageTransferDone] = useState(false);
   const [storageTransferError, setStorageTransferError] = useState<string | null>(null);
   const [storageTransferTotal, setStorageTransferTotal] = useState(0);
+  const [storageTransferPhase, setStorageTransferPhase] = useState('');
+  const [storageTransferCopied, setStorageTransferCopied] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
+  const transferPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeModelData = AI_MODELS.find(m => m.id === selectedModel) || AI_MODELS[0];
 
   // Only show models whose provider has an API key configured
@@ -138,6 +147,16 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
         if (data.ok && data.providers) setConfiguredProviders(data.providers);
       })
       .catch(() => {});
+  }, []);
+
+  // Cleanup transfer polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (transferPollRef.current) {
+        clearInterval(transferPollRef.current);
+        transferPollRef.current = null;
+      }
+    };
   }, []);
 
   const displayName = user?.firstName && user?.lastName
@@ -260,6 +279,8 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
     setStorageTransferDone(false);
     setStorageTransferError(null);
     setStorageTransferTotal(0);
+    setStorageTransferPhase('preparing');
+    setStorageTransferCopied(0);
 
     try {
       const token = localStorage.getItem('sessionToken');
@@ -302,11 +323,14 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
               if (eventName === 'progress') {
                 setStorageTransferPercent(data.percent || 0);
                 setStorageTransferMessage(data.message || '');
+                if (data.phase) setStorageTransferPhase(data.phase);
                 if (data.totalFiles !== undefined) setStorageTransferTotal(data.totalFiles);
+                if (data.copiedCount !== undefined) setStorageTransferCopied(data.copiedCount);
               } else if (eventName === 'done') {
                 setStorageTransferDone(true);
                 setStorageTransferPercent(100);
                 setStorageTransferMessage('Transfer complete!');
+                setStorageTransferPhase('done');
                 setStorageTransferTotal(data.totalFiles || 0);
                 // Update local state
                 const isExternal = newPath.startsWith('/media/') || newPath.startsWith('/mnt/');
@@ -339,16 +363,39 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
     setEditFirstName(user?.firstName || '');
     setEditLastName(user?.lastName || '');
     setEditAvatarUrl(user?.avatarUrl || '');
+    setEditAvatarFile(null);
+    setEditAvatarPreview('');
+    setEditAvatarMode('none');
     setIsEditingProfile(true);
+  };
+
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return;
+    if (file.size > 5 * 1024 * 1024) return; // 5MB limit
+    setEditAvatarFile(file);
+    const url = URL.createObjectURL(file);
+    setEditAvatarPreview(url);
   };
 
   const handleSaveProfile = async () => {
     setEditSaving(true);
     try {
-      await authApi.updateProfile({ firstName: editFirstName, lastName: editLastName, avatarUrl: editAvatarUrl.trim() || null });
-      if (onUserUpdate && user) {
-        onUserUpdate({ ...user, firstName: editFirstName, lastName: editLastName, avatarUrl: editAvatarUrl.trim() || null });
+      let avatarUrl = editAvatarUrl.trim() || null;
+
+      // If a file was selected, upload it first
+      if (editAvatarFile) {
+        const result = await authApi.uploadAvatar(editAvatarFile);
+        avatarUrl = result.avatarUrl;
       }
+
+      await authApi.updateProfile({ firstName: editFirstName, lastName: editLastName, avatarUrl });
+      if (onUserUpdate && user) {
+        onUserUpdate({ ...user, firstName: editFirstName, lastName: editLastName, avatarUrl });
+      }
+      // Cleanup preview blob URL
+      if (editAvatarPreview) URL.revokeObjectURL(editAvatarPreview);
       setIsEditingProfile(false);
     } catch (err) {
       // Silent — user stays in edit mode
@@ -487,8 +534,8 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
         body: JSON.stringify({ mountpoint: selectedTransferDrive.mountpoint }),
       });
 
-      // Poll progress
-      const poll = setInterval(async () => {
+      // Poll progress — BUG-004: store in ref so cleanup on unmount works
+      transferPollRef.current = setInterval(async () => {
         try {
           const res = await fetch('/api/transfer/status');
           const status = await res.json();
@@ -497,15 +544,18 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
           setTransferStatus(status);
 
           if (status.phase === 'done') {
-            clearInterval(poll);
+            if (transferPollRef.current) clearInterval(transferPollRef.current);
+            transferPollRef.current = null;
             setTransferPhase('done');
           } else if (status.phase === 'error') {
-            clearInterval(poll);
+            if (transferPollRef.current) clearInterval(transferPollRef.current);
+            transferPollRef.current = null;
             setTransferPhase('error');
             setTransferMessage(status.error || 'Transfer failed');
           }
         } catch {
-          clearInterval(poll);
+          if (transferPollRef.current) clearInterval(transferPollRef.current);
+          transferPollRef.current = null;
           setTransferPhase('error');
           setTransferMessage('Lost connection');
         }
@@ -595,12 +645,108 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
             {isEditingProfile && createPortal(
               <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[1000] flex items-center justify-center p-4" onClick={() => setIsEditingProfile(false)}>
                 <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-                  <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center justify-between mb-2">
                     <h3 className="text-xl font-black text-gray-900">Edit Profile</h3>
                     <button onClick={() => setIsEditingProfile(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
                       <X className="w-5 h-5 text-gray-400" />
                     </button>
                   </div>
+
+                  {/* Avatar at top center */}
+                  <div className="flex flex-col items-center py-5">
+                    <input ref={avatarInputRef} type="file" accept="image/*" onChange={handleAvatarFileChange} className="hidden" />
+                    <div className="relative mb-4">
+                      <div className="w-24 h-24 rounded-2xl overflow-hidden bg-[#5D5FEF] flex items-center justify-center border-4 border-[#F5F5F7] shadow-xl">
+                        {(editAvatarPreview || editAvatarUrl) ? (
+                          <img src={editAvatarPreview || editAvatarUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        ) : (
+                          <span className="text-white font-black text-3xl">{(editFirstName || user?.firstName || '?')[0]?.toUpperCase()}</span>
+                        )}
+                      </div>
+                      <div className="absolute -bottom-1.5 -right-1.5 w-8 h-8 bg-white rounded-xl shadow-lg flex items-center justify-center border border-gray-100">
+                        <Camera className="w-4 h-4 text-[#5D5FEF]" />
+                      </div>
+                    </div>
+                    {editAvatarFile && (
+                      <p className="text-[10px] text-emerald-500 font-medium mb-2">✓ {editAvatarFile.name}</p>
+                    )}
+                    {/* Two solid action buttons */}
+                    <div className="flex gap-2 w-full max-w-[280px]">
+                      <button
+                        type="button"
+                        onClick={() => setEditAvatarMode(editAvatarMode === 'none' ? 'upload' : 'none')}
+                        className={`flex-1 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
+                          editAvatarMode === 'upload' || editAvatarMode === 'link'
+                            ? 'bg-[#5D5FEF]/10 text-[#5D5FEF] border border-[#5D5FEF]/20'
+                            : 'bg-[#5D5FEF] text-white shadow-lg shadow-[#5D5FEF]/20 hover:bg-[#4D4FCF]'
+                        }`}
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Upload Photo
+                      </button>
+                      {(editAvatarPreview || editAvatarUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => { setEditAvatarFile(null); setEditAvatarPreview(''); setEditAvatarUrl(''); setEditAvatarMode('none'); }}
+                          className="flex-1 py-2.5 bg-red-500 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-1.5"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Remove
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Upload method toggle & inputs */}
+                    {(editAvatarMode === 'upload' || editAvatarMode === 'link') && (
+                      <div className="w-full mt-3">
+                        <div className="flex bg-[#F5F5F7] rounded-xl p-1 mb-3">
+                          <button
+                            type="button"
+                            onClick={() => setEditAvatarMode('upload')}
+                            className={`flex-1 py-2 rounded-lg font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
+                              editAvatarMode === 'upload' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'
+                            }`}
+                          >
+                            <Upload className="w-3 h-3" />
+                            From Device
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditAvatarMode('link')}
+                            className={`flex-1 py-2 rounded-lg font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
+                              editAvatarMode === 'link' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'
+                            }`}
+                          >
+                            <Link className="w-3 h-3" />
+                            From URL
+                          </button>
+                        </div>
+                        {editAvatarMode === 'upload' && (
+                          <button
+                            type="button"
+                            onClick={() => avatarInputRef.current?.click()}
+                            className="w-full py-3 bg-[#F5F5F7] rounded-2xl border-2 border-dashed border-gray-200 hover:border-[#5D5FEF]/30 hover:bg-[#5D5FEF]/5 transition-all flex items-center justify-center gap-2 group"
+                          >
+                            <Image className="w-4 h-4 text-gray-400 group-hover:text-[#5D5FEF] transition-colors" />
+                            <span className="text-[11px] font-bold text-gray-400 group-hover:text-[#5D5FEF] transition-colors">
+                              {editAvatarFile ? 'Choose Different File' : 'Choose Image File'}
+                            </span>
+                          </button>
+                        )}
+                        {editAvatarMode === 'link' && (
+                          <input
+                            type="url"
+                            value={editAvatarUrl}
+                            onChange={e => { setEditAvatarUrl(e.target.value); setEditAvatarFile(null); setEditAvatarPreview(''); }}
+                            placeholder="https://example.com/avatar.jpg"
+                            className="w-full px-4 py-3 bg-[#F5F5F7] rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[13px] outline-none font-medium placeholder:text-gray-300"
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Name fields */}
                   <div className="space-y-4">
                     <div>
                       <label className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-2 block">First Name</label>
@@ -610,25 +756,6 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                       <label className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-2 block">Last Name</label>
                       <input type="text" value={editLastName} onChange={e => setEditLastName(e.target.value)} className="w-full px-4 py-3 bg-[#F5F5F7] rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[15px] outline-none font-medium" />
                     </div>
-                    <div>
-                      <label className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-2 block">Avatar URL</label>
-                      <input
-                        type="url"
-                        value={editAvatarUrl}
-                        onChange={e => setEditAvatarUrl(e.target.value)}
-                        placeholder="https://example.com/avatar.jpg"
-                        className="w-full px-4 py-3 bg-[#F5F5F7] rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[15px] outline-none font-medium placeholder:text-gray-300"
-                      />
-                      <p className="text-[10px] text-gray-400 mt-1.5 ml-1">Paste a URL to an image for your profile picture</p>
-                    </div>
-                    {editAvatarUrl && (
-                      <div className="flex items-center gap-3 p-3 bg-[#F5F5F7] rounded-2xl">
-                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#5D5FEF] flex items-center justify-center flex-shrink-0">
-                          <img src={editAvatarUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                        </div>
-                        <p className="text-[11px] text-gray-500 font-medium">Avatar Preview</p>
-                      </div>
-                    )}
                     <button onClick={handleSaveProfile} disabled={editSaving} className="w-full py-4 bg-[#5D5FEF] text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#4D4FCF] transition-all shadow-lg shadow-[#5D5FEF]/20 disabled:opacity-50 flex items-center justify-center gap-2">
                       {editSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : 'Save Changes'}
                     </button>
@@ -922,8 +1049,8 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                 </div>
               </button>
 
-              {/* Storage Device Selection */}
-              <div className="w-full flex flex-col md:flex-row md:items-center justify-between p-4 md:p-6 bg-[#F5F5F7]/40 border border-transparent hover:border-gray-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group gap-3 md:gap-0">
+              {/* Storage Device Selection — admin only */}
+              {!user?.isFamilyMember && <div className="w-full flex flex-col md:flex-row md:items-center justify-between p-4 md:p-6 bg-[#F5F5F7]/40 border border-transparent hover:border-gray-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group gap-3 md:gap-0">
                 <div className="flex items-center gap-3 md:gap-5">
                   <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-gray-100 flex items-center justify-center text-gray-400 group-hover:text-[#5D5FEF] transition-all">
                     {storageDevice === 'builtin' ? (
@@ -961,7 +1088,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                     External USB
                   </button>
                 </div>
-              </div>
+              </div>}
             </div>
           </section>
 
@@ -1053,56 +1180,66 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
               </div>
             )}
 
-            <div className="space-y-2 md:space-y-3 mb-6 md:mb-8">
-              {/* Clear All Files */}
-              <button onClick={() => setShowClearFilesConfirm(true)} className="w-full flex items-center justify-between p-4 md:p-6 bg-red-50/30 border border-transparent hover:border-red-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group">
-                <div className="flex items-center gap-3 md:gap-5">
-                  <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-red-100 flex items-center justify-center text-red-300 group-hover:text-red-500 transition-all">
-                    <FileX className="w-4 h-4 md:w-5 md:h-5" />
+            {/* Admin-only bulk actions — hidden for family members */}
+            {!user?.isFamilyMember && (
+              <div className="space-y-2 md:space-y-3 mb-6 md:mb-8">
+                {/* Clear All Files */}
+                <button onClick={() => setShowClearFilesConfirm(true)} className="w-full flex items-center justify-between p-4 md:p-6 bg-red-50/30 border border-transparent hover:border-red-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group">
+                  <div className="flex items-center gap-3 md:gap-5">
+                    <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-red-100 flex items-center justify-center text-red-300 group-hover:text-red-500 transition-all">
+                      <FileX className="w-4 h-4 md:w-5 md:h-5" />
+                    </div>
+                    <div className="text-left">
+                      <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Clear All Files</span>
+                      <span className="text-[10px] md:text-[11px] text-gray-400 font-medium">Remove all uploaded files from storage</span>
+                    </div>
                   </div>
-                  <div className="text-left">
-                    <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Clear All Files</span>
-                    <span className="text-[10px] md:text-[11px] text-gray-400 font-medium">Remove all uploaded files from storage</span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-red-400 transition-all" />
-              </button>
+                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-red-400 transition-all" />
+                </button>
 
-              {/* Reset Preferences */}
-              <button onClick={() => setShowResetSettingsConfirm(true)} className="w-full flex items-center justify-between p-4 md:p-6 bg-red-50/30 border border-transparent hover:border-red-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group">
-                <div className="flex items-center gap-3 md:gap-5">
-                  <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-red-100 flex items-center justify-center text-red-300 group-hover:text-red-500 transition-all">
-                    <RotateCcw className="w-4 h-4 md:w-5 md:h-5" />
+                {/* Reset Preferences */}
+                <button onClick={() => setShowResetSettingsConfirm(true)} className="w-full flex items-center justify-between p-4 md:p-6 bg-red-50/30 border border-transparent hover:border-red-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group">
+                  <div className="flex items-center gap-3 md:gap-5">
+                    <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-red-100 flex items-center justify-center text-red-300 group-hover:text-red-500 transition-all">
+                      <RotateCcw className="w-4 h-4 md:w-5 md:h-5" />
+                    </div>
+                    <div className="text-left">
+                      <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Reset Preferences</span>
+                      <span className="text-[10px] md:text-[11px] text-gray-400 font-medium">Restore all settings to factory defaults</span>
+                    </div>
                   </div>
-                  <div className="text-left">
-                    <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Reset Preferences</span>
-                    <span className="text-[10px] md:text-[11px] text-gray-400 font-medium">Restore all settings to factory defaults</span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-red-400 transition-all" />
-              </button>
+                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-red-400 transition-all" />
+                </button>
 
-              {/* Purge Databases */}
-              <button onClick={() => setShowPurgeDatabasesConfirm(true)} className="w-full flex items-center justify-between p-4 md:p-6 bg-red-50/30 border border-transparent hover:border-red-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group">
-                <div className="flex items-center gap-3 md:gap-5">
-                  <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-red-100 flex items-center justify-center text-red-300 group-hover:text-red-500 transition-all">
-                    <Database className="w-4 h-4 md:w-5 md:h-5" />
+                {/* Purge Databases */}
+                <button onClick={() => setShowPurgeDatabasesConfirm(true)} className="w-full flex items-center justify-between p-4 md:p-6 bg-red-50/30 border border-transparent hover:border-red-100 rounded-xl md:rounded-[2rem] hover:bg-white hover:shadow-xl transition-all group">
+                  <div className="flex items-center gap-3 md:gap-5">
+                    <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl bg-white border border-red-100 flex items-center justify-center text-red-300 group-hover:text-red-500 transition-all">
+                      <Database className="w-4 h-4 md:w-5 md:h-5" />
+                    </div>
+                    <div className="text-left">
+                      <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Purge Databases</span>
+                      <span className="text-[10px] md:text-[11px] text-gray-400 font-medium">Drop all user-created databases permanently</span>
+                    </div>
                   </div>
-                  <div className="text-left">
-                    <span className="text-sm md:text-[15px] font-bold text-gray-700 block">Purge Databases</span>
-                    <span className="text-[10px] md:text-[11px] text-gray-400 font-medium">Drop all user-created databases permanently</span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-red-400 transition-all" />
-              </button>
-            </div>
+                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-red-400 transition-all" />
+                </button>
+              </div>
+            )}
 
             {/* Delete Account — final action */}
             <div className="pt-4 md:pt-6 border-t border-red-100">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h4 className="text-base md:text-lg font-black text-gray-900 mb-1">Delete Account</h4>
-                  <p className="text-[11px] md:text-xs text-gray-400 font-medium">Permanently delete your account and all data. This action cannot be undone.</p>
+                  <h4 className="text-base md:text-lg font-black text-gray-900 mb-1">
+                    {user?.isFamilyMember ? 'Delete My Account' : 'Delete Account'}
+                  </h4>
+                  <p className="text-[11px] md:text-xs text-gray-400 font-medium">
+                    {user?.isFamilyMember
+                      ? 'Permanently deletes your account and all your files. You will no longer be able to log in.'
+                      : 'Permanently delete your account and all data. This action cannot be undone.'
+                    }
+                  </p>
                 </div>
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
@@ -1115,8 +1252,8 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
             </div>
           </section>
 
-          {/* Transfer Data Section */}
-          <section className="bg-white rounded-2xl md:rounded-[2.5rem] border border-[#5D5FEF]/10 p-6 md:p-8 lg:p-10 shadow-sm">
+          {/* Transfer Data Section — admin only */}
+          {!user?.isFamilyMember && <section className="bg-white rounded-2xl md:rounded-[2.5rem] border border-[#5D5FEF]/10 p-6 md:p-8 lg:p-10 shadow-sm">
             <p className="text-[9px] md:text-[10px] font-black text-[#5D5FEF]/40 uppercase tracking-[0.25em] mb-4 md:mb-6 ml-2">Transfer</p>
 
             {transferPhase === 'idle' && (
@@ -1457,7 +1594,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                 </button>
               </div>
             )}
-          </section>
+          </section>}
 
       </div>
 
@@ -1470,9 +1607,14 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                 <AlertTriangle className="w-8 h-8 text-red-500" />
               </div>
             </div>
-            <h3 className="text-xl font-black text-gray-900 text-center mb-2">Delete Account</h3>
+            <h3 className="text-xl font-black text-gray-900 text-center mb-2">
+              {user?.isFamilyMember ? 'Delete My Account' : 'Delete Account'}
+            </h3>
             <p className="text-sm text-gray-500 text-center mb-6 leading-relaxed">
-              This will permanently delete your account, all files, sessions, and data. You will be redirected to the setup wizard to create a new account.
+              {user?.isFamilyMember
+                ? `This will permanently delete your account (${user.email}), all your files, and all your sessions. Your account will be completely removed and you will no longer be able to log in. This cannot be undone.`
+                : 'This will permanently delete your account, all files, sessions, and data. You will be redirected to the setup wizard to create a new account.'
+              }
             </p>
             <div className="mb-4">
               <label className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-2 block">Type "DELETE" to confirm</label>
@@ -1655,22 +1797,75 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                   </>
                 ) : (
                   <>
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#5D5FEF]/10 mb-5">
-                      <ArrowRightLeft className="w-8 h-8 text-[#5D5FEF] animate-pulse" />
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center">
+                          <Loader2 className="w-5 h-5 text-[#5D5FEF] animate-spin" />
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-base font-black text-[#111111]">Transferring Files</h3>
+                          <p className="text-[11px] text-gray-400 font-medium">Do not disconnect or close this page</p>
+                        </div>
+                      </div>
+                      <span className="text-xl font-black text-[#5D5FEF] tabular-nums">{storageTransferPercent}%</span>
                     </div>
-                    <h3 className="text-lg font-black text-[#111111] mb-1">Transferring Files</h3>
-                    <p className="text-sm text-gray-400 font-medium mb-6">Do not disconnect drives or close this page</p>
 
                     {/* Progress bar */}
-                    <div className="w-full bg-gray-100 rounded-full h-3 mb-3 overflow-hidden">
+                    <div className="w-full bg-gray-100 rounded-full h-2.5 mb-4 overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-[#5D5FEF] to-[#7B7DFF] rounded-full transition-all duration-500 ease-out"
                         style={{ width: `${storageTransferPercent}%` }}
                       />
                     </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs text-gray-400 font-medium truncate max-w-[70%]">{storageTransferMessage}</p>
-                      <span className="text-xs font-black text-[#5D5FEF]">{storageTransferPercent}%</span>
+
+                    {/* Step indicators */}
+                    {(() => {
+                      const phaseOrder = ['preparing', 'counting', 'copying', 'verifying', 'cleanup', 'updating', 'done'];
+                      const currentIdx = phaseOrder.indexOf(storageTransferPhase);
+                      const steps = [
+                        { label: 'Prepare', phases: ['preparing', 'counting'] },
+                        { label: 'Copy Files', phases: ['copying'] },
+                        { label: 'Cleanup', phases: ['verifying', 'cleanup', 'updating'] },
+                      ];
+                      return (
+                        <div className="flex items-center gap-1 mb-4 text-[9px] font-bold uppercase tracking-wider">
+                          {steps.map((step, i) => {
+                            const isActive = step.phases.includes(storageTransferPhase);
+                            const lastPhaseIdx = phaseOrder.indexOf(step.phases[step.phases.length - 1]);
+                            const isDone = currentIdx > lastPhaseIdx;
+                            return (
+                              <React.Fragment key={step.label}>
+                                {i > 0 && <div className={`flex-1 h-px ${isDone || (isActive && i > 0) ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`} />}
+                                <div className={`flex items-center gap-1 px-2 py-1 rounded-full ${
+                                  isActive ? 'bg-[#5D5FEF]/10 text-[#5D5FEF]' : isDone ? 'text-[#5D5FEF]' : 'text-gray-300'
+                                }`}>
+                                  {isDone
+                                    ? <Check className="w-3 h-3" />
+                                    : isActive
+                                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                                    : <span className="w-3 h-3 rounded-full border border-current inline-block" />}
+                                  {step.label}
+                                </div>
+                              </React.Fragment>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Current activity info */}
+                    <div className="bg-[#F5F5F7] rounded-xl p-3 space-y-2 text-left">
+                      <p className="text-[10px] text-gray-500 font-medium truncate">{storageTransferMessage || 'Preparing...'}</p>
+                      {storageTransferPhase === 'copying' && storageTransferTotal > 0 && (
+                        <div className="flex items-center justify-between text-[9px] text-gray-400 font-medium">
+                          <span className="flex items-center gap-1">
+                            <FileText className="w-2.5 h-2.5" />
+                            {storageTransferCopied.toLocaleString()} / {storageTransferTotal.toLocaleString()} files
+                          </span>
+                          <span>{Math.round((storageTransferCopied / storageTransferTotal) * 100)}% of files</span>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}

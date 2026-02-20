@@ -6,10 +6,13 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import Busboy from 'busboy';
 import * as authService from '../services/auth.service.js';
 import * as securityService from '../services/security.service.js';
 import { sendVerificationEmail } from '../services/email.service.js';
 import { ensureBaseExists } from '../files.js';
+import { pool } from '../db/connection.js';
 
 /**
  * Parse JSON body from request
@@ -195,6 +198,10 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse) {
       'security'
     ).catch(() => {});
 
+    const { rows: fmLoginRows } = await pool.query(
+      `SELECT id FROM family_members WHERE user_id = $1 LIMIT 1`,
+      [user.id],
+    );
     sendJson(res, 200, {
       user: {
         id: user.id,
@@ -204,6 +211,7 @@ export async function handleLogin(req: IncomingMessage, res: ServerResponse) {
         avatarUrl: user.avatarUrl,
         isSetupComplete: user.isSetupComplete,
         emailVerified: user.emailVerified,
+        isFamilyMember: fmLoginRows.length > 0,
       },
       sessionToken: session.sessionToken,
     });
@@ -344,6 +352,12 @@ export async function handleGetCurrentUser(req: IncomingMessage, res: ServerResp
       return;
     }
 
+    const { rows: fmMeRows } = await pool.query(
+      `SELECT id, status FROM family_members WHERE user_id = $1 LIMIT 1`,
+      [user.id],
+    );
+    const isFamilyMember = fmMeRows.length > 0;
+    const isSuspended = isFamilyMember && fmMeRows[0].status === 'disabled';
     sendJson(res, 200, {
       user: {
         id: user.id,
@@ -354,6 +368,8 @@ export async function handleGetCurrentUser(req: IncomingMessage, res: ServerResp
         storagePath: user.storagePath,
         isSetupComplete: user.isSetupComplete,
         emailVerified: user.emailVerified,
+        isFamilyMember,
+        isSuspended,
       },
     });
   } catch (error: any) {
@@ -405,6 +421,21 @@ export async function handleUpdateProfile(req: IncomingMessage, res: ServerRespo
     }
 
     const { firstName, lastName, avatarUrl, storagePath } = await parseBody(req);
+
+    // Validate storagePath cannot point to sensitive system directories
+    if (storagePath) {
+      const os = await import('os');
+      let resolvedPath = storagePath as string;
+      if (resolvedPath.startsWith('~/') || resolvedPath === '~') {
+        resolvedPath = path.join(os.homedir(), resolvedPath.slice(1));
+      }
+      const absPath = path.resolve(resolvedPath);
+      const blockedPaths = ['/root', '/etc', '/sys', '/proc', '/boot', '/bin', '/sbin', '/usr/bin', '/usr/sbin', '/lib', '/dev'];
+      if (blockedPaths.some(blocked => absPath === blocked || absPath.startsWith(blocked + '/'))) {
+        sendJson(res, 400, { error: 'Storage path cannot be in a system directory' });
+        return;
+      }
+    }
 
     await authService.updateUserProfile(user.id, {
       firstName,
@@ -686,7 +717,17 @@ export async function handleDeleteAccount(req: IncomingMessage, res: ServerRespo
       return;
     }
 
-    await authService.deleteAccount(user.id);
+    // Check if this is a family member — use safe isolated deletion that
+    // does NOT touch the owner's databases, .env, or root storage directory.
+    const { rows: fmCheck } = await pool.query(
+      `SELECT id FROM family_members WHERE user_id = $1 LIMIT 1`,
+      [user.id]
+    );
+    if (fmCheck.length > 0) {
+      await authService.deleteFamilyMemberAccount(user.id);
+    } else {
+      await authService.deleteAccount(user.id);
+    }
     sendJson(res, 200, { success: true, message: 'Account deleted' });
   } catch (error: any) {
     console.error('[Auth] Delete account error:', error);
@@ -751,6 +792,7 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
       aiAutoRename, pdfThumbnails,
       secTwoFactor, secFileObfuscation, secGhostFolders, secTrafficMasking, secStrictIsolation,
       secAutoLock, secAutoLockTimeout, secAutoLockPin, secFolderLock, secFolderLockPin, secLockedFolders,
+      preferredModel,
     } = body;
 
     await authService.updateUserSettings(user.id, {
@@ -765,6 +807,7 @@ export async function handleUpdateSettings(req: IncomingMessage, res: ServerResp
       aiAutoRename, pdfThumbnails,
       secTwoFactor, secFileObfuscation, secGhostFolders, secTrafficMasking, secStrictIsolation,
       secAutoLock, secAutoLockTimeout, secAutoLockPin, secFolderLock, secFolderLockPin, secLockedFolders,
+      preferredModel,
     });
 
     // Log the settings change
@@ -1249,12 +1292,18 @@ function countFilesRecursive(baseDir: string, subDirs?: string[]): number {
   return count;
 }
 
-// ── Helper: Phase 1 — recursively COPY all contents from src to dest ─────────
+// ── Helper: yield to event loop so SSE writes can be flushed ─────────────────
+function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
+// ── Helper: Phase 1 — recursively COPY all contents from src to dest (async) ──
+// Yields to the event loop between file copies so SSE progress events flush.
 // Returns { copied: number, failed: string[] }
-function copyContentsRecursive(
+async function copyContentsRecursive(
   srcDir: string, destDir: string,
   onProgress: (file: string) => void
-): { copied: number; failed: string[] } {
+): Promise<{ copied: number; failed: string[] }> {
   const result = { copied: 0, failed: [] as string[] };
   if (!fs.existsSync(srcDir)) return result;
   if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
@@ -1273,16 +1322,18 @@ function copyContentsRecursive(
     const destPath = path.join(destDir, entry.name);
 
     if (entry.isDirectory()) {
-      const sub = copyContentsRecursive(srcPath, destPath, onProgress);
+      const sub = await copyContentsRecursive(srcPath, destPath, onProgress);
       result.copied += sub.copied;
       result.failed.push(...sub.failed);
     } else {
       try {
-        // Copy file to destination
-        fs.copyFileSync(srcPath, destPath);
-        // Verify: check destination exists and size matches
-        const srcStat = fs.statSync(srcPath);
-        const destStat = fs.statSync(destPath);
+        // Async copy — does not block the event loop
+        await fs.promises.copyFile(srcPath, destPath);
+        // Verify: check destination size matches
+        const [srcStat, destStat] = await Promise.all([
+          fs.promises.stat(srcPath),
+          fs.promises.stat(destPath),
+        ]);
         if (destStat.size !== srcStat.size) {
           // Size mismatch — remove bad copy, mark as failed
           try { fs.unlinkSync(destPath); } catch {}
@@ -1297,15 +1348,17 @@ function copyContentsRecursive(
         result.failed.push(srcPath);
         // Continue with next file — don't abort the entire transfer
       }
+      // Yield after every file so queued SSE writes can be flushed to the network
+      await yieldToEventLoop();
     }
   }
   return result;
 }
 
 // ── Helper: Phase 2 — recursively DELETE source files that exist at dest ──────
-function deleteSourceAfterVerifiedCopy(
+async function deleteSourceAfterVerifiedCopy(
   srcDir: string, destDir: string
-): void {
+): Promise<void> {
   if (!fs.existsSync(srcDir)) return;
 
   let entries: import('fs').Dirent[];
@@ -1318,7 +1371,7 @@ function deleteSourceAfterVerifiedCopy(
     const destPath = path.join(destDir, entry.name);
 
     if (entry.isDirectory()) {
-      deleteSourceAfterVerifiedCopy(srcPath, destPath);
+      await deleteSourceAfterVerifiedCopy(srcPath, destPath);
       // Remove dir only if empty now
       try { fs.rmdirSync(srcPath); } catch { /* not empty or permission */ }
     } else {
@@ -1328,10 +1381,11 @@ function deleteSourceAfterVerifiedCopy(
           const srcStat = fs.statSync(srcPath);
           const destStat = fs.statSync(destPath);
           if (destStat.size === srcStat.size) {
-            fs.unlinkSync(srcPath);
+            await fs.promises.unlink(srcPath);
           }
         }
       } catch { /* leave source intact on any error */ }
+      await yieldToEventLoop();
     }
   }
 }
@@ -1347,6 +1401,13 @@ export async function handleTransferStorage(req: IncomingMessage, res: ServerRes
     if (!authHeader?.startsWith('Bearer ')) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     const user = await authService.validateSession(authHeader.substring(7));
     if (!user) { sendJson(res, 401, { error: 'Invalid session' }); return; }
+
+    // SEC-AUTHZ: Storage transfer is an owner-only operation.
+    // Family members have their storage path set at account creation and cannot change it.
+    if (user.isFamilyMember) {
+      sendJson(res, 403, { error: 'Family members cannot change storage location' });
+      return;
+    }
 
     const { newPath } = await parseBody(req);
     if (!newPath || typeof newPath !== 'string') {
@@ -1383,6 +1444,7 @@ export async function handleTransferStorage(req: IncomingMessage, res: ServerRes
     try {
       // 1. Create directories at new path
       sendSSE('progress', { phase: 'preparing', message: 'Creating directories...', percent: 0 });
+      await yieldToEventLoop();
       const dirs = ['files', 'photos', 'videos', 'music', 'shared', 'databases', 'databases/sqlite', '.trash'];
       for (const sub of dirs) {
         const dir = path.join(resolvedNew, sub);
@@ -1393,28 +1455,30 @@ export async function handleTransferStorage(req: IncomingMessage, res: ServerRes
 
       // 2. Count total files to move (only arcellite data dirs, not .security etc.)
       sendSSE('progress', { phase: 'counting', message: 'Counting files...', percent: 5 });
+      await yieldToEventLoop();
       const totalFiles = countFilesRecursive(currentStoragePath, ARCELLITE_DATA_DIRS);
 
       if (totalFiles === 0) {
         // No files to transfer, just update the path
         sendSSE('progress', { phase: 'updating', message: 'Updating storage path...', percent: 90 });
+        await yieldToEventLoop();
       } else {
         // 3. PHASE 1: Copy files with progress (don't delete source yet)
         let copiedCount = 0;
         const allFailed: string[] = [];
         sendSSE('progress', { phase: 'copying', message: `Copying ${totalFiles} files...`, percent: 10, totalFiles });
+        await yieldToEventLoop();
 
         for (const subDir of ARCELLITE_DATA_DIRS) {
           const srcSub = path.join(currentStoragePath, subDir);
           const destSub = path.join(resolvedNew, subDir);
           if (!fs.existsSync(srcSub)) continue;
 
-          const result = copyContentsRecursive(srcSub, destSub, (fileName) => {
+          const result = await copyContentsRecursive(srcSub, destSub, (fileName) => {
             copiedCount++;
             const percent = Math.round(10 + (copiedCount / totalFiles) * 55);
-            if (copiedCount % 5 === 0 || copiedCount === totalFiles) {
-              sendSSE('progress', { phase: 'copying', message: `Copying: ${fileName}`, percent, copiedCount, totalFiles });
-            }
+            // Send SSE update for every file (event loop yields ensure these flush)
+            sendSSE('progress', { phase: 'copying', message: `Copying: ${fileName}`, percent, copiedCount, totalFiles });
           });
           allFailed.push(...result.failed);
         }
@@ -1432,7 +1496,7 @@ export async function handleTransferStorage(req: IncomingMessage, res: ServerRes
           const srcSub = path.join(currentStoragePath, subDir);
           const destSub = path.join(resolvedNew, subDir);
           if (!fs.existsSync(srcSub)) continue;
-          deleteSourceAfterVerifiedCopy(srcSub, destSub);
+          await deleteSourceAfterVerifiedCopy(srcSub, destSub);
         }
 
         // 5. Clean up empty dirs from old path (only arcellite data dirs)
@@ -1492,5 +1556,632 @@ export async function handleTransferStorage(req: IncomingMessage, res: ServerRes
     if (!res.headersSent) {
       sendJson(res, 500, { error: error.message || 'Failed to transfer storage' });
     }
+  }
+}
+
+/**
+ * GET /api/auth/invite-info?token=<hex64>
+ * Public — look up a pending invite by token. Returns display info without auth.
+ */
+export async function handleGetInviteInfo(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const urlObj = new URL(req.url || '', 'http://localhost');
+    const token = urlObj.searchParams.get('token') || '';
+    if (!token || !/^[0-9a-f]{64}$/.test(token)) {
+      return sendJson(res, 400, { error: 'Invalid token' });
+    }
+    const { rows } = await pool.query(
+      `SELECT fm.name, fm.email, fm.role, fm.storage_quota, fm.status, fm.user_id,
+              u.first_name AS owner_first, u.last_name AS owner_last
+       FROM family_members fm
+       JOIN users u ON fm.owner_id = u.id
+       WHERE fm.invite_token = $1`,
+      [token],
+    );
+    if (!rows.length) return sendJson(res, 404, { error: 'Invite not found or expired' });
+    const r = rows[0];
+    if (r.status === 'active' || r.user_id !== null) {
+      return sendJson(res, 409, { error: 'This invitation has already been accepted' });
+    }
+    sendJson(res, 200, {
+      name: r.name,
+      email: r.email,
+      role: r.role,
+      storageQuota: Number(r.storage_quota),
+      ownerName: [r.owner_first, r.owner_last].filter(Boolean).join(' ') || 'Server Owner',
+    });
+  } catch (e) {
+    console.error('[Auth] Invite info error:', e);
+    sendJson(res, 500, { error: 'Failed to look up invite' });
+  }
+}
+
+/**
+ * POST /api/auth/accept-invite
+ * Public (rate-limited) — create a real user account from a pending invite.
+ */
+export async function handleAcceptInvite(req: IncomingMessage, res: ServerResponse) {
+  if (!checkRateLimit(req)) {
+    return sendJson(res, 429, { error: 'Too many requests. Please wait.' });
+  }
+  try {
+    const { token, firstName, lastName, password } = await parseBody(req);
+
+    if (!token || !firstName?.trim() || !lastName?.trim() || !password) {
+      return sendJson(res, 400, { error: 'All fields are required' });
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      return sendJson(res, 400, { error: 'Password must be at least 8 characters' });
+    }
+    if (typeof token !== 'string' || !/^[0-9a-f]{64}$/.test(token)) {
+      return sendJson(res, 400, { error: 'Invalid invite token' });
+    }
+
+    // Look up the invite together with the owner's storage path
+    const { rows: memberRows } = await pool.query(
+      `SELECT fm.id, fm.email, fm.owner_id, fm.status, fm.user_id,
+              u.storage_path AS owner_storage_path
+       FROM family_members fm
+       JOIN users u ON fm.owner_id = u.id
+       WHERE fm.invite_token = $1`,
+      [token],
+    );
+    if (!memberRows.length) return sendJson(res, 404, { error: 'Invite not found or expired' });
+    const member = memberRows[0];
+    if (member.status === 'active' || member.user_id !== null) {
+      return sendJson(res, 409, { error: 'Invitation already accepted' });
+    }
+
+    // Guard: email must not already exist in users
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM users WHERE email = $1`,
+      [member.email],
+    );
+    if (existing.length) {
+      return sendJson(res, 409, { error: 'An account with this email already exists' });
+    }
+
+    // Create user account with isolated storage subdirectory
+    const user = await authService.createFamilyUser({
+      email: member.email,
+      password,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      ownerStoragePath: member.owner_storage_path,
+    });
+
+    // Activate family_members row — clear token (single-use)
+    await pool.query(
+      `UPDATE family_members
+       SET user_id = $1, status = 'active', invite_token = NULL, updated_at = NOW()
+       WHERE id = $2`,
+      [user.id, member.id],
+    );
+
+    // Create session
+    const ua = req.headers['user-agent'] || '';
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      || req.socket?.remoteAddress || '';
+    const session = await authService.createSession(user.id, { userAgent: ua, ipAddress: ip });
+
+    authService.logActivity(user.id, 'register', 'Family member account created').catch(() => {});
+
+    sendJson(res, 201, {
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        isSetupComplete: true,
+        emailVerified: true,
+        isFamilyMember: true,
+      },
+      sessionToken: session.sessionToken,
+    });
+  } catch (e: any) {
+    console.error('[Auth] Accept invite error:', e);
+    sendJson(res, 500, { error: e.message || 'Failed to accept invitation' });
+  }
+}
+
+// ── Storage Request Endpoints (family members request more storage) ──────────
+
+function formatBytesUtil(bytes: number): string {
+  if (bytes >= 1024 ** 4) return (bytes / 1024 ** 4).toFixed(1) + ' TB';
+  if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(1) + ' GB';
+  if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(1) + ' MB';
+  if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return bytes + ' B';
+}
+
+/** Ensure storage_requests table exists */
+async function ensureStorageRequestsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS storage_requests (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      family_member_id INTEGER,
+      owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      requested_bytes BIGINT NOT NULL,
+      reason TEXT,
+      status VARCHAR(20) DEFAULT 'pending',
+      admin_note TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      resolved_at TIMESTAMP
+    )
+  `);
+}
+
+/**
+ * POST /api/storage/request — Family member requests more storage
+ */
+export async function handleStorageRequest(req: IncomingMessage, res: ServerResponse) {
+  const user = (req as any).user;
+  if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  try {
+    await ensureStorageRequestsTable();
+
+    const body = await parseBody(req);
+    const { requestedBytes, reason } = body;
+
+    if (!requestedBytes || requestedBytes <= 0) {
+      return sendJson(res, 400, { error: 'Invalid requested amount' });
+    }
+
+    // Find the family_member row and the owner
+    const { rows: fmRows } = await pool.query(
+      `SELECT fm.id, fm.owner_id FROM family_members fm WHERE fm.user_id = $1 AND fm.status = 'active' LIMIT 1`,
+      [user.id],
+    );
+    if (!fmRows.length) {
+      return sendJson(res, 403, { error: 'Only family members can request storage' });
+    }
+
+    const fm = fmRows[0];
+
+    // Check for existing pending request
+    const { rows: pendingRows } = await pool.query(
+      `SELECT id FROM storage_requests WHERE user_id = $1 AND status = 'pending' LIMIT 1`,
+      [user.id],
+    );
+    if (pendingRows.length > 0) {
+      return sendJson(res, 409, { error: 'You already have a pending storage request' });
+    }
+
+    // Create request
+    await pool.query(
+      `INSERT INTO storage_requests (user_id, family_member_id, owner_id, requested_bytes, reason)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [user.id, fm.id, fm.owner_id, requestedBytes, reason || null],
+    );
+
+    // Notify the admin/owner
+    const userName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+    await authService.createNotification(
+      fm.owner_id,
+      'Storage Request',
+      `${userName} requested ${formatBytesUtil(requestedBytes)} of additional storage.${reason ? ' Reason: ' + reason : ''}`,
+      'info',
+      'storage',
+    );
+
+    sendJson(res, 201, { success: true });
+  } catch (e: any) {
+    console.error('[Storage] Request error:', e);
+    sendJson(res, 500, { error: 'Failed to submit request' });
+  }
+}
+
+/**
+ * GET /api/storage/requests — Get storage requests for the current user
+ * Family members see their own requests; admin/owner sees all requests for their family.
+ */
+export async function handleGetStorageRequests(req: IncomingMessage, res: ServerResponse) {
+  const user = (req as any).user;
+  if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  try {
+    await ensureStorageRequestsTable();
+
+    // Check if family member
+    const { rows: fmRows } = await pool.query(
+      `SELECT id, owner_id FROM family_members WHERE user_id = $1 AND status = 'active' LIMIT 1`,
+      [user.id],
+    );
+
+    let rows: any[];
+    if (fmRows.length > 0) {
+      // Family member: own requests
+      const result = await pool.query(
+        `SELECT id, requested_bytes, reason, status, admin_note, created_at, resolved_at
+         FROM storage_requests WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
+        [user.id],
+      );
+      rows = result.rows;
+    } else {
+      // Owner : all requests from their family
+      const result = await pool.query(
+        `SELECT sr.id, sr.requested_bytes, sr.reason, sr.status, sr.admin_note,
+                sr.created_at, sr.resolved_at, sr.user_id, sr.family_member_id,
+                u.first_name, u.last_name, u.email
+         FROM storage_requests sr
+         JOIN users u ON sr.user_id = u.id
+         WHERE sr.owner_id = $1
+         ORDER BY sr.created_at DESC LIMIT 100`,
+        [user.id],
+      );
+      rows = result.rows;
+    }
+
+    sendJson(res, 200, {
+      requests: rows.map((r: any) => ({
+        id: r.id,
+        requestedBytes: Number(r.requested_bytes),
+        requestedHuman: formatBytesUtil(Number(r.requested_bytes)),
+        reason: r.reason,
+        status: r.status,
+        adminNote: r.admin_note,
+        createdAt: r.created_at,
+        resolvedAt: r.resolved_at,
+        ...(r.first_name !== undefined ? {
+          userName: [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email,
+          userEmail: r.email,
+          familyMemberId: r.family_member_id || null,
+        } : {}),
+      })),
+    });
+  } catch (e: any) {
+    console.error('[Storage] Get requests error:', e);
+    sendJson(res, 500, { error: 'Failed to fetch requests' });
+  }
+}
+
+/**
+ * PUT /api/storage/requests/:id — Admin approves or denies a storage request
+ * Body: { action: 'approve' | 'deny', note?: string }
+ */
+export async function handleResolveStorageRequest(req: IncomingMessage, res: ServerResponse) {
+  const user = (req as any).user;
+  if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  try {
+    await ensureStorageRequestsTable();
+
+    const urlMatch = (req.url || '').match(/\/api\/storage\/requests\/(\d+)/);
+    const requestId = urlMatch ? parseInt(urlMatch[1], 10) : 0;
+    if (!requestId) return sendJson(res, 400, { error: 'Invalid request ID' });
+
+    const body = await parseBody(req);
+    const { action, note } = body;
+
+    if (action !== 'approve' && action !== 'deny') {
+      return sendJson(res, 400, { error: 'Action must be "approve" or "deny"' });
+    }
+
+    // Verify the request belongs to one of this user's family members
+    const { rows: reqRows } = await pool.query(
+      `SELECT sr.id, sr.user_id, sr.family_member_id, sr.requested_bytes, sr.status
+       FROM storage_requests sr
+       WHERE sr.id = $1 AND sr.owner_id = $2`,
+      [requestId, user.id],
+    );
+    if (!reqRows.length) return sendJson(res, 404, { error: 'Request not found' });
+
+    const storageReq = reqRows[0];
+    if (storageReq.status !== 'pending') {
+      return sendJson(res, 400, { error: 'Request already resolved' });
+    }
+
+    if (action === 'approve') {
+      // Pool capacity validation: ensure approving won't exceed the owner's configured sharing pool
+      const poolSettingsRes = await pool.query(
+        `SELECT COALESCE((preferences->>'familySharingPool')::bigint, 0) AS pool_size
+         FROM user_settings WHERE user_id = $1`,
+        [user.id],
+      );
+      const poolSize = Number(poolSettingsRes.rows[0]?.pool_size ?? 0);
+
+      if (poolSize > 0) {
+        // Current quota of this specific member
+        const memberQuotaRes = await pool.query(
+          `SELECT storage_quota FROM family_members WHERE id = $1`,
+          [storageReq.family_member_id],
+        );
+        const currentMemberQuota = Number(memberQuotaRes.rows[0]?.storage_quota ?? 0);
+
+        // Total allocated to all OTHER members
+        const allocatedRes = await pool.query(
+          `SELECT COALESCE(SUM(storage_quota), 0)::bigint AS allocated
+           FROM family_members WHERE owner_id = $1 AND id != $2`,
+          [user.id, storageReq.family_member_id],
+        );
+        const otherAllocated = Number(allocatedRes.rows[0].allocated);
+
+        const newMemberQuota = currentMemberQuota + Number(storageReq.requested_bytes);
+        const totalAfterApproval = otherAllocated + newMemberQuota;
+
+        if (totalAfterApproval > poolSize) {
+          const available = Math.max(poolSize - otherAllocated - currentMemberQuota, 0);
+          return sendJson(res, 400, {
+            error: `Cannot approve: only ${formatBytesUtil(available)} remaining in the sharing pool. ` +
+              `The member is requesting ${formatBytesUtil(Number(storageReq.requested_bytes))}.`,
+          });
+        }
+      }
+
+      // Increase the family member's storage quota
+      await pool.query(
+        `UPDATE family_members SET storage_quota = storage_quota + $1 WHERE id = $2`,
+        [storageReq.requested_bytes, storageReq.family_member_id],
+      );
+    }
+
+    // Update request status
+    await pool.query(
+      `UPDATE storage_requests SET status = $1, admin_note = $2, resolved_at = NOW() WHERE id = $3`,
+      [action === 'approve' ? 'approved' : 'denied', note || null, requestId],
+    );
+
+    // Notify the family member
+    const actionLabel = action === 'approve' ? 'approved' : 'denied';
+    await authService.createNotification(
+      storageReq.user_id,
+      `Storage Request ${actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1)}`,
+      `Your request for ${formatBytesUtil(Number(storageReq.requested_bytes))} has been ${actionLabel}.${note ? ' Note: ' + note : ''}`,
+      action === 'approve' ? 'success' : 'warning',
+      'storage',
+    );
+
+    sendJson(res, 200, { success: true });
+  } catch (e: any) {
+    console.error('[Storage] Resolve request error:', e);
+    sendJson(res, 500, { error: 'Failed to resolve request' });
+  }
+}
+
+/**
+ * DELETE /api/storage/requests/:id — Family member cancels their own pending request
+ */
+export async function handleCancelStorageRequest(req: IncomingMessage, res: ServerResponse) {
+  const user = (req as any).user;
+  if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  try {
+    await ensureStorageRequestsTable();
+
+    const urlMatch = (req.url || '').match(/\/api\/storage\/requests\/(\d+)/);
+    const requestId = urlMatch ? parseInt(urlMatch[1], 10) : 0;
+    if (!requestId || isNaN(requestId)) return sendJson(res, 400, { error: 'Invalid request ID' });
+
+    // Fetch request to verify ownership and status before deleting
+    const { rows } = await pool.query(
+      `SELECT id, user_id, status FROM storage_requests WHERE id = $1`,
+      [requestId],
+    );
+    if (!rows.length) return sendJson(res, 404, { error: 'Request not found' });
+
+    const storageReq = rows[0];
+    // Security: only the creator may cancel their own request
+    if (storageReq.user_id !== user.id) return sendJson(res, 403, { error: 'Not authorized to cancel this request' });
+    if (storageReq.status !== 'pending') return sendJson(res, 400, { error: 'Only pending requests can be cancelled' });
+
+    await pool.query(`DELETE FROM storage_requests WHERE id = $1`, [requestId]);
+
+    sendJson(res, 200, { success: true });
+  } catch (e: any) {
+    console.error('[Storage] Cancel request error:', e);
+    sendJson(res, 500, { error: 'Failed to cancel request' });
+  }
+}
+
+/**
+ * GET /api/storage/breakdown — Category breakdown for family member's storage
+ */
+export async function handleStorageBreakdown(req: IncomingMessage, res: ServerResponse) {
+  const user = (req as any).user;
+  if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  try {
+    let baseDir = user.storagePath as string;
+    if (!baseDir || baseDir === 'pending') {
+      return sendJson(res, 200, { categories: [] });
+    }
+    if (baseDir.startsWith('~/') || baseDir === '~') {
+      const os = await import('os');
+      baseDir = path.join(os.homedir(), baseDir.slice(baseDir === '~' ? 1 : 2));
+    }
+
+    const categories = [
+      { label: 'Photos', folder: 'photos', color: '#3B82F6' },
+      { label: 'Videos', folder: 'videos', color: '#EF4444' },
+      { label: 'Music',  folder: 'music',  color: '#EC4899' },
+      { label: 'Files',  folder: 'files',  color: '#F59E0B' },
+    ];
+
+    const results = [];
+    for (const cat of categories) {
+      const catPath = path.join(baseDir, cat.folder);
+      let bytes = 0;
+      try {
+        bytes = calcDirSizeSync(catPath);
+      } catch { /* folder doesn't exist yet */ }
+      if (bytes > 0) {
+        results.push({ label: cat.label, bytes, color: cat.color });
+      }
+    }
+
+    sendJson(res, 200, { categories: results });
+  } catch (e: any) {
+    console.error('[Storage] Breakdown error:', e);
+    sendJson(res, 200, { categories: [] });
+  }
+}
+
+/** Recursively calculate directory size */
+function calcDirSizeSync(dir: string): number {
+  let total = 0;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) total += calcDirSizeSync(full);
+      else if (entry.isFile()) {
+        try { total += fs.statSync(full).size; } catch {}
+      }
+    }
+  } catch {}
+  return total;
+}
+
+/**
+ * POST /api/auth/avatar
+ * Upload avatar image for the authenticated user
+ */
+export async function handleAvatarUpload(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
+    const sessionToken = authHeader.substring(7);
+    const user = await authService.validateSession(sessionToken);
+    if (!user) {
+      sendJson(res, 401, { error: 'Invalid or expired session' });
+      return;
+    }
+
+    const dataDir = await authService.getActiveStoragePath();
+    const avatarsDir = path.join(dataDir, 'avatars');
+    if (!fs.existsSync(avatarsDir)) {
+      fs.mkdirSync(avatarsDir, { recursive: true });
+    }
+
+    const busboy = Busboy({ headers: req.headers as any, limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+    let savedPath = '';
+    let savedExt = '';
+    let uploadError: Error | null = null;
+    const writePromises: Promise<void>[] = [];
+
+    busboy.on('file', (_name: string, file: any, info: { filename: string; mimeType: string }) => {
+      const mime = info.mimeType || '';
+      if (!mime.startsWith('image/')) {
+        uploadError = new Error('Only image files are allowed');
+        file.resume();
+        return;
+      }
+
+      const extMap: Record<string, string> = {
+        'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+        'image/webp': '.webp', 'image/svg+xml': '.svg', 'image/avif': '.avif',
+      };
+      savedExt = extMap[mime] || path.extname(info.filename) || '.jpg';
+
+      // Remove old avatar files for this user
+      try {
+        const existing = fs.readdirSync(avatarsDir).filter(f => f.startsWith(`user-${user.id}.`));
+        for (const f of existing) {
+          try { fs.unlinkSync(path.join(avatarsDir, f)); } catch {}
+        }
+      } catch {}
+
+      savedPath = path.join(avatarsDir, `user-${user.id}${savedExt}`);
+      const writeStream = fs.createWriteStream(savedPath);
+      const p = new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+        file.on('error', reject);
+      });
+      writePromises.push(p);
+      file.pipe(writeStream);
+    });
+
+    busboy.on('finish', async () => {
+      try {
+        await Promise.all(writePromises);
+        if (uploadError) throw uploadError;
+        if (!savedPath) throw new Error('No file received');
+
+        // Update avatar_url in database to our serve endpoint
+        const avatarUrl = `/api/auth/avatar/${user.id}`;
+        await authService.updateUserProfile(user.id, { avatarUrl });
+
+        sendJson(res, 200, { success: true, avatarUrl });
+      } catch (e) {
+        if (savedPath) try { fs.unlinkSync(savedPath); } catch {}
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: String((e as Error).message) }));
+      }
+    });
+
+    busboy.on('error', (e: Error) => {
+      if (savedPath) try { fs.unlinkSync(savedPath); } catch {}
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: String(e.message) }));
+    });
+
+    req.pipe(busboy);
+  } catch (error: any) {
+    console.error('[Auth] Avatar upload error:', error);
+    sendJson(res, 500, { error: error.message || 'Avatar upload failed' });
+  }
+}
+
+/**
+ * GET /api/auth/avatar/:userId
+ * Serve avatar image for a user
+ */
+export async function handleAvatarServe(req: IncomingMessage, res: ServerResponse) {
+  try {
+    // Extract userId from URL
+    const urlPath = req.url || '';
+    const match = urlPath.match(/\/api\/auth\/avatar\/(\d+)/);
+    if (!match) {
+      res.statusCode = 400;
+      res.end('Bad request');
+      return;
+    }
+
+    const userId = parseInt(match[1], 10);
+    const dataDir = await authService.getActiveStoragePath();
+    const avatarsDir = path.join(dataDir, 'avatars');
+
+    // Find the avatar file for this user
+    let avatarFile = '';
+    try {
+      const files = fs.readdirSync(avatarsDir).filter(f => f.startsWith(`user-${userId}.`));
+      if (files.length > 0) avatarFile = path.join(avatarsDir, files[0]);
+    } catch {}
+
+    if (!avatarFile || !fs.existsSync(avatarFile)) {
+      res.statusCode = 404;
+      res.end('Not found');
+      return;
+    }
+
+    const ext = path.extname(avatarFile).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+      '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+      '.avif': 'image/avif',
+    };
+
+    const stat = fs.statSync(avatarFile);
+    res.setHeader('Content-Type', mimeMap[ext] || 'image/jpeg');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.statusCode = 200;
+
+    const stream = fs.createReadStream(avatarFile);
+    stream.on('error', () => { if (!res.headersSent) { res.statusCode = 500; } res.end(); });
+    stream.pipe(res);
+  } catch (error: any) {
+    console.error('[Auth] Avatar serve error:', error);
+    res.statusCode = 500;
+    res.end('Internal server error');
   }
 }

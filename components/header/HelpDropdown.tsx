@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { HelpCircle, MessageSquare, Server, Cpu, HardDrive } from 'lucide-react';
+import { HelpCircle, MessageSquare, Server, Cpu, HardDrive, Book } from 'lucide-react';
 
 interface SystemInfo {
   version: string;
@@ -124,6 +124,13 @@ const HelpDropdown: React.FC<HelpDropdownProps> = ({ isOpen, onClose, onNavigate
       )}
 
       <div className="px-2 py-2 space-y-1">
+        <button
+          onClick={() => handleNavigate('documentation')}
+          className="flex items-center gap-3 sm:gap-4 w-full px-4 sm:px-5 py-3 hover:bg-[#F5F5F7] transition-all text-left group rounded-xl sm:rounded-2xl min-h-[44px]"
+        >
+          <Book className="w-4 h-4 sm:w-4 sm:h-4 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+          <span className="text-sm sm:text-[14px] font-bold text-gray-700 group-hover:text-[#5D5FEF]">Documentation</span>
+        </button>
         <button
           onClick={() => handleNavigate('help')}
           className="flex items-center gap-3 sm:gap-4 w-full px-4 sm:px-5 py-3 hover:bg-[#F5F5F7] transition-all text-left group rounded-xl sm:rounded-2xl min-h-[44px]"

@@ -6,12 +6,23 @@ const CableIcon: React.FC<{ className?: string }> = ({ className = 'w-6 h-6' }) 
     <path d="M200-120q-17 0-28.5-11.5T160-160v-40h-40v-160q0-17 11.5-28.5T160-400h40v-280q0-66 47-113t113-47q66 0 113 47t47 113v400q0 33 23.5 56.5T600-200q33 0 56.5-23.5T680-280v-280h-40q-17 0-28.5-11.5T600-600v-160h40v-40q0-17 11.5-28.5T680-840h80q17 0 28.5 11.5T800-800v40h40v160q0 17-11.5 28.5T800-560h-40v280q0 66-47 113t-113 47q-66 0-113-47t-47-113v-400q0-33-23.5-56.5T360-760q-33 0-56.5 23.5T280-680v280h40q17 0 28.5 11.5T360-360v160h-40v40q0 17-11.5 28.5T280-120h-80Z"/>
   </svg>
 );
-import type { SystemStorageResponse } from '@/types';
+import type { SystemStorageResponse, FamilyMemberStorageInfo } from '@/types';
+
+function formatFamilyBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
 
 interface StorageWidgetProps {
   activeTab: string;
   onManageServer: () => void;
+  onManageStorage?: () => void;
   onUsbClick?: () => void;
+  isFamilyMember?: boolean;
+  isSuspended?: boolean;
 }
 
 const STORAGE_API = '/api/system/storage';
@@ -26,7 +37,10 @@ function useSystemStorage() {
   const fetchStorage = useCallback(async () => {
     try {
       setError(false);
-      const res = await fetch(STORAGE_API);
+      const token = localStorage.getItem('sessionToken');
+      const res = await fetch(STORAGE_API, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       if (!res.ok) throw new Error('Storage API error');
       const json: SystemStorageResponse = await res.json();
       setData(json);
@@ -83,13 +97,15 @@ function useSystemStorage() {
   return { data, loading, error, refetch: fetchStorage };
 }
 
-const StorageWidget: React.FC<StorageWidgetProps> = ({ activeTab, onManageServer, onUsbClick }) => {
+const StorageWidget: React.FC<StorageWidgetProps> = ({ activeTab, onManageServer, onManageStorage, onUsbClick, isFamilyMember, isSuspended }) => {
   const { data, loading, error } = useSystemStorage();
 
   const removable = data?.removable ?? [];
   const hasRemovable = removable.length > 0;
   const firstRemovable = removable[0];
   const root = data?.rootStorage;
+  const familyStorage: FamilyMemberStorageInfo | undefined = data?.familyMemberStorage;
+  const familyAllocated: number = data?.familyAllocated ?? 0;
 
   const usbSummary = hasRemovable
     ? removable.length > 1
@@ -97,6 +113,86 @@ const StorageWidget: React.FC<StorageWidgetProps> = ({ activeTab, onManageServer
       : (firstRemovable?.model || firstRemovable?.sizeHuman || 'Connected')
     : null;
 
+  // ── Family member view ──
+  if (isFamilyMember) {
+    // Suspended state
+    if (isSuspended) {
+      return (
+        <div className="px-4 mt-auto pb-6">
+          <div className="rounded-2xl md:rounded-3xl p-4 md:p-5 shadow-xl bg-amber-500 text-white relative overflow-hidden">
+            <div className="absolute -right-4 -top-4 w-16 h-16 bg-white/10 rounded-full blur-xl" />
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                <span className="text-[10px] font-black uppercase tracking-wider text-white/90">Account Suspended</span>
+              </div>
+              <p className="text-[10px] text-white/80 leading-relaxed mb-3">Your account has been suspended. Contact the administrator to restore access.</p>
+              <button
+                onClick={onManageStorage}
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-xs transition-all active:scale-95 bg-white text-amber-600"
+              >
+                <Settings2 className="w-3.5 h-3.5" />
+                <span>Request Access</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const pct = familyStorage ? familyStorage.usedPercent : 0;
+    const barColor = pct >= 90 ? 'bg-red-400' : pct >= 70 ? 'bg-amber-400' : 'bg-white';
+    return (
+      <div className="px-4 mt-auto space-y-3 pb-6">
+        <div className="rounded-2xl md:rounded-3xl p-4 md:p-5 shadow-xl bg-[#5D5FEF] text-white shadow-[#5D5FEF]/20 relative overflow-hidden">
+          <div className="absolute -right-4 -top-4 w-16 h-16 bg-white/10 rounded-full blur-xl" />
+          <div className="relative z-10">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-white/70">
+                My Storage
+              </span>
+              {loading && <span className="text-[10px] font-bold opacity-70">—</span>}
+              {error && <span className="text-[10px] font-bold text-amber-200">—</span>}
+              {!loading && !error && familyStorage && (
+                <span className="text-[10px] font-bold">{familyStorage.usedPercent}%</span>
+              )}
+            </div>
+            <div className="h-1.5 w-full rounded-full mb-3 overflow-hidden bg-white/20">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                style={{ width: loading || error || !familyStorage ? '0%' : `${Math.min(100, pct)}%` }}
+              />
+            </div>
+            <p className="text-[10px] font-medium mb-1 text-center text-white/60">
+              {loading && 'Loading…'}
+              {error && 'Unavailable'}
+              {!loading && !error && familyStorage && (
+                <>{familyStorage.usedHuman} used / {familyStorage.quotaHuman} total</>
+              )}
+              {!loading && !error && !familyStorage && '—'}
+            </p>
+            {!loading && !error && familyStorage && (
+              <p className="text-[9px] font-bold text-center text-white/40 mb-3">
+                {familyStorage.freeHuman} free
+              </p>
+            )}
+            {(!familyStorage || loading || error) && <div className="mb-3" />}
+            <button
+              onClick={onManageStorage}
+              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-xs shadow-sm hover:shadow-md transition-all active:scale-95 bg-white text-[#5D5FEF]"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              <span>Manage Storage</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Owner view ──
   return (
     <div className="px-4 mt-auto space-y-3 pb-6">
       {/* USB / Removable – clickable card */}
@@ -211,13 +307,12 @@ const StorageWidget: React.FC<StorageWidgetProps> = ({ activeTab, onManageServer
                 activeTab === 'server' ? 'bg-[#5D5FEF]' : 'bg-white'
               }`}
               style={{
-                width:
-                  loading || error ? '0%' : root ? `${Math.min(100, root.usedPercent)}%` : '0%',
+                width: loading || error ? '0%' : root ? `${Math.min(100, root.usedPercent)}%` : '0%',
               }}
             />
           </div>
           <p
-            className={`text-[10px] font-medium mb-4 text-center ${
+            className={`text-[10px] font-medium mb-1 text-center ${
               activeTab === 'server' ? 'text-[#5D5FEF]/60' : 'text-white/60'
             }`}
           >
@@ -230,6 +325,17 @@ const StorageWidget: React.FC<StorageWidgetProps> = ({ activeTab, onManageServer
             )}
             {!loading && !error && !root && '—'}
           </p>
+          {/* Family allocated indicator */}
+          {!loading && !error && familyAllocated > 0 && (
+            <p
+              className={`text-[9px] font-bold text-center mb-3 ${
+                activeTab === 'server' ? 'text-[#5D5FEF]/50' : 'text-white/40'
+              }`}
+            >
+              {formatFamilyBytes(familyAllocated)} given to family
+            </p>
+          )}
+          {!loading && !error && familyAllocated === 0 && <div className="mb-3" />}
           <button
             onClick={onManageServer}
             className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-xs shadow-sm hover:shadow-md transition-all active:scale-95 ${

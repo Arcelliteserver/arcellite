@@ -461,7 +461,7 @@ const DatabaseDetailView: React.FC<{
           <ArrowLeft className="w-5 h-5 text-gray-500" />
         </button>
         <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-gradient-to-br ${dbType?.color || 'from-gray-500 to-gray-600'} shadow-md flex items-center justify-center p-1.5 sm:p-2 flex-shrink-0`}>
-          <img src={dbType?.icon || ''} alt="" className="w-full h-full object-contain filter brightness-0 invert" />
+          <img src={dbType?.icon || ''} alt={`${dbType?.name || db.type} database icon`} className="w-full h-full object-contain filter brightness-0 invert" />
         </div>
         <div className="flex-1 min-w-0">
           <h2 className="text-lg sm:text-xl md:text-2xl font-black text-gray-900 truncate">{db.name}</h2>
@@ -1519,7 +1519,7 @@ const DatabaseView: React.FC = () => {
                       )}
                       <button
                         onClick={() => setOpenDb(db)}
-                        className={`${isSystem ? 'flex-1' : ''} px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black tracking-wide bg-[#5D5FEF]/10 text-[#5D5FEF] border border-[#5D5FEF]/15 hover:bg-[#5D5FEF]/20 transition-all`}
+                        className={`${isSystem ? 'flex-1' : ''} px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black tracking-wide bg-[#5D5FEF] text-white hover:bg-[#4B4DDC] shadow-sm transition-all`}
                       >
                         View
                       </button>
@@ -1536,7 +1536,7 @@ const DatabaseView: React.FC = () => {
                       {!isSystem && (
                         <button
                           onClick={() => handleDeleteDatabase(db.id, db.name)}
-                          className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-all flex-shrink-0"
+                          className="w-8 sm:w-10 h-8 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center bg-red-500 text-white hover:bg-red-600 shadow-sm transition-all flex-shrink-0"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

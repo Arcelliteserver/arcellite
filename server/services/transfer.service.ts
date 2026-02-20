@@ -124,8 +124,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 let copyPercentBase = 20;
 let copyPercentRange = 70;
 
-/** Recursively copy a directory, updating progress with per-category tracking */
-function copyDirRecursive(src: string, dest: string, categoryName?: string): void {
+/** Yield to the event loop so HTTP poll requests can be served during copy */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
+/** Recursively copy a directory, updating progress with per-category tracking.
+ *  Uses async I/O and yields between files so the polling endpoint stays responsive. */
+async function copyDirRecursive(src: string, dest: string, categoryName?: string): Promise<void> {
   if (!fs.existsSync(src)) return;
   fs.mkdirSync(dest, { recursive: true });
 
@@ -136,10 +142,11 @@ function copyDirRecursive(src: string, dest: string, categoryName?: string): voi
 
     try {
       if (entry.isDirectory()) {
-        copyDirRecursive(srcPath, destPath, categoryName);
+        await copyDirRecursive(srcPath, destPath, categoryName);
       } else {
-        fs.copyFileSync(srcPath, destPath);
-        const stat = fs.statSync(destPath);
+        // Async copy — does not block the event loop
+        await fs.promises.copyFile(srcPath, destPath);
+        const stat = await fs.promises.stat(destPath);
         currentProgress.filesCopied++;
         currentProgress.bytesWritten += stat.size;
         currentProgress.currentFile = entry.name;
@@ -178,6 +185,9 @@ function copyDirRecursive(src: string, dest: string, categoryName?: string): voi
         if (currentProgress.totalFiles > 0) {
           currentProgress.percent = copyPercentBase + Math.round((currentProgress.filesCopied / currentProgress.totalFiles) * copyPercentRange);
         }
+
+        // Yield after every file so poll requests can be served between copies
+        await yieldToEventLoop();
       }
     } catch (e) {
       console.error(`[Transfer] Failed to copy ${srcPath}:`, (e as Error).message);
@@ -348,7 +358,7 @@ export async function prepareTransferPackage(mountpoint: string): Promise<{ succ
       const src = path.join(getBaseDir(), subdir);
       const dest = path.join(filesDestDir, subdir);
       if (fs.existsSync(src)) {
-        copyDirRecursive(src, dest, subdir);
+        await copyDirRecursive(src, dest, subdir);
       } else {
         // Mark empty categories as done
         const cat = currentProgress.categories?.find(c => c.name === subdir);
@@ -663,7 +673,7 @@ updateProgress({ percent: 8, message: 'Creating user account...' });
             const catLabel = CATEGORY_LABELS[subdir] || subdir;
             updateProgress({ currentCategory: subdir, message: `Copying ${catLabel}...` });
             fs.mkdirSync(dest, { recursive: true });
-            copyDirRecursive(src, dest, subdir);
+            await copyDirRecursive(src, dest, subdir);
             // Mark category done
             const cat = currentProgress.categories?.find(c => c.name === subdir);
             if (cat) cat.done = true;

@@ -730,7 +730,7 @@ const MobileDatabaseView: React.FC = () => {
                     </button>
                     <div className="flex items-center gap-2.5">
                       <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${MOBILE_DB_TYPES.find(t => t.id === selectedDbType)?.color} flex items-center justify-center p-1.5`}>
-                        <img src={MOBILE_DB_TYPES.find(t => t.id === selectedDbType)?.icon} alt="" className="w-full h-full object-contain filter brightness-0 invert" />
+                        <img src={MOBILE_DB_TYPES.find(t => t.id === selectedDbType)?.icon} alt={`${MOBILE_DB_TYPES.find(t => t.id === selectedDbType)?.name || 'Database'} icon`} className="w-full h-full object-contain filter brightness-0 invert" />
                       </div>
                       <h3 className="text-[18px] font-extrabold text-gray-900">New {MOBILE_DB_TYPES.find(t => t.id === selectedDbType)?.name}</h3>
                     </div>

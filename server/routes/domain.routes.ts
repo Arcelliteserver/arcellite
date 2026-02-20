@@ -234,6 +234,12 @@ export async function handleRunTunnel(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
+    // SEC-CI-005: Validate tunnel token format to prevent command injection
+    if (!/^[a-zA-Z0-9_\-\.=]+$/.test(token)) {
+      sendJson(res, 400, { error: 'Invalid tunnel token format. Token should only contain alphanumeric characters, hyphens, underscores, dots, and equals signs.' });
+      return;
+    }
+
     // Check cloudflared is installed
     const { installed } = isCloudflaredInstalled();
     if (!installed) {

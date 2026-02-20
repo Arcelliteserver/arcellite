@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   User,
   LogOut,
@@ -11,9 +11,10 @@ import {
   ShieldCheck,
   Fingerprint,
   Blocks,
-  Globe
+  Globe,
+  Users
 } from 'lucide-react';
-import type { UserData } from '../../App';
+import type { UserData } from '@/types';
 
 interface ProfileDropdownProps {
   isOpen: boolean;
@@ -37,22 +38,42 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
   user,
 }) => {
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [storageText, setStorageText] = useState<string>('');
 
   useEffect(() => {
     if (!isOpen) return;
-    
+    const token = localStorage.getItem('sessionToken');
+    fetch('/api/system/storage', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.familyMemberStorage) {
+          const { usedHuman, quotaHuman } = data.familyMemberStorage;
+          setStorageText(`${usedHuman} / ${quotaHuman} used`);
+        } else if (data.rootStorage) {
+          const { usedHuman, totalHuman } = data.rootStorage;
+          setStorageText(`${usedHuman} / ${totalHuman} used`);
+        }
+      })
+      .catch(() => {});
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node;
       if (dropdownRef.current && !dropdownRef.current.contains(target)) {
         onClose();
       }
     };
-    
+
     const timeoutId = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside);
       document.addEventListener('touchstart', handleClickOutside);
     }, 0);
-    
+
     return () => {
       clearTimeout(timeoutId);
       document.removeEventListener('mousedown', handleClickOutside);
@@ -73,6 +94,8 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
   };
 
   if (!isOpen) return null;
+
+  const isFamilyMember = user?.isFamilyMember === true;
 
   return (
     <>
@@ -113,30 +136,43 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
           <div className="px-3 py-2">
             <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">Account</p>
             <div className="space-y-0.5">
-              <button 
+              <button
                 onClick={() => handleMenuItemClick(onAccountSettings)}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
                 <User className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Account Settings</span>
               </button>
-              <button 
+              <button
                 onClick={() => handleMenuItemClick(onSecurityVault)}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
                 <Fingerprint className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Security Vault</span>
               </button>
-              <button 
-                onClick={() => handleTabNavigate('stats')}
+              <button
+                onClick={() => handleTabNavigate(isFamilyMember ? 'account' : 'stats')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
                 <HardDrive className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <span className="text-[14px] sm:text-[15px] font-bold text-gray-700 block">Storage & Usage</span>
-                  <p className="text-[10px] sm:text-[11px] text-gray-400 mt-0.5">25MB / 219GB used</p>
+                  <span className="text-[14px] sm:text-[15px] font-bold text-gray-700 block">
+                    {isFamilyMember ? 'My Storage' : 'Storage & Usage'}
+                  </span>
+                  <p className="text-[10px] sm:text-[11px] text-gray-400 mt-0.5">
+                    {storageText || (isFamilyMember ? 'Loading...' : '25MB / 219GB used')}
+                  </p>
                 </div>
               </button>
+              {!isFamilyMember && (
+                <button
+                  onClick={() => handleTabNavigate('family')}
+                  className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+                >
+                  <Users className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                  <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Family Sharing</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -146,28 +182,28 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
           <div className="px-3 py-2">
             <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">Settings</p>
             <div className="space-y-0.5">
-              <button 
+              <button
                 onClick={() => handleTabNavigate('appearance')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
                 <Palette className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Appearance</span>
               </button>
-              <button 
+              <button
                 onClick={() => handleTabNavigate('myapps')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
                 <Blocks className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Integrations</span>
               </button>
-              <button 
+              <button
                 onClick={() => handleTabNavigate('apikeys')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
                 <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">AI Models</span>
               </button>
-              <button 
+              <button
                 onClick={() => handleTabNavigate('aisecurity')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
@@ -177,47 +213,51 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
             </div>
           </div>
 
-          <div className="my-2 border-t border-gray-50" />
+          {!isFamilyMember && (
+            <>
+              <div className="my-2 border-t border-gray-50" />
 
-          {/* System Section */}
-          <div className="px-3 py-2">
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">System</p>
-            <div className="space-y-0.5">
-              <button 
-                onClick={() => handleTabNavigate('server')}
-                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
-              >
-                <Server className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Server</span>
-              </button>
-              <button 
-                onClick={() => handleTabNavigate('activity')}
-                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
-              >
-                <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Activity Log</span>
-              </button>
-              <button 
-                onClick={() => handleTabNavigate('export')}
-                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
-              >
-                <Download className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Export Data</span>
-              </button>
-              <button 
-                onClick={() => handleTabNavigate('domain')}
-                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
-              >
-                <Globe className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Domain</span>
-              </button>
-            </div>
-          </div>
+              {/* System Section — admin only */}
+              <div className="px-3 py-2">
+                <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">System</p>
+                <div className="space-y-0.5">
+                  <button
+                    onClick={() => handleTabNavigate('server')}
+                    className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+                  >
+                    <Server className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Server</span>
+                  </button>
+                  <button
+                    onClick={() => handleTabNavigate('activity')}
+                    className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+                  >
+                    <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Activity Log</span>
+                  </button>
+                  <button
+                    onClick={() => handleTabNavigate('export')}
+                    className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+                  >
+                    <Download className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Export Data</span>
+                  </button>
+                  <button
+                    onClick={() => handleTabNavigate('domain')}
+                    className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+                  >
+                    <Globe className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Domain</span>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="my-3 border-t border-gray-50" />
         <div className="px-2">
-          <button 
+          <button
             onClick={() => {
               if (onSignOut) {
                 onSignOut();
@@ -234,7 +274,7 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
 
       {/* Mobile Overlay */}
       {isOpen && (
-        <div 
+        <div
           className="fixed sm:hidden inset-0 bg-transparent z-[450]"
           onClick={onClose}
         />
@@ -244,4 +284,3 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
 };
 
 export default ProfileDropdown;
-

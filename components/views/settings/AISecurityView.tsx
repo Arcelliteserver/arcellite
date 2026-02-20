@@ -19,7 +19,7 @@ import {
   ShieldOff,
   RefreshCw,
 } from 'lucide-react';
-import { authApi } from '../../../services/api.client';
+import { authApi } from '@/services/api.client';
 
 export interface AIPermissions {
   aiFileCreate: boolean;

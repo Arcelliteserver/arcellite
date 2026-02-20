@@ -53,7 +53,9 @@ const TrashView: React.FC = () => {
   const loadTrash = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/trash/list');
+      const res = await fetch('/api/trash/list', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('sessionToken')}` },
+      });
       if (!res.ok) throw new Error('Failed to load trash');
       const data = await res.json();
       setItems(data.items || []);
@@ -106,7 +108,10 @@ const TrashView: React.FC = () => {
           try {
             const res = await fetch('/api/trash/restore', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${localStorage.getItem('sessionToken')}`,
+              },
               body: JSON.stringify({ trashId: id }),
             });
 
@@ -151,7 +156,10 @@ const TrashView: React.FC = () => {
           try {
             const res = await fetch('/api/trash/delete', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${localStorage.getItem('sessionToken')}`,
+              },
               body: JSON.stringify({ trashId: id }),
             });
 
@@ -190,7 +198,10 @@ const TrashView: React.FC = () => {
         setConfirmModal({ ...confirmModal, isOpen: false });
         setActionLoading(true);
         try {
-          const res = await fetch('/api/trash/empty', { method: 'POST' });
+          const res = await fetch('/api/trash/empty', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${localStorage.getItem('sessionToken')}` },
+          });
           if (res.ok) {
             const data = await res.json();
             await loadTrash();

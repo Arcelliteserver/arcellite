@@ -5,9 +5,10 @@ interface SidebarActionsProps {
   activeTab: string;
   onUpload: (files: File[]) => void;
   onStatsClick: () => void;
+  isFamilyMember?: boolean;
 }
 
-const SidebarActions: React.FC<SidebarActionsProps> = ({ activeTab, onUpload, onStatsClick }) => {
+const SidebarActions: React.FC<SidebarActionsProps> = ({ activeTab, onUpload, onStatsClick, isFamilyMember }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUploadClick = () => {
@@ -36,17 +37,19 @@ const SidebarActions: React.FC<SidebarActionsProps> = ({ activeTab, onUpload, on
           <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-4 md:h-4 flex-shrink-0" />
           <span>Upload</span>
         </button>
-        <button 
-          onClick={onStatsClick}
-          className={`flex items-center justify-center gap-2 w-full py-2.5 sm:py-2.5 md:py-3 rounded-xl transition-all font-bold text-xs sm:text-sm md:text-sm shadow-sm active:scale-95 border min-h-[44px] ${
-            activeTab === 'stats' 
-              ? 'bg-[#5D5FEF]/10 border-[#5D5FEF]/20 text-[#5D5FEF]' 
-              : 'bg-white border-gray-100 text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          <BarChart3 className={`w-4 h-4 flex-shrink-0 ${activeTab === 'stats' ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
-          <span>Vault Stats</span>
-        </button>
+        {!isFamilyMember && (
+          <button
+            onClick={onStatsClick}
+            className={`flex items-center justify-center gap-2 w-full py-2.5 sm:py-2.5 md:py-3 rounded-xl transition-all font-bold text-xs sm:text-sm md:text-sm shadow-sm active:scale-95 border min-h-[44px] ${
+              activeTab === 'stats'
+                ? 'bg-[#5D5FEF]/10 border-[#5D5FEF]/20 text-[#5D5FEF]'
+                : 'bg-white border-gray-100 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <BarChart3 className={`w-4 h-4 flex-shrink-0 ${activeTab === 'stats' ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
+            <span>Vault Stats</span>
+          </button>
+        )}
       </div>
     </>
   );

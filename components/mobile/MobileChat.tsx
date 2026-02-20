@@ -34,6 +34,8 @@ import {
   RefreshCw,
   MoreVertical,
   Cloud,
+  Square,
+  Check,
 } from 'lucide-react';
 import DrawIcon from '../DrawIcon';
 import { usePdfThumbnail } from '../files/usePdfThumbnail';
@@ -72,6 +74,7 @@ interface MobileChatProps {
   onNavigateToDatabase: () => void;
   onNavigateToFile: (category: string, itemPath: string, isFolder: boolean) => void;
   onBack: () => void;
+  isFamilyMember?: boolean;
 }
 
 // ── Utility ──
@@ -129,6 +132,7 @@ const MobileChat: React.FC<MobileChatProps> = ({
   onNavigateToDatabase,
   onNavigateToFile,
   onBack,
+  isFamilyMember,
 }) => {
   // Use the model selected by the user (App.tsx auto-selects a model with a configured API key)
   const selectedModel = _selectedModel;
@@ -137,6 +141,10 @@ const MobileChat: React.FC<MobileChatProps> = ({
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [ttsLoadingIndex, setTtsLoadingIndex] = useState<number | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const speakingAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // ── History State ──
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -365,21 +373,10 @@ const MobileChat: React.FC<MobileChatProps> = ({
         });
         loadConversations();
 
-        // Auto-generate a concise AI title for new conversations
+        // Backend auto-generates AI title for first exchange; refresh after a delay to pick it up
         if (isFirstExchange && accContent) {
-          fetch('/api/chat/generate-title', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              conversationId: convoId,
-              userMessage: text,
-              assistantMessage: accContent,
-              model: selectedModel,
-            }),
-          })
-            .then(r => r.json())
-            .then(() => loadConversations())
-            .catch(() => {});
+          setTimeout(() => loadConversations(), 3000);
+          setTimeout(() => loadConversations(), 6000);
         }
       }
     } catch {
@@ -397,6 +394,129 @@ const MobileChat: React.FC<MobileChatProps> = ({
   const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard?.writeText(text).catch(() => {});
   }, []);
+
+  // ── Retry: regenerate the AI response in-place ──
+  const handleRetry = async (aiMsgIndex: number) => {
+    if (isLoading) return;
+    const historyUpTo = messages.slice(0, aiMsgIndex).map(m => ({ role: m.role, content: m.content }));
+    if (historyUpTo.length === 0) return;
+
+    setMessages(prev => prev.filter((_, idx) => idx !== aiMsgIndex));
+    setIsLoading(true);
+
+    const assistantTs = Date.now() + 1;
+
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: historyUpTo, model: selectedModel, userEmail: user?.email }),
+      });
+
+      if (!response.ok || !response.body) {
+        setMessages(prev => [...prev, { role: 'assistant' as const, content: 'Failed to regenerate. Please try again.', timestamp: assistantTs }]);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accContent = '';
+      let accActions: ActionResult[] = [];
+      let accBlocks: ContentBlock[] = [];
+      let messageAdded = false;
+
+      const addOrUpdate = () => {
+        const payload: ChatMessage = {
+          role: 'assistant',
+          content: accContent || '',
+          actions: accActions.length > 0 ? [...accActions] : undefined,
+          blocks: [...accBlocks],
+          timestamp: assistantTs,
+        };
+        if (!messageAdded) { messageAdded = true; setMessages(prev => [...prev, payload]); }
+        else { setMessages(prev => prev.map(m => m.timestamp === assistantTs ? payload : m)); }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop()!;
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          const lines = part.split('\n');
+          let eventType = '', eventData = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) eventType = line.slice(7);
+            if (line.startsWith('data: ')) eventData = line.slice(6);
+          }
+          if (eventType === 'text' && eventData) {
+            try { const { content } = JSON.parse(eventData); if (content) { if (!messageAdded) setIsStreaming(true); if (accContent) accContent += '\n\n'; accContent += content; accBlocks.push({ type: 'text', text: content }); addOrUpdate(); } } catch {}
+          } else if (eventType === 'action' && eventData) {
+            try { const actionResult = JSON.parse(eventData); accActions = [...accActions, actionResult]; accBlocks.push({ type: 'action', actionResult }); addOrUpdate(); onRefreshFiles?.(); } catch {}
+          } else if (eventType === 'error' && eventData) {
+            try { const { error } = JSON.parse(eventData); accContent = error || 'Something went wrong.'; accBlocks = [{ type: 'text', text: accContent }]; addOrUpdate(); } catch {}
+          }
+        }
+      }
+
+      if (!messageAdded) {
+        setMessages(prev => [...prev, { role: 'assistant' as const, content: accContent || 'Done.', actions: accActions.length > 0 ? accActions : undefined, blocks: accBlocks.length > 0 ? accBlocks : [{ type: 'text', text: accContent || 'Done.' }], timestamp: assistantTs }]);
+      }
+
+      if (currentConversationId) {
+        saveMessage(currentConversationId, { role: 'assistant', content: accContent || 'Done.', actions: accActions.length > 0 ? accActions : undefined, blocks: accBlocks.length > 0 ? accBlocks : [{ type: 'text', text: accContent || 'Done.' }], timestamp: assistantTs });
+      }
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: 'Failed to regenerate. Please try again.', timestamp: Date.now() }]);
+    } finally {
+      setIsLoading(false);
+      setIsStreaming(false);
+    }
+  };
+
+  // ── TTS: speak an AI response using ElevenLabs ──
+  const handleSpeak = async (text: string, msgIndex: number) => {
+    if (speakingIndex === msgIndex || ttsLoadingIndex === msgIndex) {
+      speakingAudioRef.current?.pause();
+      speakingAudioRef.current = null;
+      setSpeakingIndex(null);
+      setTtsLoadingIndex(null);
+      return;
+    }
+    if (speakingAudioRef.current) {
+      speakingAudioRef.current.pause();
+      speakingAudioRef.current = null;
+      setSpeakingIndex(null);
+    }
+    setTtsLoadingIndex(msgIndex);
+    try {
+      const res = await fetch('/api/ai/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'TTS failed' }));
+        setTtsLoadingIndex(null);
+        if (res.status === 400 && errData.error?.includes('not configured')) {
+          alert('ElevenLabs API key not configured. Go to Settings → API Keys to add it.');
+        }
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      speakingAudioRef.current = audio;
+      setTtsLoadingIndex(null);
+      setSpeakingIndex(msgIndex);
+      audio.onended = () => { setSpeakingIndex(null); speakingAudioRef.current = null; URL.revokeObjectURL(url); };
+      audio.onerror = () => { setSpeakingIndex(null); speakingAudioRef.current = null; URL.revokeObjectURL(url); };
+      audio.play();
+    } catch { setTtsLoadingIndex(null); setSpeakingIndex(null); }
+  };
 
   // ── File helpers ──
   const getFileType = (name: string) => {
@@ -435,6 +555,35 @@ const MobileChat: React.FC<MobileChatProps> = ({
     return name.split('.').pop()?.toUpperCase() || 'FILE';
   };
 
+  /** Color presets for clickable option text — purple by default, unique colors only for database engines */
+  const optionColorMap: Record<string, string> = {
+    postgresql: 'text-emerald-600',
+    postgres: 'text-emerald-600',
+    mysql: 'text-emerald-600',
+    sqlite: 'text-emerald-600',
+  };
+
+  const dbKeywords = new Set(['postgresql', 'postgres', 'mysql', 'sqlite']);
+  const castKeywords = new Set(['gamingtv tv', 'smarttv 4k', 'my room display', 'space tv', 'chromecast', 'nest hub']);
+
+  const isDbOption = (label: string) => dbKeywords.has(label.toLowerCase().trim());
+  const isCastOption = (label: string) => {
+    const key = label.toLowerCase().trim();
+    return castKeywords.has(key) || key.includes('tv') || key.includes('display') || key.includes('chromecast');
+  };
+
+  const getOptionTextColor = (label: string) => {
+    const key = label.toLowerCase().trim();
+    if (optionColorMap[key]) return optionColorMap[key];
+    return 'text-[#5D5FEF]';
+  };
+
+  const handleOptionClick = (option: string) => {
+    if (isLoading) return;
+    setInput(option);
+    inputRef.current?.focus();
+  };
+
   // ── Markdown-lite renderer ──
   const renderContent = (text: string) => {
     if (!text) return null;
@@ -446,7 +595,8 @@ const MobileChat: React.FC<MobileChatProps> = ({
     const lines = withPlaceholders.split('\n');
     const elements: React.ReactNode[] = [];
 
-    lines.forEach((line, idx) => {
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
       const cbMatch = line.match(/^__CODE_BLOCK_(\d+)__$/);
       if (cbMatch) {
         const block = codeBlocks[parseInt(cbMatch[1])];
@@ -456,7 +606,47 @@ const MobileChat: React.FC<MobileChatProps> = ({
             <pre className="px-3 py-2.5 bg-gray-50 text-[12px] font-mono text-gray-700 overflow-x-auto leading-relaxed"><code>{block.code}</code></pre>
           </div>
         );
-        return;
+        continue;
+      }
+      // Markdown table: collect consecutive | lines
+      if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+        const tableLines: string[] = [line];
+        while (idx + 1 < lines.length && lines[idx + 1].trim().startsWith('|') && lines[idx + 1].trim().endsWith('|')) {
+          idx++;
+          tableLines.push(lines[idx]);
+        }
+        if (tableLines.length >= 2) {
+          const parseRow = (r: string) => r.split('|').slice(1, -1).map(c => c.trim());
+          const isSeparator = (r: string) => /^\|[\s:?-]+\|/.test(r.trim()) && r.includes('-');
+          const headerCells = parseRow(tableLines[0]);
+          const startRow = isSeparator(tableLines[1]) ? 2 : 1;
+          const dataRows = tableLines.slice(startRow).filter(r => !isSeparator(r)).map(parseRow);
+          elements.push(
+            <div key={idx} className="my-2 rounded-xl overflow-hidden border border-gray-200">
+              <div className="overflow-x-auto">
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      {headerCells.map((h, hi) => (
+                        <th key={hi} className="px-3 py-2 text-left text-[10px] font-black text-gray-500 uppercase tracking-wider whitespace-nowrap">{renderInline(h)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dataRows.map((row, ri) => (
+                      <tr key={ri} className={`border-b border-gray-100 last:border-0 ${ri % 2 === 1 ? 'bg-gray-50/50' : ''}`}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className="px-3 py-1.5 text-gray-700 whitespace-nowrap text-[12px]">{renderInline(cell)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+          continue;
+        }
       }
       if (line.startsWith('### ')) elements.push(<h4 key={idx} className="text-[14px] font-black text-gray-900 mt-3 mb-1">{line.slice(4)}</h4>);
       else if (line.startsWith('## ')) elements.push(<h3 key={idx} className="text-[15px] font-black text-gray-900 mt-3 mb-1">{line.slice(3)}</h3>);
@@ -476,9 +666,43 @@ const MobileChat: React.FC<MobileChatProps> = ({
             <span>{renderInline(m[2])}</span>
           </div>
         );
+      } else if (line.match(/^\[options:\s*.+\]$/)) {
+        const inner = line.replace(/^\[options:\s*/, '').replace(/\]$/, '');
+        const opts = inner.split('|').map(o => o.trim()).filter(Boolean);
+        if (opts.length > 0) {
+          elements.push(
+            <div key={idx} className="flex flex-col gap-1.5 mt-3 mb-1 ml-4 px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 w-fit min-w-[180px]">
+              {opts.map((opt, oi) => {
+                const color = getOptionTextColor(opt);
+                const isDb = isDbOption(opt);
+                const isCast = isCastOption(opt);
+                return (
+                  <button
+                    key={oi}
+                    onClick={() => handleOptionClick(opt)}
+                    disabled={isLoading}
+                    className={`flex items-center gap-2 ${color} text-[14px] font-bold transition-all active:opacity-60 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer w-fit touch-manipulation`}
+                  >
+                    {isDb ? (
+                      <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor"><path d="M480-120q-151 0-255.5-46.5T120-280v-400q0-66 105.5-113T480-840q149 0 254.5 47T840-680v400q0 67-104.5 113.5T480-120Zm0-479q89 0 179-25.5T760-679q-11-29-100.5-55T480-760q-91 0-178.5 25.5T200-679q14 30 101.5 55T480-599Zm0 199q42 0 81-4t74.5-11.5q35.5-7.5 67-18.5t57.5-25v-120q-26 14-57.5 25t-67 18.5Q600-528 561-524t-81 4q-42 0-82-4t-75.5-11.5Q287-543 256-554t-56-25v120q25 14 56 25t66.5 18.5Q358-408 398-404t82 4Zm0 200q46 0 93.5-7t87.5-18.5q40-11.5 67-26t32-29.5v-98q-26 14-57.5 25t-67 18.5Q600-328 561-324t-81 4q-42 0-82-4t-75.5-11.5Q287-343 256-354t-56-25v99q5 15 31.5 29t66.5 25.5q40 11.5 88 18.5t94 7Z"/></svg>
+                    ) : isCast ? (
+                      <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor"><path d="M480-480Zm320 320H600q0-20-1.5-40t-4.5-40h206v-480H160v46q-20-3-40-4.5T80-680v-40q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160Zm-720 0v-120q50 0 85 35t35 85H80Zm200 0q0-83-58.5-141.5T80-360v-80q117 0 198.5 81.5T360-160h-80Zm160 0q0-75-28.5-140.5t-77-114q-48.5-48.5-114-77T80-520v-80q91 0 171 34.5T391-471q60 60 94.5 140T520-160h-80Z"/></svg>
+                    ) : (
+                      <svg className="w-4 h-4 flex-shrink-0" viewBox="0 -960 960 960" fill="currentColor"><path d="M468-240q-96-5-162-74t-66-166q0-100 70-170t170-70q97 0 166 66t74 162l-84-25q-13-54-56-88.5T480-640q-66 0-113 47t-47 113q0 57 34.5 100t88.5 56l25 84Zm48 158q-9 2-18 2h-18q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480v18q0 9-2 18l-78-24v-12q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93h12l24 78Zm305 22L650-231 600-80 480-480l400 120-151 50 171 171-79 79Z"/></svg>
+                    )}
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+          );
+          return;
+        }
       } else if (!line.trim()) elements.push(<div key={idx} className="h-2" />);
-      else elements.push(<p key={idx} className="leading-relaxed">{renderInline(line)}</p>);
-    });
+      else {
+        elements.push(<p key={idx} className="leading-relaxed">{renderInline(line)}</p>);
+      }
+    }
     return <div className="space-y-1">{elements}</div>;
   };
 
@@ -491,16 +715,18 @@ const MobileChat: React.FC<MobileChatProps> = ({
       const code = rem.match(/`(.*?)`/);
       const italic = rem.match(/(?<!\*)\*(?!\*)(.*?)\*(?!\*)/);
       const channel = rem.match(/#([a-zA-Z][a-zA-Z0-9_-]*)/);
+      const nameM = user?.firstName ? rem.match(new RegExp(`\\b(${user.firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\b`, 'i')) : null;
       const matches = [
         bold ? { type: 'bold', match: bold, idx: rem.indexOf(bold[0]) } : null,
         code ? { type: 'code', match: code, idx: rem.indexOf(code[0]) } : null,
         italic ? { type: 'italic', match: italic, idx: rem.indexOf(italic[0]) } : null,
         channel ? { type: 'channel', match: channel, idx: rem.indexOf(channel[0]) } : null,
+        nameM ? { type: 'name', match: nameM, idx: nameM.index! } : null,
       ].filter(Boolean).sort((a, b) => a!.idx - b!.idx);
       if (!matches.length) { parts.push(rem); break; }
       const first = matches[0]!;
       if (first.idx > 0) parts.push(rem.slice(0, first.idx));
-      if (first.type === 'bold') parts.push(<strong key={k++} className="font-black text-gray-900">{first.match![1]}</strong>);
+      if (first.type === 'bold') parts.push(<strong key={k++} className="font-black text-[#5D5FEF]">{first.match![1]}</strong>);
       else if (first.type === 'code') parts.push(<code key={k++} className="px-1 py-0.5 bg-gray-100 rounded text-[11px] font-mono text-[#5D5FEF]">{first.match![1]}</code>);
       else if (first.type === 'italic') parts.push(<em key={k++}>{first.match![1]}</em>);
       else if (first.type === 'channel') parts.push(
@@ -508,6 +734,7 @@ const MobileChat: React.FC<MobileChatProps> = ({
           <span className="opacity-60">#</span>{first.match![1]}
         </span>
       );
+      else if (first.type === 'name') parts.push(<span key={k++} className="text-[#5D5FEF] font-semibold">{first.match![1]}</span>);
       rem = rem.slice(first.idx + first.match![0].length);
     }
     return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>;
@@ -730,11 +957,12 @@ const MobileChat: React.FC<MobileChatProps> = ({
   const formatTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   // ── Suggestions ──
-  const suggestions = [
-    { text: 'Create a new database for my app', icon: Database, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'active:border-violet-400' },
-    { text: 'Organize my files into folders', icon: FolderPlus, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'active:border-violet-400' },
-    { text: 'Send my latest photos to Discord', icon: Send, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'active:border-violet-400' },
-    { text: 'Find all PDF documents in my files', icon: FileText, gradient: 'from-violet-500 to-indigo-600', bg: 'bg-violet-50', border: 'border-violet-200', hover: 'active:border-violet-400' },
+  const suggestions = isFamilyMember ? [
+    { text: 'Organize my files into folders', icon: FolderPlus },
+    { text: 'Find all my photos', icon: ImageIcon },
+  ] : [
+    { text: 'Organize my files into folders', icon: FolderPlus },
+    { text: 'Find all PDF documents', icon: FileText },
   ];
 
   // ── Auto-resize textarea ──
@@ -789,23 +1017,23 @@ const MobileChat: React.FC<MobileChatProps> = ({
               </div>
               <h2 className="text-[24px] font-bold text-[#5D5FEF] mb-3">Arcellite</h2>
               <p className="text-[15px] text-gray-400 leading-relaxed max-w-xs">
-                Search, analyze, and automate. I can manage your files, databases, and more.
+                {isFamilyMember ? 'Your personal file assistant.' : 'Search, analyze, and automate. I can manage your files, databases, and more.'}
               </p>
 
               {/* Suggestion chips */}
-              <div className="grid grid-cols-2 gap-3 w-full max-w-sm mt-8 px-2">
+              <div className="flex flex-col gap-2.5 w-full max-w-sm mt-8 px-2">
                 {suggestions.map((item, i) => {
                   const Icon = item.icon;
                   return (
                     <button
                       key={i}
                       onClick={() => setInput(item.text)}
-                      className={`flex flex-col items-start gap-3 p-4 ${item.bg} border ${item.border} rounded-2xl text-left active:scale-[0.96] ${item.hover} transition-all touch-manipulation shadow-sm`}
+                      className="flex items-center gap-2.5 px-4 py-2.5 bg-[#5D5FEF]/[0.06] border border-[#5D5FEF]/15 rounded-full text-left active:scale-[0.96] active:border-[#5D5FEF]/30 transition-all touch-manipulation"
                     >
-                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${item.gradient} flex items-center justify-center shadow-lg`}>
-                        <Icon className="w-[18px] h-[18px] text-white" />
+                      <div className="w-8 h-8 rounded-full bg-[#5D5FEF]/10 border border-[#5D5FEF]/20 flex items-center justify-center flex-shrink-0">
+                        <Icon className="w-4 h-4 text-[#5D5FEF]" />
                       </div>
-                      <span className="text-[13px] font-bold text-gray-700 leading-snug">{item.text}</span>
+                      <span className="text-[12px] font-bold text-gray-700 leading-snug">{item.text}</span>
                     </button>
                   );
                 })}
@@ -858,12 +1086,25 @@ const MobileChat: React.FC<MobileChatProps> = ({
 
                   {/* Action buttons for AI messages (Arcnota style) */}
                   {!isUser && msg.content && (
-                    <div className="flex items-center gap-4 mt-1.5 px-1">
-                      <button onClick={() => copyToClipboard(msg.content)} className="p-1 active:opacity-50 touch-manipulation">
-                        <Copy className="w-[16px] h-[16px] text-gray-300" />
+                    <div className="flex items-center gap-3 mt-1.5 px-1">
+                      <button onClick={() => { copyToClipboard(msg.content); setCopiedIndex(i); setTimeout(() => setCopiedIndex(prev => prev === i ? null : prev), 1500); }} className="p-1.5 rounded-lg active:bg-gray-100 touch-manipulation">
+                        {copiedIndex === i ? (
+                          <Check className="w-[16px] h-[16px] text-emerald-500" />
+                        ) : (
+                          <Copy className="w-[16px] h-[16px] text-gray-400" />
+                        )}
                       </button>
-                      <button className="p-1 active:opacity-50 touch-manipulation">
-                        <RefreshCw className="w-[16px] h-[16px] text-gray-300" />
+                      <button onClick={() => handleRetry(i)} className="p-1.5 rounded-lg active:bg-gray-100 touch-manipulation">
+                        <RefreshCw className="w-[16px] h-[16px] text-gray-400" />
+                      </button>
+                      <button onClick={() => handleSpeak(msg.content, i)} className="p-1.5 rounded-lg active:bg-[#5D5FEF]/10 touch-manipulation">
+                        {ttsLoadingIndex === i ? (
+                          <Loader2 className="w-[16px] h-[16px] text-[#5D5FEF] animate-spin" />
+                        ) : speakingIndex === i ? (
+                          <Square className="w-[16px] h-[16px] text-[#5D5FEF]" />
+                        ) : (
+                          <img src="/assets/icons/select_to_speak_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg" alt="Speak" className="w-[16px] h-[16px] brightness-[0.55]" />
+                        )}
                       </button>
                     </div>
                   )}
@@ -913,6 +1154,7 @@ const MobileChat: React.FC<MobileChatProps> = ({
           ) : (
             <button
               onClick={handleSend}
+              data-mobile-chat-send
               disabled={!input.trim()}
               className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mb-0.5 transition-all active:scale-90 touch-manipulation ${
                 input.trim()

@@ -6,14 +6,11 @@ import {
   Film,
   Music,
   Database,
-  TrendingUp,
-  Activity,
   Download,
   RotateCw,
   Check,
   FileText,
-  Shield,
-  Zap
+  Shield
 } from 'lucide-react';
 import type { VaultAnalytics } from '@/types';
 
@@ -101,13 +98,13 @@ const StatsView: React.FC = () => {
     }
   };
 
-  const getCategoryColor = (label: string) => {
+  const getCategoryGradient = (label: string) => {
     switch (label) {
-      case 'Photos': return { bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-100' };
-      case 'Videos': return { bg: 'bg-purple-50', text: 'text-purple-600', border: 'border-purple-100' };
-      case 'Music': return { bg: 'bg-pink-50', text: 'text-pink-600', border: 'border-pink-100' };
-      case 'Files': return { bg: 'bg-green-50', text: 'text-green-600', border: 'border-green-100' };
-      default: return { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-100' };
+      case 'Photos': return { from: 'from-blue-500', to: 'to-sky-600', shadow: 'shadow-blue-500/25', bar: 'from-blue-400 to-sky-500', badge: 'bg-blue-100 text-blue-700' };
+      case 'Videos': return { from: 'from-purple-500', to: 'to-violet-600', shadow: 'shadow-purple-500/25', bar: 'from-purple-400 to-violet-500', badge: 'bg-purple-100 text-purple-700' };
+      case 'Music': return { from: 'from-pink-500', to: 'to-rose-600', shadow: 'shadow-pink-500/25', bar: 'from-pink-400 to-rose-500', badge: 'bg-pink-100 text-pink-700' };
+      case 'Files': return { from: 'from-emerald-500', to: 'to-green-600', shadow: 'shadow-emerald-500/25', bar: 'from-emerald-400 to-green-500', badge: 'bg-emerald-100 text-emerald-700' };
+      default: return { from: 'from-gray-500', to: 'to-gray-600', shadow: 'shadow-gray-500/25', bar: 'from-gray-400 to-gray-500', badge: 'bg-gray-100 text-gray-700' };
     }
   };
 
@@ -179,110 +176,144 @@ const StatsView: React.FC = () => {
       {!loading && !error && (
         <>
           {/* Top Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
             {/* Total Files */}
-            <div className="bg-white rounded-[2rem] border border-gray-100 p-6 shadow-sm hover:shadow-md transition-all">
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center">
-                  <Files className="w-6 h-6 text-[#5D5FEF]" />
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
+                  <Files className="w-5 h-5 text-white" />
                 </div>
-                <TrendingUp className="w-4 h-4 text-green-500" />
+                <div className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700">
+                  Tracked
+                </div>
               </div>
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Total Files</p>
-              <p className="text-3xl font-black text-gray-900">{totalFiles.toLocaleString()}</p>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{totalFiles.toLocaleString()}</p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Total Files</p>
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Categories</span>
+                  <span className="text-[10px] sm:text-[11px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">{categories.length}</span>
+                </div>
+              </div>
             </div>
 
-            {/* Total Size */}
-            <div className="bg-white rounded-[2rem] border border-gray-100 p-6 shadow-sm hover:shadow-md transition-all">
+            {/* Storage Used */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center">
-                  <Database className="w-6 h-6 text-blue-600" />
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
+                  <Database className="w-5 h-5 text-white" />
                 </div>
-                <Activity className="w-4 h-4 text-blue-500" />
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Vault</span>
               </div>
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Storage Used</p>
-              <p className="text-3xl font-black text-gray-900">{totalSizeHuman}</p>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{totalSizeHuman}</p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Storage Used</p>
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-violet-400 to-purple-500 transition-all duration-500"
+                    style={{ width: `${Math.min(currentStorageUtil, 100)}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Used</span>
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">{currentStorageUtil}%</span>
+                </div>
+              </div>
             </div>
 
             {/* Disk Usage */}
-            <div className="bg-white rounded-[2rem] border border-gray-100 p-6 shadow-sm hover:shadow-md transition-all">
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center">
-                  <HardDrive className="w-6 h-6 text-purple-600" />
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                  <HardDrive className="w-5 h-5 text-white" />
                 </div>
-                <span className={`text-[10px] font-black px-2 py-1 rounded-md ${
-                  currentStorageUtil > 80 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
+                <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  currentStorageUtil > 90 ? 'bg-red-100 text-red-700' : currentStorageUtil > 70 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
                 }`}>
-                  {currentStorageUtil}%
-                </span>
+                  {currentStorageUtil > 90 ? 'Critical' : currentStorageUtil > 70 ? 'Warning' : 'Normal'}
+                </div>
               </div>
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Disk Usage</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-3xl font-black text-gray-900">{currentStorageUtil}%</p>
-                <p className="text-sm text-gray-500 font-bold">used</p>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{currentStorageUtil}<span className="text-lg text-gray-300 font-bold">%</span></p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Disk Usage</p>
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full bg-gradient-to-r ${
+                      currentStorageUtil > 90 ? 'from-red-400 to-red-500' : 'from-amber-400 to-orange-500'
+                    } transition-all duration-500`}
+                    style={{ width: `${currentStorageUtil}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Capacity</span>
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">{100 - currentStorageUtil}% free</span>
+                </div>
               </div>
             </div>
 
-            {/* Health Grade */}
-            <div className={`rounded-[2rem] border p-6 shadow-sm hover:shadow-md transition-all ${
-              healthIndex.grade === 'A+' || healthIndex.grade === 'A'
-                ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-100'
-                : healthIndex.grade === 'B'
-                ? 'bg-gradient-to-br from-blue-50 to-cyan-50 border-blue-100'
-                : 'bg-gradient-to-br from-amber-50 to-yellow-50 border-amber-100'
-            }`}>
+            {/* Health Index */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${
                   healthIndex.grade === 'A+' || healthIndex.grade === 'A'
-                    ? 'bg-green-100'
+                    ? 'from-emerald-500 to-green-600 shadow-lg shadow-emerald-500/25'
                     : healthIndex.grade === 'B'
-                    ? 'bg-blue-100'
-                    : 'bg-amber-100'
-                }`}>
-                  <Shield className={`w-6 h-6 ${
-                    healthIndex.grade === 'A+' || healthIndex.grade === 'A'
-                      ? 'text-green-600'
-                      : healthIndex.grade === 'B'
-                      ? 'text-blue-600'
-                      : 'text-amber-600'
-                  }`} />
+                    ? 'from-blue-500 to-cyan-600 shadow-lg shadow-blue-500/25'
+                    : 'from-amber-500 to-yellow-600 shadow-lg shadow-amber-500/25'
+                } flex items-center justify-center`}>
+                  <Shield className="w-5 h-5 text-white" />
                 </div>
-                <Zap className={`w-4 h-4 ${
+                <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                   healthIndex.grade === 'A+' || healthIndex.grade === 'A'
-                    ? 'text-green-500'
+                    ? 'bg-emerald-100 text-emerald-700'
                     : healthIndex.grade === 'B'
-                    ? 'text-blue-500'
-                    : 'text-amber-500'
-                }`} />
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {healthIndex.status}
+                </div>
               </div>
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Health Index</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-3xl font-black text-gray-900">{healthIndex.grade}</p>
-                <p className="text-sm text-gray-600 font-bold">{healthIndex.status}</p>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{healthIndex.grade}</p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Health Index</p>
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full bg-gradient-to-r ${
+                      healthIndex.grade === 'A+' || healthIndex.grade === 'A'
+                        ? 'from-emerald-400 to-green-500'
+                        : healthIndex.grade === 'B'
+                        ? 'from-blue-400 to-cyan-500'
+                        : 'from-amber-400 to-yellow-500'
+                    } transition-all duration-500`}
+                    style={{ width: `${healthIndex.efficiency}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Efficiency</span>
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">{healthIndex.efficiency}%</span>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Storage Breakdown */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          {/* Storage Breakdown & System Health — side by side */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
             {/* Category Breakdown */}
-            <div className="lg:col-span-2 bg-white rounded-[2rem] border border-gray-100 p-8 shadow-sm">
+            <div className="lg:col-span-2 bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-6 sm:p-8 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-[15px] font-black text-gray-900 uppercase tracking-wider">Storage Breakdown</h2>
                 <span className="text-[11px] font-bold text-gray-400">{categories.length} Categories</span>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {categories.map((cat, idx) => {
-                  const colors = getCategoryColor(cat.label);
+                  const gradient = getCategoryGradient(cat.label);
                   return (
                     <div key={idx} className="group">
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-2.5">
                         <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-xl ${colors.bg} flex items-center justify-center`}>
-                            <div className={colors.text}>
-                              {getCategoryIcon(cat.label)}
-                            </div>
+                          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradient.from} ${gradient.to} flex items-center justify-center shadow-lg ${gradient.shadow}`}>
+                            <div className="text-white">{getCategoryIcon(cat.label)}</div>
                           </div>
                           <div>
                             <p className="text-[14px] font-black text-gray-900">{cat.label}</p>
@@ -291,10 +322,10 @@ const StatsView: React.FC = () => {
                         </div>
                         <span className="text-[13px] font-black text-gray-400">{cat.percentage}%</span>
                       </div>
-                      <div className="h-2 bg-gray-50 rounded-full overflow-hidden">
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                         <div
-                          className={`h-full ${colors.bg.replace('50', '200')} transition-all duration-1000`}
-                          style={{ width: `${cat.percentage}%` }}
+                          className={`h-full rounded-full bg-gradient-to-r ${gradient.bar} transition-all duration-1000`}
+                          style={{ width: `${Math.max(cat.percentage, 2)}%` }}
                         />
                       </div>
                     </div>
@@ -311,7 +342,7 @@ const StatsView: React.FC = () => {
             </div>
 
             {/* System Health */}
-            <div className="bg-gradient-to-br from-[#5D5FEF] to-[#4D4FCF] rounded-[2rem] p-8 text-white shadow-xl relative overflow-hidden">
+            <div className="bg-gradient-to-br from-[#5D5FEF] to-[#4D4FCF] rounded-2xl sm:rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
               <div className="absolute -right-16 -top-16 w-64 h-64 bg-white/10 rounded-full blur-[80px]" />
               <div className="relative z-10">
                 <h2 className="text-[11px] font-black text-white/60 uppercase tracking-wider mb-6">System Health</h2>
@@ -353,32 +384,35 @@ const StatsView: React.FC = () => {
           </div>
 
           {/* Storage Trend */}
-          <div className="bg-white rounded-[2rem] border border-gray-100 p-8 shadow-sm">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-[15px] font-black text-gray-900 uppercase tracking-wider">Storage Utilization Trend</h2>
-              <span className="text-[11px] font-bold text-gray-400">Last 12 Periods</span>
-            </div>
+          <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-6 sm:p-8 pb-8 sm:pb-10 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-[15px] font-black text-gray-900 uppercase tracking-wider">Storage Utilization Trend</h2>
+                <span className="text-[11px] font-bold text-gray-400">Last 12 Periods</span>
+              </div>
 
-            <div className="flex items-end gap-2 h-48">
-              {(data?.storageUtilization || []).map((util, i) => (
-                <div
-                  key={i}
-                  className="flex-1 bg-gray-50 rounded-t-xl relative group hover:bg-[#5D5FEF]/10 transition-all cursor-pointer"
-                  title={`${util}% utilization`}
-                >
+              <div className="flex items-end gap-2 h-56">
+                {(data?.storageUtilization || []).map((util, i) => (
                   <div
-                    className="absolute bottom-0 left-0 right-0 bg-[#5D5FEF]/20 rounded-t-xl transition-all duration-500 group-hover:bg-[#5D5FEF]"
-                    style={{ height: `${util}%` }}
-                  />
-                </div>
-              ))}
-            </div>
+                    key={i}
+                    className="flex-1 h-full bg-gray-50 rounded-t-xl relative group hover:bg-[#5D5FEF]/10 transition-all cursor-pointer"
+                    title={`Period ${i + 1}: ${util}%`}
+                  >
+                    <div
+                      className="absolute bottom-0 left-0 right-0 bg-[#5D5FEF]/20 rounded-t-xl transition-all duration-500 group-hover:bg-[#5D5FEF]"
+                      style={{ height: `${util}%` }}
+                    />
+                    <div className="absolute -top-5 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap">
+                      {util}%
+                    </div>
+                  </div>
+                ))}
+              </div>
 
-            <div className="flex justify-between text-[10px] font-bold text-gray-300 mt-4">
-              <span>Period 1</span>
-              <span>Period 6</span>
-              <span>Current</span>
-            </div>
+              <div className="flex justify-between text-[10px] font-bold text-gray-300 mt-4">
+                <span>Period 1</span>
+                <span>Period 6</span>
+                <span>Current</span>
+              </div>
           </div>
         </>
       )}

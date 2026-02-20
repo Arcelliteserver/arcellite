@@ -35,10 +35,15 @@ export const AI_MODELS = [
   { id: 'grok-4-fast-reasoning', name: 'grok-4-fast-reasoning', provider: 'Grok', icon: '/assets/models/grok.svg', color: 'text-fuchsia-500', bg: 'bg-fuchsia-50', acidColor: '#D946EF' },
   { id: 'grok-4-fast-non-reasoning', name: 'grok-4-fast-non-reasoning', provider: 'Grok', icon: '/assets/models/grok.svg', color: 'text-purple-500', bg: 'bg-purple-50', acidColor: '#A855F7' },
   
-  // Ollama Models
-  { id: 'ollama-llama3', name: 'Ollama Llama 3', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-slate-600', bg: 'bg-slate-50', acidColor: '#475569' },
+  // Ollama Models (Cloud)
   { id: 'ollama-mistral', name: 'Ollama Mistral', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-gray-600', bg: 'bg-gray-50', acidColor: '#4B5563' },
-  { id: 'gpt-oss', name: 'GPT-OSS', provider: 'Ollama', icon: '/assets/models/openai.svg', color: 'text-slate-500', bg: 'bg-slate-50', acidColor: '#64748B' },
+  { id: 'gpt-oss-120b-cloud', name: 'GPT-OSS 120B Cloud', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-slate-600', bg: 'bg-slate-50', acidColor: '#475569' },
+  { id: 'gpt-oss-20b-cloud', name: 'GPT-OSS 20B Cloud', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-slate-500', bg: 'bg-slate-50', acidColor: '#64748B' },
+  { id: 'deepseek-v3.1-671b-cloud', name: 'DeepSeek V3.1 671B Cloud', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-blue-600', bg: 'bg-blue-50', acidColor: '#2563EB' },
+  { id: 'qwen3-coder-480b-cloud', name: 'Qwen3 Coder 480B Cloud', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-indigo-600', bg: 'bg-indigo-50', acidColor: '#4F46E5' },
+  { id: 'qwen3-vl-235b-cloud', name: 'Qwen3 VL 235B Cloud', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-violet-600', bg: 'bg-violet-50', acidColor: '#7C3AED' },
+  { id: 'minimax-m2-cloud', name: 'MiniMax M2 Cloud', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-cyan-600', bg: 'bg-cyan-50', acidColor: '#0891B2' },
+  { id: 'alm-4.6-cloud', name: 'ALM 4.6 Cloud', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-emerald-600', bg: 'bg-emerald-50', acidColor: '#059669' },
   { id: 'kimi-k2.5', name: 'Kimi K2.5', provider: 'Ollama', icon: '/assets/models/ollama.svg', color: 'text-zinc-600', bg: 'bg-zinc-50', acidColor: '#52525B' },
   
   // Qwen Models

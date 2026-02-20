@@ -7,8 +7,8 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { pool } from '../db/connection.js';
 
-const SALT_ROUNDS = 10;
-const SESSION_DURATION_DAYS = 30;
+const SALT_ROUNDS = 12;
+const SESSION_DURATION_DAYS = 14; // Reduced from 30 for tighter session security
 const MAX_DEVICES = 4;
 
 export interface User {
@@ -20,6 +20,8 @@ export interface User {
   storagePath: string;
   isSetupComplete: boolean;
   emailVerified: boolean;
+  isFamilyMember: boolean;
+  isSuspended: boolean;
   createdAt: Date;
 }
 
@@ -87,6 +89,8 @@ export async function createUser(
     storagePath: row.storage_path,
     isSetupComplete: row.is_setup_complete,
     emailVerified: row.email_verified,
+    isFamilyMember: false,
+    isSuspended: false,
     createdAt: row.created_at,
   };
 }
@@ -122,6 +126,8 @@ export async function authenticateUser(email: string, password: string): Promise
     storagePath: row.storage_path,
     isSetupComplete: row.is_setup_complete,
     emailVerified: row.email_verified,
+    isFamilyMember: !!row.is_family_member,
+    isSuspended: false,
     createdAt: row.created_at,
   };
 }
@@ -194,13 +200,15 @@ export async function createSession(
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + SESSION_DURATION_DAYS);
 
-  const { deviceName, deviceType } = parseDevice(options?.userAgent);
+  // SEC-SESSION: Clamp User-Agent to 500 chars to prevent oversized DB entries
+  const safeUserAgent = (options?.userAgent || '').substring(0, 500) || null;
+  const { deviceName, deviceType } = parseDevice(safeUserAgent || undefined);
 
   const result = await pool.query(
     `INSERT INTO sessions (user_id, session_token, device_name, device_type, ip_address, user_agent, is_current_host, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id, user_id, session_token, expires_at`,
-    [userId, sessionToken, deviceName, deviceType, options?.ipAddress || null, options?.userAgent || null, options?.isCurrentHost || false, expiresAt]
+    [userId, sessionToken, deviceName, deviceType, options?.ipAddress || null, safeUserAgent, options?.isCurrentHost || false, expiresAt]
   );
 
   // Login Alerts: notify user about new login if enabled (autoMirroring setting)
@@ -238,9 +246,11 @@ export async function createSession(
 export async function validateSession(sessionToken: string): Promise<User | null> {
   const result = await pool.query(
     `SELECT u.id, u.email, u.first_name, u.last_name, u.avatar_url,
-            u.storage_path, u.is_setup_complete, u.email_verified, u.created_at
+            u.storage_path, u.is_setup_complete, u.email_verified, u.created_at,
+            fm.id AS fm_id, fm.status AS fm_status
      FROM sessions s
      JOIN users u ON s.user_id = u.id
+     LEFT JOIN family_members fm ON fm.user_id = u.id
      WHERE s.session_token = $1 AND s.expires_at > NOW()`,
     [sessionToken]
   );
@@ -256,6 +266,7 @@ export async function validateSession(sessionToken: string): Promise<User | null
   );
 
   const row = result.rows[0];
+  const isFamilyMember = row.fm_id != null;
   return {
     id: row.id,
     email: row.email,
@@ -265,6 +276,8 @@ export async function validateSession(sessionToken: string): Promise<User | null
     storagePath: row.storage_path,
     isSetupComplete: row.is_setup_complete,
     emailVerified: row.email_verified,
+    isFamilyMember,
+    isSuspended: isFamilyMember && row.fm_status === 'disabled',
     createdAt: row.created_at,
   };
 }
@@ -355,7 +368,7 @@ export async function verifyEmailCode(userId: number, code: string): Promise<boo
   const row = result.rows[0];
   if (!row.verification_code || !row.verification_expires) return false;
   if (new Date() > new Date(row.verification_expires)) return false;
-  if (row.verification_code !== code) return false;
+  if (!crypto.timingSafeEqual(Buffer.from(row.verification_code), Buffer.from(code))) return false;
 
   // Mark as verified
   await pool.query(
@@ -485,10 +498,19 @@ export async function getRecentFiles(userId: number, limit: number = 20): Promis
   const fs = await import('fs');
   const path = await import('path');
 
-  // Use the user's actual storage path from the database (handles USB/external storage)
+  // Use the specific user's storage path (critical for family members who have isolated storage)
   let dataDir: string;
   try {
-    dataDir = await getActiveStoragePath();
+    const userRow = await pool.query(`SELECT storage_path FROM users WHERE id = $1`, [userId]);
+    if (userRow.rows.length > 0 && userRow.rows[0].storage_path && userRow.rows[0].storage_path !== 'pending') {
+      dataDir = userRow.rows[0].storage_path;
+      const os = await import('os');
+      if (dataDir.startsWith('~/') || dataDir === '~') {
+        dataDir = path.default.join(os.default.homedir(), dataDir.slice(dataDir === '~' ? 1 : 2));
+      }
+    } else {
+      dataDir = await getActiveStoragePath();
+    }
   } catch {
     const os = await import('os');
     dataDir = process.env.ARCELLITE_DATA || path.default.join(os.default.homedir(), 'arcellite-data');
@@ -636,6 +658,7 @@ export async function getUserSettings(userId: number): Promise<{
   secFolderLockPin: string;
   secLockedFolders: string[];
   domainConfig: { tunnelToken?: string; customDomain?: string; tunnelName?: string };
+  preferredModel: string;
 }> {
   // Ensure a settings row exists
   await pool.query(
@@ -687,6 +710,7 @@ export async function getUserSettings(userId: number): Promise<{
     secFolderLockPin: prefs.secFolderLockPin ?? '',
     secLockedFolders: prefs.secLockedFolders ?? [],
     domainConfig: prefs.domainConfig ?? {},
+    preferredModel: prefs.preferredModel ?? '',
   };
 }
 
@@ -719,13 +743,13 @@ export async function getAIPermissionsByEmail(email: string): Promise<Record<str
       [email]
     );
     if (userResult.rows.length === 0) {
-      // No user found — return all defaults (permissive)
+      // No user found — fail-secure: deny all AI actions
       return {
-        aiFileCreate: true, aiFileModify: true, aiFileDelete: true,
-        aiFolderCreate: true, aiFileOrganize: true,
-        aiTrashAccess: true, aiTrashRestore: true, aiTrashEmpty: false,
-        aiDatabaseCreate: true, aiDatabaseDelete: false,
-        aiDatabaseQuery: true, aiSendEmail: true, aiCastMedia: true, aiFileRead: true,
+        aiFileCreate: false, aiFileModify: false, aiFileDelete: false,
+        aiFolderCreate: false, aiFileOrganize: false,
+        aiTrashAccess: false, aiTrashRestore: false, aiTrashEmpty: false,
+        aiDatabaseCreate: false, aiDatabaseDelete: false,
+        aiDatabaseQuery: false, aiSendEmail: false, aiCastMedia: false, aiFileRead: false,
       };
     }
     const settings = await getUserSettings(userResult.rows[0].id);
@@ -747,13 +771,13 @@ export async function getAIPermissionsByEmail(email: string): Promise<Record<str
     };
   } catch (e) {
     console.error('[Auth] Failed to get AI permissions:', e);
-    // On error, return permissive defaults
+    // On error, fail-secure: deny all AI actions rather than granting access
     return {
-      aiFileCreate: true, aiFileModify: true, aiFileDelete: true,
-      aiFolderCreate: true, aiFileOrganize: true,
-      aiTrashAccess: true, aiTrashRestore: true, aiTrashEmpty: false,
-      aiDatabaseCreate: true, aiDatabaseDelete: false,
-      aiDatabaseQuery: true, aiSendEmail: true, aiCastMedia: true, aiFileRead: true,
+      aiFileCreate: false, aiFileModify: false, aiFileDelete: false,
+      aiFolderCreate: false, aiFileOrganize: false,
+      aiTrashAccess: false, aiTrashRestore: false, aiTrashEmpty: false,
+      aiDatabaseCreate: false, aiDatabaseDelete: false,
+      aiDatabaseQuery: false, aiSendEmail: false, aiCastMedia: false, aiFileRead: false,
     };
   }
 }
@@ -795,6 +819,7 @@ export async function updateUserSettings(
     secFolderLock?: boolean;
     secFolderLockPin?: string;
     secLockedFolders?: string[];
+    preferredModel?: string;
   }
 ): Promise<void> {
   // Ensure row exists
@@ -825,6 +850,7 @@ export async function updateUserSettings(
     'secTwoFactor', 'secFileObfuscation', 'secGhostFolders', 'secTrafficMasking', 'secStrictIsolation',
     'secAutoLock', 'secAutoLockTimeout', 'secAutoLockPin',
     'secFolderLock', 'secFolderLockPin', 'secLockedFolders',
+    'preferredModel',
   ] as const;
   for (const key of aiKeys) {
     if (settings[key] !== undefined) updatedPrefs[key] = settings[key];
@@ -883,6 +909,17 @@ export async function createNotification(
       return; // Notifications suppressed
     }
   } catch { /* If settings check fails, allow notification through */ }
+
+  // SEC-NOTIFY: Rate limit — drop if more than 30 notifications created in the last minute
+  try {
+    const recentCount = await pool.query(
+      `SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 minute'`,
+      [userId]
+    );
+    if (parseInt(recentCount.rows[0].count, 10) >= 30) {
+      return; // Silently drop to prevent notification flood
+    }
+  } catch { /* Never block the insert on rate-limit check failure */ }
 
   await pool.query(
     `INSERT INTO notifications (user_id, title, message, type, category)
@@ -1117,6 +1154,119 @@ export async function deleteAccount(userId: number): Promise<void> {
   } catch (err) {
     console.error('[Auth] Failed to remove .env file:', err);
   }
+}
+
+/**
+ * Delete a family member's own account.
+ * SAFE version: only removes the member's isolated subdirectory under family/.
+ * Does NOT touch owner databases, .env, or owner storage.
+ */
+export async function deleteFamilyMemberAccount(userId: number): Promise<void> {
+  // Get the member's isolated storage path before deleting the row
+  const userResult = await pool.query(
+    `SELECT u.storage_path, fm.id AS fm_id
+     FROM users u
+     LEFT JOIN family_members fm ON fm.user_id = u.id
+     WHERE u.id = $1`,
+    [userId]
+  );
+
+  // ── 1. Delete the users row — CASCADE removes sessions, activity_log, recent_files, etc. ──
+  await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+
+  // ── 2. Clean up family_members row (user_id FK is SET NULL by CASCADE, remove the row entirely) ──
+  if (userResult.rows[0]?.fm_id) {
+    await pool.query(`DELETE FROM family_members WHERE id = $1`, [userResult.rows[0].fm_id]);
+  }
+
+  // ── 3. Delete only the member's isolated storage subdirectory ──
+  if (userResult.rows.length > 0) {
+    const storagePath: string = userResult.rows[0].storage_path || '';
+    if (storagePath && storagePath !== 'pending') {
+      const fs = await import('fs');
+      const path = await import('path');
+      const os = await import('os');
+
+      let resolvedPath = storagePath;
+      if (storagePath.startsWith('~/') || storagePath === '~') {
+        resolvedPath = path.join(os.homedir(), storagePath.slice(storagePath === '~' ? 1 : 2));
+      }
+
+      // Safety guard: only delete paths that contain '/family/' to prevent
+      // accidentally deleting the owner's root storage directory.
+      if (resolvedPath.includes('/family/')) {
+        try {
+          if (fs.existsSync(resolvedPath)) {
+            fs.rmSync(resolvedPath, { recursive: true, force: true });
+          }
+        } catch (err) {
+          console.error(`[Auth] Failed to delete family member storage directory ${resolvedPath}:`, err);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Create a family member user account.
+ * Inserts into users table with a dedicated storage subdirectory under the owner's path.
+ * is_setup_complete and email_verified are set to TRUE — no wizard or email verification needed.
+ */
+export async function createFamilyUser(params: {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  ownerStoragePath: string;
+}): Promise<User> {
+  const passwordHash = await hashPassword(params.password);
+
+  // Insert with placeholder path first — need the assigned id to build the subdirectory path
+  const result = await pool.query(
+    `INSERT INTO users (email, password_hash, first_name, last_name,
+                        is_setup_complete, email_verified, storage_path)
+     VALUES ($1, $2, $3, $4, TRUE, TRUE, 'pending')
+     RETURNING id, email, first_name, last_name, avatar_url,
+               storage_path, is_setup_complete, email_verified, created_at`,
+    [params.email, passwordHash, params.firstName, params.lastName],
+  );
+  const row = result.rows[0];
+  const userId: number = row.id;
+
+  // Resolve owner base path and build isolated subdirectory for this member
+  const os = await import('os');
+  const path = await import('path');
+  const fs = await import('fs');
+  let ownerBase = params.ownerStoragePath;
+  if (ownerBase === '~' || ownerBase.startsWith('~/')) {
+    ownerBase = path.join(os.homedir(), ownerBase.slice(ownerBase === '~' ? 1 : 2));
+  }
+  const memberStoragePath = path.join(ownerBase, 'family', String(userId));
+
+  await pool.query(
+    `UPDATE users SET storage_path = $1 WHERE id = $2`,
+    [memberStoragePath, userId],
+  );
+
+  // Create directory structure matching the main app's category layout
+  fs.mkdirSync(path.join(memberStoragePath, 'photos'), { recursive: true });
+  fs.mkdirSync(path.join(memberStoragePath, 'videos'), { recursive: true });
+  fs.mkdirSync(path.join(memberStoragePath, 'music'), { recursive: true });
+  fs.mkdirSync(path.join(memberStoragePath, 'files'), { recursive: true });
+
+  return {
+    id: userId,
+    email: row.email,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    avatarUrl: null,
+    storagePath: memberStoragePath,
+    isSetupComplete: true,
+    emailVerified: true,
+    isFamilyMember: true,
+    isSuspended: false,
+    createdAt: row.created_at,
+  };
 }
 
 /**

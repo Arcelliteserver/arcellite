@@ -78,6 +78,19 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
     }
   };
 
+  const handleNotificationClick = (notification: Notification) => {
+    // Always mark as read on click
+    if (!notification.read) {
+      handleMarkRead(notification.id);
+    }
+    // Navigate based on category: storage requests go to family page for owner,
+    // or manage-storage for the member who received an approval/denial
+    if (notification.category === 'storage') {
+      const dest = notification.title === 'Storage Request' ? 'family' : 'manage-storage';
+      handleNavigate(dest);
+    }
+  };
+
   const handleMarkAllRead = async () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     try {
@@ -182,7 +195,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ isOpen, onC
           notifications.map((notification) => (
             <div
               key={notification.id}
-              onClick={() => !notification.read && handleMarkRead(notification.id)}
+              onClick={() => handleNotificationClick(notification)}
               className={`px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl transition-all cursor-pointer hover:bg-[#F5F5F7] min-h-[44px] flex items-start gap-3 ${getStatusColor(notification.type, notification.read)}`}
             >
               <div className="flex-shrink-0 mt-0.5">

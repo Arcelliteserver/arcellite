@@ -74,6 +74,12 @@ function sendError(res: ServerResponse, error: string, status = 500) {
   sendJson(res, { error }, status);
 }
 
+/** Extract the authenticated user ID from the request (set by auth middleware). */
+function getUserId(req: IncomingMessage): number | null {
+  const user = (req as any).user;
+  return user?.id ?? null;
+}
+
 export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url: string): boolean {
 
   // ── List conversations ─────────────────────────────────────────
@@ -81,15 +87,18 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
     (async () => {
       try {
         await ensureChatSchema();
+        const userId = getUserId(req);
+        if (!userId) { sendError(res, 'Unauthorized', 401); return; }
         const urlObj = new URL(url, `http://${req.headers.host || 'localhost'}`);
         const limit = parseInt(urlObj.searchParams.get('limit') || '50');
         const result = await chatPool.query(
           `SELECT c.id, c.title, c.model, c.created_at, c.updated_at,
                   (SELECT COUNT(*)::int FROM chat_messages WHERE conversation_id = c.id) AS message_count
            FROM chat_conversations c
+           WHERE c.user_id = $1
            ORDER BY c.updated_at DESC
-           LIMIT $1`,
-          [limit]
+           LIMIT $2`,
+          [userId, limit]
         );
         sendJson(res, { ok: true, conversations: result.rows });
       } catch (e) {
@@ -106,9 +115,11 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
     (async () => {
       try {
         await ensureChatSchema();
+        const userId = getUserId(req);
+        if (!userId) { sendError(res, 'Unauthorized', 401); return; }
         const convoResult = await chatPool.query(
-          'SELECT id, title, model, created_at, updated_at FROM chat_conversations WHERE id = $1',
-          [conversationId]
+          'SELECT id, title, model, created_at, updated_at FROM chat_conversations WHERE id = $1 AND user_id = $2',
+          [conversationId, userId]
         );
         if (convoResult.rows.length === 0) {
           sendError(res, 'Conversation not found', 404);
@@ -141,10 +152,12 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
     parseBody(req).then(async (body) => {
       try {
         await ensureChatSchema();
+        const userId = getUserId(req);
+        if (!userId) { sendError(res, 'Unauthorized', 401); return; }
         const { title, model } = body;
         const result = await chatPool.query(
-          'INSERT INTO chat_conversations (user_id, title, model) VALUES (1, $1, $2) RETURNING id, title, model, created_at, updated_at',
-          [title || 'New Chat', model || 'deepseek-chat']
+          'INSERT INTO chat_conversations (user_id, title, model) VALUES ($1, $2, $3) RETURNING id, title, model, created_at, updated_at',
+          [userId, title || 'New Chat', model || 'deepseek-chat']
         );
         sendJson(res, { ok: true, conversation: result.rows[0] });
       } catch (e) {
@@ -159,9 +172,20 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
     parseBody(req).then(async (body) => {
       try {
         await ensureChatSchema();
+        const userId = getUserId(req);
+        if (!userId) { sendError(res, 'Unauthorized', 401); return; }
         const { conversationId, role, content, actions, blocks } = body;
         if (!conversationId || !role || !content) {
           sendError(res, 'conversationId, role, and content are required', 400);
+          return;
+        }
+        // Verify the conversation belongs to this user
+        const ownerCheck = await chatPool.query(
+          'SELECT 1 FROM chat_conversations WHERE id = $1 AND user_id = $2',
+          [conversationId, userId]
+        );
+        if (ownerCheck.rows.length === 0) {
+          sendError(res, 'Conversation not found', 404);
           return;
         }
         const result = await chatPool.query(
@@ -169,23 +193,45 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
           [conversationId, role, content, actions ? JSON.stringify(actions) : null, blocks ? JSON.stringify(blocks) : null]
         );
 
-        // Update conversation timestamp and auto-title from first user message
-        if (role === 'user') {
+        // Update conversation timestamp; generate AI title after first assistant reply
+        if (role === 'assistant') {
+          // Check if this is the first assistant message (i.e. new conversation)
           const countResult = await chatPool.query(
             'SELECT COUNT(*)::int as cnt FROM chat_messages WHERE conversation_id = $1 AND role = $2',
-            [conversationId, 'user']
+            [conversationId, 'assistant']
           );
+          await chatPool.query(
+            'UPDATE chat_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+            [conversationId]
+          );
+          // Auto-generate AI title after first exchange (non-blocking)
           if (countResult.rows[0].cnt <= 1) {
-            const title = content.length > 60 ? content.substring(0, 57) + '...' : content;
-            await chatPool.query(
-              'UPDATE chat_conversations SET title = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-              [title, conversationId]
+            const userMsgResult = await chatPool.query(
+              'SELECT content FROM chat_messages WHERE conversation_id = $1 AND role = $2 ORDER BY created_at ASC LIMIT 1',
+              [conversationId, 'user']
             );
-          } else {
-            await chatPool.query(
-              'UPDATE chat_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = $1',
-              [conversationId]
-            );
+            const userMsgContent = userMsgResult.rows[0]?.content || '';
+            if (userMsgContent) {
+              // Get model from conversation
+              const convoModelResult = await chatPool.query(
+                'SELECT model FROM chat_conversations WHERE id = $1',
+                [conversationId]
+              );
+              const convoModel = convoModelResult.rows[0]?.model || 'deepseek-chat';
+              // Fire-and-forget: generate title in background
+              import('../ai.js').then(({ generateChatTitle }) => {
+                generateChatTitle(userMsgContent, content.substring(0, 500), convoModel)
+                  .then((result: any) => {
+                    if (result.ok && result.title) {
+                      chatPool.query(
+                        'UPDATE chat_conversations SET title = $1 WHERE id = $2',
+                        [result.title, conversationId]
+                      ).catch(() => {});
+                    }
+                  })
+                  .catch(() => {});
+              }).catch(() => {});
+            }
           }
         } else {
           await chatPool.query(
@@ -209,7 +255,9 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
     (async () => {
       try {
         await ensureChatSchema();
-        await chatPool.query('DELETE FROM chat_conversations WHERE id = $1', [conversationId]);
+        const userId = getUserId(req);
+        if (!userId) { sendError(res, 'Unauthorized', 401); return; }
+        await chatPool.query('DELETE FROM chat_conversations WHERE id = $1 AND user_id = $2', [conversationId, userId]);
         sendJson(res, { ok: true });
       } catch (e) {
         sendError(res, String((e as Error).message));
@@ -225,14 +273,16 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
     parseBody(req).then(async (body) => {
       try {
         await ensureChatSchema();
+        const userId = getUserId(req);
+        if (!userId) { sendError(res, 'Unauthorized', 401); return; }
         const { title } = body;
         if (!title) {
           sendError(res, 'title is required', 400);
           return;
         }
         await chatPool.query(
-          'UPDATE chat_conversations SET title = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-          [title, conversationId]
+          'UPDATE chat_conversations SET title = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3',
+          [title, conversationId, userId]
         );
         sendJson(res, { ok: true });
       } catch (e) {
@@ -246,6 +296,8 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
   if (url === '/api/chat/generate-title' && req.method === 'POST') {
     parseBody(req).then(async (body) => {
       try {
+        const userId = getUserId(req);
+        if (!userId) { sendError(res, 'Unauthorized', 401); return; }
         const { conversationId, userMessage, assistantMessage, model } = body;
         if (!conversationId || !userMessage || !assistantMessage) {
           sendError(res, 'conversationId, userMessage, and assistantMessage are required', 400);
@@ -256,8 +308,8 @@ export function handleChatRoutes(req: IncomingMessage, res: ServerResponse, url:
         if (result.ok && result.title) {
           await ensureChatSchema();
           await chatPool.query(
-            'UPDATE chat_conversations SET title = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-            [result.title, conversationId]
+            'UPDATE chat_conversations SET title = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3',
+            [result.title, conversationId, userId]
           );
           sendJson(res, { ok: true, title: result.title });
         } else {

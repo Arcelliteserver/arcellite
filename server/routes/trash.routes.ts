@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
+import os from 'os';
+import nodePath from 'path';
 import * as authService from '../services/auth.service.js';
 
 /** Send vault-locked error response */
@@ -8,12 +10,41 @@ function sendVaultLockedError(res: ServerResponse): void {
   res.end(JSON.stringify({ error: 'Vault is in lockdown mode. Disable Vault Lockdown in Account Settings to make changes.' }));
 }
 
+/** Block write ops for suspended family members */
+function sendSuspendedError(res: ServerResponse): void {
+  res.statusCode = 403;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({ error: 'Your account is suspended. Contact the account administrator.' }));
+}
+
+/**
+ * Pin the global storage path cache to the request user's storage path for the
+ * duration of a synchronous trash operation, then restore it.
+ * All trash.ts functions are synchronous, so this is safe within a single event-loop turn.
+ */
+function withUserBaseDir<T>(req: IncomingMessage, fn: () => T): T {
+  const userPath = (req as any).user?.storagePath as string | undefined;
+  if (!userPath || userPath === 'pending') return fn();
+
+  let dir = userPath;
+  if (dir.startsWith('~/') || dir === '~') {
+    dir = nodePath.join(os.homedir(), dir.slice(dir === '~' ? 1 : 2));
+  }
+  const prev = (globalThis as any).__arcellite_storage_path;
+  (globalThis as any).__arcellite_storage_path = dir;
+  try {
+    return fn();
+  } finally {
+    (globalThis as any).__arcellite_storage_path = prev;
+  }
+}
+
 export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url: string) {
   // List trash items
   if (url === '/api/trash/list' && req.method === 'GET') {
     import('../trash.js').then(({ listTrash }) => {
       try {
-        const items = listTrash();
+        const items = withUserBaseDir(req, () => listTrash());
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ ok: true, items }));
       } catch (e) {
@@ -46,7 +77,7 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
             return;
           }
 
-          restoreFromTrash(trashId.trim());
+          withUserBaseDir(req, () => restoreFromTrash(trashId.trim()));
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ ok: true }));
         } catch (e) {
@@ -81,7 +112,7 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
             return;
           }
 
-          permanentlyDelete(trashId.trim());
+          withUserBaseDir(req, () => permanentlyDelete(trashId.trim()));
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ ok: true }));
         } catch (e) {
@@ -104,7 +135,7 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
       if (locked) { sendVaultLockedError(res); return; }
       import('../trash.js').then(({ emptyTrash }) => {
         try {
-          const deletedCount = emptyTrash();
+          const deletedCount = withUserBaseDir(req, () => emptyTrash());
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ ok: true, deletedCount }));
         } catch (e) {
@@ -123,6 +154,7 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
 
   // Move to trash
   if (url === '/api/trash/move-to-trash' && req.method === 'POST') {
+    if ((req as any).user?.isSuspended) { sendSuspendedError(res); return true; }
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', async () => {
@@ -140,14 +172,33 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
             return;
           }
 
-          const trashId = moveToTrash(category, path.trim());
-          // Clean up from recent files database
-          import('../services/auth.service.js').then(({ removeRecentFile, removeRecentFilesUnderPath }) => {
-            // Remove exact path and any children (if it's a folder)
+          let trashId: string | undefined;
+          let fileGone = false;
+          try {
+            trashId = withUserBaseDir(req, () => moveToTrash(category, path.trim()));
+          } catch (moveErr: any) {
+            const msg = String(moveErr?.message || moveErr || '');
+            // If the file simply doesn't exist on disk, still clean up recents
+            if (msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('enoent') || msg.toLowerCase().includes('no such file')) {
+              fileGone = true;
+            } else {
+              throw moveErr;
+            }
+          }
+
+          // Always clean up from recent files database (whether trashed or already gone)
+          import('../services/auth.service.js').then(({ removeRecentFilesUnderPath }) => {
             removeRecentFilesUnderPath(path.trim(), category);
           }).catch(err => console.error('[Trash] Failed to clean recent files:', err));
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ ok: true, trashId }));
+
+          if (fileGone) {
+            // File was already gone — report success so frontend can clean up
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true, alreadyGone: true }));
+          } else {
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true, trashId }));
+          }
         } catch (e) {
           res.statusCode = 500;
           res.setHeader('Content-Type', 'application/json');

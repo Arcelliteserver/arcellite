@@ -107,7 +107,9 @@ const MobileSearchDropdown: React.FC<MobileSearchDropdownProps> = ({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/files/search?q=${encodeURIComponent(query.trim())}`);
+        const token = localStorage.getItem('sessionToken');
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const res = await fetch(`/api/files/search?q=${encodeURIComponent(query.trim())}`, { headers });
         if (res.ok) {
           const data = await res.json();
           setResults(data);

@@ -171,7 +171,10 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
       {/* App-Style Header */}
       <div className="mb-5">
         <div className="flex items-center justify-between">
-          <h1 className="text-[32px] font-black text-gray-900 tracking-tight leading-none">Gallery</h1>
+          <div className="relative">
+            <div className="absolute -left-3 top-0 w-[3px] h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full" />
+            <h1 className="text-[32px] font-black text-gray-900 tracking-tight leading-none pl-1">Gallery</h1>
+          </div>
           {currentFolderId ? (
             <button
               onClick={onGoBack}

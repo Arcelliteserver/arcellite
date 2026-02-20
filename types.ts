@@ -31,9 +31,23 @@ export interface RemovableDeviceInfo {
   deviceType?: RemovableDeviceType;
 }
 
+export interface FamilyMemberStorageInfo {
+  quota: number;
+  used: number;
+  free: number;
+  usedPercent: number;
+  quotaHuman: string;
+  usedHuman: string;
+  freeHuman: string;
+}
+
 export interface SystemStorageResponse {
   rootStorage: RootStorageInfo | null;
   removable: RemovableDeviceInfo[];
+  /** Present when the authenticated caller is a family member */
+  familyMemberStorage?: FamilyMemberStorageInfo;
+  /** Total bytes allocated to active family members (owner's view only) */
+  familyAllocated?: number;
 }
 
 /** Response from GET /api/system/stats (backend) */
@@ -120,6 +134,21 @@ export interface FileItem {
 }
 
 // Authentication & User Management Types
+
+/** UserData — runtime user shape used throughout the client (fields from profile update may be optional) */
+export interface UserData {
+  id: number;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  avatarUrl: string | null;
+  storagePath?: string;
+  isSetupComplete?: boolean;
+  emailVerified?: boolean;
+  isFamilyMember?: boolean;
+  isSuspended?: boolean;
+}
+
 export interface User {
   id: number;
   email: string;

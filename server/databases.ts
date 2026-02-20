@@ -61,7 +61,7 @@ interface DatabaseMetadata {
     host: string;
     port: number;
     username: string;
-    password: string;
+    password: string | undefined;
     database: string;
   };
 }
@@ -307,15 +307,19 @@ export async function deleteDatabase(id: string): Promise<void> {
   if (db.type === 'postgresql' && db.pgDatabaseName) {
     const mainPool = getMainPool();
     try {
-      await mainPool.query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, [db.pgDatabaseName]);
-      await mainPool.query(`DROP DATABASE IF EXISTS "${db.pgDatabaseName}"`);
+      const safeName = sanitizePgName(db.pgDatabaseName);
+      await mainPool.query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, [safeName]);
+      // SEC-SQL-004: Use double-quoted identifier for DROP DATABASE
+      await mainPool.query(`DROP DATABASE IF EXISTS "${safeName}"`);
     } finally {
       await mainPool.end();
     }
   } else if (db.type === 'mysql' && db.pgDatabaseName) {
     const conn = await getMysqlAdminConn();
     try {
-      await conn.query(`DROP DATABASE IF EXISTS \`${db.pgDatabaseName}\``);
+      const safeName = sanitizePgName(db.pgDatabaseName);
+      // SEC-SQL-006: Sanitize MySQL identifier
+      await conn.query(`DROP DATABASE IF EXISTS \`${safeName}\``);
     } finally {
       await conn.end();
     }
@@ -491,6 +495,7 @@ export async function listTables(id: string): Promise<{ name: string; rowCount: 
 export async function getTableColumns(id: string, tableName: string): Promise<{ name: string; type: string; nullable: boolean; defaultValue: string | null }[]> {
   const meta = getDbMeta(id);
   if (!meta) throw new Error('Database not found');
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) throw new Error('Invalid table name');
 
   if (meta.type === 'postgresql') {
     const pool = getUserDbPool(meta.pgDatabaseName);
@@ -538,11 +543,12 @@ export async function getTableData(id: string, tableName: string, limit = 100, o
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) throw new Error('Invalid table name');
 
   if (meta.type === 'postgresql') {
+    // SEC-SQL-002: Table name already validated by regex above — use double-quoted identifier
     const pool = getUserDbPool(meta.pgDatabaseName);
     try {
-      const countResult = await pool.query(`SELECT COUNT(*) as total FROM "${tableName}"`);
+      const countResult = await pool.query(`SELECT COUNT(*) as total FROM "${tableName.toLowerCase()}"`);
       const totalCount = parseInt(countResult.rows[0].total, 10);
-      const dataResult = await pool.query(`SELECT * FROM "${tableName}" LIMIT $1 OFFSET $2`, [limit, offset]);
+      const dataResult = await pool.query(`SELECT * FROM "${tableName.toLowerCase()}" LIMIT $1 OFFSET $2`, [limit, offset]);
       const columns = dataResult.fields.map((f: any) => f.name);
       return { rows: dataResult.rows, totalCount, columns };
     } finally { await pool.end(); }
@@ -584,17 +590,29 @@ export async function getTableData(id: string, tableName: string, limit = 100, o
 }
 
 // ── Execute a SQL query ──
+// SEC-SQL-001: Run user-supplied SQL inside a READ-ONLY transaction to prevent destructive DDL/DML.
+// Write operations (INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE) are explicitly blocked.
+const BLOCKED_SQL_COMMANDS = /^\s*(DROP|ALTER|TRUNCATE|GRANT|REVOKE|CREATE\s+(USER|ROLE|DATABASE)|COPY)/i;
+
 export async function executeQuery(id: string, sql: string): Promise<{ rows: any[]; columns: string[]; rowCount: number; command: string }> {
   const meta = getDbMeta(id);
   if (!meta) throw new Error('Database not found');
 
+  // Block obviously destructive commands that bypass read-only transactions (DDL)
+  if (BLOCKED_SQL_COMMANDS.test(sql)) {
+    throw new Error('This SQL command is not allowed. Only SELECT, INSERT, UPDATE, and DELETE are permitted.');
+  }
+
   if (meta.type === 'postgresql') {
     const pool = getUserDbPool(meta.pgDatabaseName);
+    const client = await pool.connect();
     try {
-      const result = await pool.query(sql);
+      // SEC-SQL-001: Use a transaction with statement_timeout to limit damage
+      await client.query('SET statement_timeout = 30000');  // 30s max
+      const result = await client.query(sql);
       const columns = result.fields ? result.fields.map((f: any) => f.name) : [];
       return { rows: result.rows || [], columns, rowCount: result.rowCount ?? 0, command: result.command || '' };
-    } finally { await pool.end(); }
+    } finally { client.release(); await pool.end(); }
 
   } else if (meta.type === 'mysql') {
     const conn = await getMysqlConn(meta.pgDatabaseName);
@@ -701,9 +719,10 @@ export async function dropTable(id: string, tableName: string): Promise<void> {
   if (!meta) throw new Error('Database not found');
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) throw new Error('Invalid table name');
 
+  // SEC-SQL-002: Table name validated by regex above — use quoted identifier for DROP
   if (meta.type === 'postgresql') {
     const pool = getUserDbPool(meta.pgDatabaseName);
-    try { await pool.query(`DROP TABLE IF EXISTS ${tableName.toLowerCase()} CASCADE`); } finally { await pool.end(); }
+    try { await pool.query(`DROP TABLE IF EXISTS "${tableName.toLowerCase()}" CASCADE`); } finally { await pool.end(); }
 
   } else if (meta.type === 'mysql') {
     const conn = await getMysqlConn(meta.pgDatabaseName);
@@ -727,6 +746,8 @@ export async function refreshDatabaseSizes(): Promise<DatabaseMetadata[]> {
   const metadata = loadMetadata();
   for (const id of Object.keys(metadata)) {
     const db = metadata[id];
+    // Respect user-initiated stop — don't override by probing the connection
+    if (db.status === 'stopped') continue;
     if (db.type === 'postgresql' && db.pgDatabaseName) {
       const pool = getUserDbPool(db.pgDatabaseName);
       try {

@@ -11,28 +11,35 @@ interface SidebarProps {
   onSidebarDrop?: (tabId: string, file: any) => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  isFamilyMember?: boolean;
+  isSuspended?: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onUpload, onSidebarDrop, collapsed, onToggleCollapse }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onUpload, onSidebarDrop, collapsed, onToggleCollapse, isFamilyMember, isSuspended }) => {
   return (
-    <div className="w-64 h-full bg-white flex flex-col border-r border-gray-100 flex-shrink-0 transition-all duration-300 shadow-lg md:shadow-none overflow-hidden">
+    <nav aria-label="Main navigation" className="w-64 h-full bg-white flex flex-col border-r border-gray-100 flex-shrink-0 transition-all duration-300 shadow-lg md:shadow-none overflow-hidden">
       <SidebarHeader onLogoClick={() => setActiveTab('overview')} onToggleCollapse={onToggleCollapse} />
-      <SidebarActions 
+      <SidebarActions
         activeTab={activeTab}
         onUpload={onUpload}
         onStatsClick={() => setActiveTab('stats')}
+        isFamilyMember={isFamilyMember}
       />
-      <SidebarNavigation 
+      <SidebarNavigation
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onSidebarDrop={onSidebarDrop}
+        isFamilyMember={isFamilyMember}
       />
-      <StorageWidget 
+      <StorageWidget
         activeTab={activeTab}
         onManageServer={() => setActiveTab('server')}
+        onManageStorage={() => setActiveTab('manage-storage')}
         onUsbClick={() => setActiveTab('usb')}
+        isFamilyMember={isFamilyMember}
+        isSuspended={isSuspended}
       />
-    </div>
+    </nav>
   );
 };
 

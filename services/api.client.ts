@@ -7,6 +7,21 @@ const API_BASE = '';
 
 let sessionToken: string | null = localStorage.getItem('sessionToken');
 
+// Ensure the cookie is in sync on page load (covers existing sessions)
+if (sessionToken) {
+  document.cookie = `arcellite_session=${encodeURIComponent(sessionToken)}; path=/; SameSite=Strict; max-age=${60 * 60 * 24 * 30}`;
+}
+
+/** Set or clear the session cookie used by browser-initiated requests (audio/video/img). */
+function syncSessionCookie(token: string | null) {
+  if (token) {
+    // SameSite=Strict keeps it from leaking; path=/ ensures all /api/* routes see it
+    document.cookie = `arcellite_session=${encodeURIComponent(token)}; path=/; SameSite=Strict; max-age=${60 * 60 * 24 * 30}`;
+  } else {
+    document.cookie = 'arcellite_session=; path=/; max-age=0';
+  }
+}
+
 export function setSessionToken(token: string | null) {
   sessionToken = token;
   if (token) {
@@ -14,6 +29,7 @@ export function setSessionToken(token: string | null) {
   } else {
     localStorage.removeItem('sessionToken');
   }
+  syncSessionCookie(token);
 }
 
 export function getSessionToken(): string | null {
@@ -92,6 +108,16 @@ export const authApi = {
   getCurrentUser: () =>
     apiRequest('/api/auth/me'),
 
+  getInviteInfo: (token: string) =>
+    fetch(`/api/auth/invite-info?token=${encodeURIComponent(token)}`).then(r => r.json()),
+
+  acceptInvite: (data: { token: string; firstName: string; lastName: string; password: string }) =>
+    fetch('/api/auth/accept-invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(r => r.json()),
+
   logout: () =>
     apiRequest('/api/auth/logout', { method: 'POST' }).then(() => {
       setSessionToken(null);
@@ -102,6 +128,23 @@ export const authApi = {
       method: 'PUT',
       body: JSON.stringify(updates),
     }),
+
+  uploadAvatar: async (file: File): Promise<{ success: boolean; avatarUrl: string }> => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    const headers: Record<string, string> = {};
+    if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+    const response = await fetch('/api/auth/avatar', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(err.error || 'Upload failed');
+    }
+    return response.json();
+  },
 
   completeSetup: () =>
     apiRequest('/api/auth/complete-setup', { method: 'POST' }),

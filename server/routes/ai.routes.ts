@@ -101,6 +101,14 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
         const currentMessages = [...(body.messages || [])];
         const model = body.model || 'deepseek-chat';
         const userEmail = body.userEmail || undefined;
+        // Determine family member status from authenticated user on request
+        const isFamilyMember = (req as any).user?.isFamilyMember === true;
+
+        // Actions blocked for family members (admin-only features)
+        const FAMILY_BLOCKED_ACTIONS = new Set([
+          'create_database', 'delete_database', 'create_table', 'query',
+          'list_databases', 'cast',
+        ]);
 
         // Load AI security permissions for this user
         let aiPermissions: Record<string, boolean> = {};
@@ -195,7 +203,7 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
         const executedDiscordSends = new Set<string>();
 
         for (let iteration = 0; iteration < MAX_CONTINUATION_ITERATIONS; iteration++) {
-          const result = await chatWithAI(currentMessages, model, userEmail);
+          const result = await chatWithAI(currentMessages, model, userEmail, isFamilyMember, (req as any).user?.storagePath, (req as any).user?.firstName);
 
           if (result.error) {
             sendSSE('error', { error: result.error });
@@ -203,7 +211,8 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
           }
 
           // Parse action blocks from the response
-          const actionRegex = /```action\s*\n([\s\S]*?)```/g;
+          // Accept both ```action\n{...}``` and ```action {..}``` (inline JSON, no newline)
+          const actionRegex = /```action[\s\n]*(\{[\s\S]*?\})[\s\n]*```/g;
           let match;
           const actions: any[] = [];
           while ((match = actionRegex.exec(result.content)) !== null) {
@@ -215,7 +224,7 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
           }
 
           // Stream text content immediately
-          const cleanContent = result.content.replace(/```action\s*\n[\s\S]*?```/g, '').trim();
+          const cleanContent = result.content.replace(/```action[\s\S]*?```/g, '').trim();
           if (cleanContent) {
             sendSSE('text', { content: cleanContent });
           }
@@ -223,6 +232,14 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
           // Execute actions one by one and stream each result
           const iterationResults: any[] = [];
           for (const action of actions) {
+            // Block admin-only actions for family members
+            if (isFamilyMember && FAMILY_BLOCKED_ACTIONS.has(action.type)) {
+              const blockedResult = { success: false, message: '⚠️ This feature is only available to the server administrator.', blocked: true };
+              iterationResults.push(blockedResult);
+              sendSSE('action', blockedResult);
+              continue;
+            }
+
             // Check AI security permissions before executing
             const permCheck = checkPermission(action.type);
             if (!permCheck.allowed) {
@@ -243,7 +260,7 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
               }
             }
 
-            const actionResult = await executeAction(action, userEmail);
+            const actionResult = await executeAction(action, userEmail, isFamilyMember ? (req as any).user?.storagePath : undefined);
             iterationResults.push(actionResult);
             sendSSE('action', actionResult);
 
@@ -254,29 +271,37 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
             }
           }
 
-          // If no actions were executed, check if the AI hallucinated an action outcome
+          // If no actions were executed, check if the AI should have used an action block
           if (actions.length === 0) {
-            // Detect potential hallucinated action outcomes (AI described doing something without an action block)
             const lowerContent = (result.content || '').toLowerCase();
-            const hallucinationPatterns = [
+            // Detect: AI described an action outcome without emitting a block (hallucination)
+            const hallucinatedOutcomePatterns = [
               /(?:sent|sending|delivered|posted).*(?:discord|webhook)/,
-              /(?:discord|webhook).*(?:failed|error|couldn't|could not|unable)/,
               /(?:moved|created|deleted|renamed|emailed|cast).*(?:successfully|done|completed)/,
               /(?:i(?:'ll| will) (?:try|send|create|delete|move)).*(?:failed|error|unavailable)/,
             ];
-            const looksHallucinated = hallucinationPatterns.some(p => p.test(lowerContent));
-            
-            if (looksHallucinated && iteration === 0) {
-              // AI likely hallucinated — inject a correction and force a retry
-              console.warn('[AI] Detected possible hallucinated action outcome without action block, forcing retry...');
+            // Detect: AI declined to perform an action it should have attempted
+            // (e.g. "I cannot send to Discord", "I'm unable to", "Discord is not available")
+            const declinedActionPatterns = [
+              /(?:cannot|can't|i'm unable|i am unable|don't have the ability|do not have the ability).*(?:discord|send|message|webhook|file|create|move|delete|email)/,
+              /(?:discord|webhook).*(?:not connected|not configured|not set up|not available|unavailable|doesn't appear)/,
+              /(?:discord|webhook).*(?:failed|error|couldn't|could not|unable)/,
+              /(?:unable|cannot|can't).*(?:send|perform|execute|complete).*(?:action|request|task)/,
+            ];
+            const looksHallucinated = hallucinatedOutcomePatterns.some(p => p.test(lowerContent));
+            const looksDeclined = declinedActionPatterns.some(p => p.test(lowerContent));
+
+            if ((looksHallucinated || looksDeclined) && iteration < 2) {
+              // AI either hallucinated an outcome or declined without trying — force a retry with action block
+              console.warn(`[AI] Detected ${looksDeclined ? 'declined action' : 'hallucinated outcome'} without action block, forcing retry (iteration ${iteration})...`);
               currentMessages.push({
                 role: 'assistant',
                 content: result.content,
               });
-              currentMessages.push({
-                role: 'user',
-                content: `[SYSTEM — CORRECTION] You described performing an action or an action outcome, but you did NOT include any \`\`\`action blocks in your response. You CANNOT perform actions without action blocks. Please try again — emit the proper \`\`\`action block to actually execute the request. Do NOT describe the outcome — let the system execute the action and report the real result.`,
-              });
+              const correctionMsg = looksDeclined
+                ? `[SYSTEM — MANDATORY RETRY] You said you cannot perform this action, but you are REQUIRED to try by emitting the action block. The system will execute it and return the real result. You do NOT know the outcome until the system runs it. Emit the \`\`\`action block NOW — do not describe what you cannot do, just try it.`
+                : `[SYSTEM — CORRECTION] You described performing an action or an action outcome, but you did NOT include any \`\`\`action blocks in your response. You CANNOT perform actions without action blocks. Please try again — emit the proper \`\`\`action block to actually execute the request. Do NOT describe the outcome — let the system execute the action and report the real result.`;
+              currentMessages.push({ role: 'user', content: correctionMsg });
               continue; // Retry the iteration
             }
             break;
@@ -343,6 +368,8 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
     }).catch((e) => {
       if (!res.headersSent) {
         sendError(res, String((e as Error).message));
+      } else {
+        try { res.end(); } catch {}
       }
     });
     return true;
@@ -565,6 +592,84 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
         sendError(res, String((e as Error).message));
       }
     })();
+    return true;
+  }
+
+  // ── Text-to-Speech via ElevenLabs ──────────────────────────────
+  if (url === '/api/ai/tts' && req.method === 'POST') {
+    parseBody(req).then(async (body) => {
+      try {
+        const { text } = body;
+        if (!text || typeof text !== 'string') {
+          sendError(res, 'Missing "text" field', 400);
+          return;
+        }
+
+        const { getApiKey } = await import('../ai.js');
+        const apiKey = getApiKey('ElevenLabs');
+        if (!apiKey) {
+          sendError(res, 'ElevenLabs API key not configured. Go to Settings → API Keys to add it.', 400);
+          return;
+        }
+
+        // Use ElevenLabs TTS API - flash v2.5 for low latency
+        const voiceId = 'JBFqnCBsd6RMkjVDRZzb'; // George - deep, warm male voice
+        const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+          method: 'POST',
+          headers: {
+            'xi-api-key': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'audio/mpeg',
+          },
+          body: JSON.stringify({
+            text: text.slice(0, 5000), // Limit to 5000 chars
+            model_id: 'eleven_flash_v2_5',
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+              style: 0.0,
+              use_speaker_boost: true,
+            },
+          }),
+        });
+
+        if (!ttsRes.ok) {
+          const errText = await ttsRes.text();
+          sendError(res, `ElevenLabs API error (${ttsRes.status}): ${errText}`, ttsRes.status);
+          return;
+        }
+
+        // Stream the audio response back
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Cache-Control', 'no-cache');
+
+        const reader = ttsRes.body as any;
+        if (reader && typeof reader.getReader === 'function') {
+          const r = reader.getReader();
+          const pump = async () => {
+            while (true) {
+              const { done, value } = await r.read();
+              if (done) break;
+              res.write(Buffer.from(value));
+            }
+            res.end();
+          };
+          pump().catch(() => res.end());
+        } else if (reader && typeof reader[Symbol.asyncIterator] === 'function') {
+          for await (const chunk of reader) {
+            res.write(chunk);
+          }
+          res.end();
+        } else {
+          // Fallback: arrayBuffer
+          const buf = await ttsRes.arrayBuffer();
+          res.end(Buffer.from(buf));
+        }
+      } catch (e) {
+        sendError(res, String((e as Error).message));
+      }
+    }).catch((e) => sendError(res, String(e.message)));
     return true;
   }
 

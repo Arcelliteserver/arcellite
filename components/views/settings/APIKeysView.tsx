@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Copy, Check, Plug, Loader2, Save } from 'lucide-react';
-import { AI_MODELS } from '../../../constants';
+import { AI_MODELS } from '@/constants';
 
 interface ProviderAPIKey {
   provider: string;
@@ -19,6 +19,13 @@ const APIKeysView: React.FC<APIKeysViewProps> = ({ showToast }) => {
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [connectedProviders, setConnectedProviders] = useState<Set<string>>(new Set());
   const [hasChanges, setHasChanges] = useState<Set<string>>(new Set());
+
+  // ElevenLabs TTS service key
+  const [elevenLabsKey, setElevenLabsKey] = useState('');
+  const [elevenLabsVisible, setElevenLabsVisible] = useState(false);
+  const [elevenLabsSaving, setElevenLabsSaving] = useState(false);
+  const [elevenLabsSaved, setElevenLabsSaved] = useState(false);
+  const [elevenLabsChanged, setElevenLabsChanged] = useState(false);
 
   // Group models by provider
   const modelsByProvider = AI_MODELS.reduce((acc, model) => {
@@ -51,6 +58,11 @@ const APIKeysView: React.FC<APIKeysViewProps> = ({ showToast }) => {
               alreadyConnected.add(provider);
             }
           });
+          // Load ElevenLabs key
+          if (data.keys['ElevenLabs']) {
+            setElevenLabsKey(data.keys['ElevenLabs']);
+            setElevenLabsSaved(true);
+          }
           setProviderKeys(initial);
           setConnectedProviders(alreadyConnected);
         } else {
@@ -156,6 +168,29 @@ const APIKeysView: React.FC<APIKeysViewProps> = ({ showToast }) => {
 
   const getProviderKey = (provider: string) => providerKeys[provider]?.key || '';
   const hasKey = (provider: string) => !!providerKeys[provider]?.key;
+
+  const handleElevenLabsSave = async () => {
+    setElevenLabsSaving(true);
+    try {
+      const resp = await fetch('/api/ai/keys/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keys: { ElevenLabs: elevenLabsKey } }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        showToast?.('ElevenLabs API key saved', 'success');
+        setElevenLabsChanged(false);
+        setElevenLabsSaved(!!elevenLabsKey);
+      } else {
+        showToast?.(`Failed to save: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      showToast?.(`Failed to save: ${(e as Error).message}`, 'error');
+    } finally {
+      setElevenLabsSaving(false);
+    }
+  };
 
   return (
     <div className="w-full">
@@ -295,6 +330,132 @@ const APIKeysView: React.FC<APIKeysViewProps> = ({ showToast }) => {
             </div>
           );
         })}
+
+        {/* ── ElevenLabs Text-to-Speech Service ── */}
+        <div className="mt-8 md:mt-12">
+          <div className="mb-4">
+            <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest pl-1">Services</p>
+          </div>
+          <div
+            className={`bg-white rounded-xl md:rounded-[2rem] border-2 p-5 md:p-6 lg:p-8 shadow-sm transition-all ${
+              elevenLabsSaved
+                ? 'border-emerald-300 bg-emerald-50/30'
+                : 'border-gray-100'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-xl flex items-center justify-center shadow-sm bg-gray-50 p-2.5">
+                  <img src="/assets/models/elevenlabs.svg" alt="ElevenLabs" className="w-full h-full object-contain" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="text-xl font-black text-gray-900">ElevenLabs</h2>
+                    {elevenLabsSaved && (
+                      <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
+                        <Check className="w-3.5 h-3.5 text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Text-to-Speech • Read AI responses aloud
+                    {elevenLabsSaved && <span className="ml-2 text-emerald-500 font-bold">• Connected</span>}
+                  </p>
+                </div>
+              </div>
+
+              {/* Connect Button */}
+              <button
+                onClick={async () => {
+                  if (!elevenLabsKey) return;
+                  setElevenLabsSaving(true);
+                  try {
+                    // Save the key first so the backend can use it
+                    const saveRes = await fetch('/api/ai/keys/save', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ keys: { ElevenLabs: elevenLabsKey } }),
+                    });
+                    const saveData = await saveRes.json();
+                    if (!saveData.ok) {
+                      showToast?.('Failed to save key', 'error');
+                      return;
+                    }
+                    setElevenLabsChanged(false);
+
+                    // Now test the connection via TTS
+                    const res = await fetch('/api/ai/tts', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ text: 'Connected.' }),
+                    });
+                    if (res.ok) {
+                      setElevenLabsSaved(true);
+                      showToast?.('ElevenLabs connected successfully', 'success');
+                    } else {
+                      const err = await res.json().catch(() => ({}));
+                      showToast?.(err.error || 'Connection failed — check your API key', 'error');
+                      setElevenLabsSaved(false);
+                    }
+                  } catch {
+                    showToast?.('Connection failed', 'error');
+                  } finally {
+                    setElevenLabsSaving(false);
+                  }
+                }}
+                disabled={!elevenLabsKey || elevenLabsSaving}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-[12px] transition-all ${
+                  elevenLabsSaving
+                    ? 'bg-gray-100 text-gray-400 cursor-wait'
+                    : elevenLabsSaved
+                    ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-200'
+                    : elevenLabsKey
+                    ? 'bg-[#5D5FEF] text-white hover:bg-[#4B4DDC] shadow-lg shadow-[#5D5FEF]/30'
+                    : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                }`}
+              >
+                {elevenLabsSaving ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /><span>Testing...</span></>
+                ) : elevenLabsSaved ? (
+                  <><Plug className="w-4 h-4" /><span>Connected</span></>
+                ) : (
+                  <><Plug className="w-4 h-4" /><span>Connect</span></>
+                )}
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="text-[11px] font-black text-gray-300 uppercase tracking-widest mb-3 block">API Key</label>
+              <div className="relative">
+                <input
+                  type={elevenLabsVisible ? 'text' : 'password'}
+                  value={elevenLabsKey}
+                  onChange={(e) => { setElevenLabsKey(e.target.value); setElevenLabsChanged(true); }}
+                  placeholder="Enter ElevenLabs API key"
+                  className="w-full px-4 py-3.5 bg-white rounded-2xl border-2 border-gray-100 focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-[14px] outline-none placeholder:text-gray-400 font-mono pr-36"
+                />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  {elevenLabsKey && (
+                    <>
+                      <button onClick={() => setElevenLabsVisible(v => !v)} className="p-2 rounded-lg hover:bg-gray-50 transition-all" title={elevenLabsVisible ? 'Hide key' : 'Show key'}>
+                        {elevenLabsVisible ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-gray-400" />}
+                      </button>
+                      <button onClick={() => { navigator.clipboard?.writeText(elevenLabsKey); showToast?.('Copied to clipboard', 'success'); }} className="p-2 rounded-lg hover:bg-gray-50 transition-all" title="Copy">
+                        <Copy className="w-4 h-4 text-gray-400" />
+                      </button>
+                    </>
+                  )}
+                  {elevenLabsChanged && (
+                    <button onClick={handleElevenLabsSave} disabled={elevenLabsSaving} className="p-2 rounded-lg bg-[#5D5FEF] hover:bg-[#4B4DDC] transition-all" title="Save key">
+                      {elevenLabsSaving ? <Loader2 className="w-4 h-4 text-white animate-spin" /> : <Save className="w-4 h-4 text-white" />}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-2">Get your API key at <a href="https://elevenlabs.io" target="_blank" rel="noopener noreferrer" className="text-[#5D5FEF] hover:underline">elevenlabs.io</a> — enables the speak button on AI responses</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -6,7 +6,11 @@
  */
 
 import nodemailer from 'nodemailer';
+import dns from 'dns';
 import fs from 'fs';
+
+// Force IPv4 for SMTP — IPv6 is unreachable on many servers
+dns.setDefaultResultOrder('ipv4first');
 
 // ─── Design Tokens ──────────────────────────────────────────────────
 
@@ -21,9 +25,15 @@ function emailLayout(options: {
   headerSubtitle: string;
   bodyHtml: string;
   preheader?: string;
+  hideAccentBar?: boolean;
+  logoImageUrl?: string;
+  hideFooterAccountText?: boolean;
+  footerNote?: string;
+  containerWidth?: number;
 }): string {
   const { headerTitle, headerSubtitle, bodyHtml, preheader } = options;
   const preheaderText = preheader || 'Arcellite \u2014 Your Personal Cloud';
+  const cWidth = options.containerWidth || 560;
 
   return `<!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -67,22 +77,22 @@ function emailLayout(options: {
     <tr>
       <td align="center" valign="top" style="padding: 0;">
 
-        <!-- Top Accent Bar -->
+        ${options.hideAccentBar ? '' : `<!-- Top Accent Bar -->
         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
           <tr>
             <td style="height: 4px; background: linear-gradient(90deg, #4F46E5 0%, #7C3AED 50%, #4F46E5 100%); font-size: 0; line-height: 0;">&nbsp;</td>
           </tr>
-        </table>
+        </table>`}
 
         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-          <tr><td style="height: 40px; font-size: 0; line-height: 0;">&nbsp;</td></tr>
+          <tr><td style="height: ${options.logoImageUrl ? '24px' : '40px'}; font-size: 0; line-height: 0;">&nbsp;</td></tr>
         </table>
 
         <!-- Logo -->
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="560" class="email-container" style="margin: 0 auto;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="${cWidth}" class="email-container" style="margin: 0 auto;">
           <tr>
-            <td align="center" style="padding: 0 20px 32px;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+            <td align="center" style="padding: 0 20px 8px;">
+              ${options.logoImageUrl ? `<img src="${options.logoImageUrl}" alt="Arcellite" width="260" style="display: block; height: auto; max-width: 260px; border: 0;" />` : `<table role="presentation" cellspacing="0" cellpadding="0" border="0">
                 <tr>
                   <td valign="middle" style="padding-right: 10px;">
                     <table cellpadding="0" cellspacing="0" style="width: 32px; height: 32px; background-color: #4F46E5; border-radius: 8px;">
@@ -93,13 +103,13 @@ function emailLayout(options: {
                     <span style="font-size: 21px; font-weight: 700; color: #1A1A2E; letter-spacing: -0.5px; font-family: ${FONT_STACK};">Arcellite<span style="color: #5D5FEF;">.</span></span>
                   </td>
                 </tr>
-              </table>
+              </table>`}
             </td>
           </tr>
         </table>
 
         <!-- Main Card -->
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="560" class="email-container" style="margin: 0 auto;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="${cWidth}" class="email-container" style="margin: 0 auto;">
           <tr>
             <td style="padding: 0 20px;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="border-radius: 16px; overflow: hidden; background-color: #ffffff; border: 1px solid #E2E2EA;">
@@ -128,7 +138,7 @@ function emailLayout(options: {
         </table>
 
         <!-- Footer -->
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="560" class="email-container" style="margin: 0 auto;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="${cWidth}" class="email-container" style="margin: 0 auto;">
           <tr>
             <td align="center" style="padding: 0 20px;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -163,13 +173,20 @@ function emailLayout(options: {
                     </p>
                   </td>
                 </tr>
-                <tr>
+                ${options.hideFooterAccountText ? '' : `<tr>
                   <td align="center" style="padding: 0 0 8px;">
                     <p style="margin: 0; font-family: ${FONT_STACK}; font-size: 11px; color: #C8C8D4;">
                       You&#39;re receiving this because you have an Arcellite account
                     </p>
                   </td>
-                </tr>
+                </tr>`}
+                ${options.footerNote ? `<tr>
+                  <td align="center" style="padding: 0 0 8px;">
+                    <p style="margin: 0; font-family: ${FONT_STACK}; font-size: 11px; color: #C8C8D4;">
+                      ${options.footerNote}
+                    </p>
+                  </td>
+                </tr>` : ''}
               </table>
             </td>
           </tr>
@@ -654,4 +671,139 @@ export async function sendSupportAcknowledgment(data: {
   };
 
   await sendWithRetry(createTransporter, mailOptions, 'Support Ack');
+}
+
+// ─── Family Sharing Invite Email ────────────────────────────────────
+
+function formatBytesEmail(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function capitalizeRole(role: string): string {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+export async function sendFamilyInviteEmail(data: {
+  toEmail: string;
+  memberName: string;
+  role: string;
+  storageQuota: number;
+  inviteToken: string;
+  ownerName?: string;
+  notes?: string;
+}): Promise<void> {
+  if (!process.env.SMTP_USER) {
+    console.warn('[Email] SMTP not configured, skipping invite email');
+    return;
+  }
+
+  const publicUrl = process.env.ARCELLITE_PUBLIC_URL || 'https://cloud.arcelliteserver.com';
+  const inviteLink = `${publicUrl}/invite?token=${data.inviteToken}`;
+  const ownerLabel = data.ownerName || 'Arcellite Server';
+  const roleLabel = capitalizeRole(data.role);
+  const quotaLabel = formatBytesEmail(data.storageQuota);
+
+  const bodyHtml = `
+                <!-- Body -->
+                <tr>
+                  <td style="padding: 36px 40px 20px;" class="mobile-padding">
+                    <p style="margin: 0 0 20px; font-family: ${FONT_STACK}; font-size: 15px; color: #4A4A68; line-height: 1.7;">
+                      Hi <strong style="color: #1A1A2E;">${data.memberName}</strong>,
+                    </p>
+                    <p style="margin: 0 0 28px; font-family: ${FONT_STACK}; font-size: 15px; color: #4A4A68; line-height: 1.7;">
+                      You've been invited to join <strong style="color: #1A1A2E;">${ownerLabel}</strong>'s personal cloud on Arcellite. You'll have your own space to store files, photos, and more.
+                    </p>
+                  </td>
+                </tr>
+
+                <!-- Details Card -->
+                <tr>
+                  <td style="padding: 0 40px 28px;" class="mobile-padding">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #F7F7FB; border-radius: 12px; border: 1px solid #E8E8F0;">
+                      <tr>
+                        <td style="padding: 24px;">
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                            <tr>
+                              <td style="padding-bottom: 16px;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                  <tr>
+                                    <td style="font-family: ${FONT_STACK}; padding-bottom: 16px;">
+                                      <span style="display: block; font-size: 10px; font-weight: 700; color: #8787A0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">Your Role</span>
+                                      <span style="display: inline-block; padding: 6px 16px; background-color: #5D5FEF; border-radius: 20px; font-size: 13px; font-weight: 700; color: #fff;">${roleLabel}</span>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td style="font-family: ${FONT_STACK}; padding-top: 4px; border-top: 1px solid #E8E8F0;">
+                                      <span style="display: block; font-size: 10px; font-weight: 700; color: #8787A0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; padding-top: 12px;">Storage Allocated</span>
+                                      <span style="font-size: 22px; font-weight: 800; color: #1A1A2E;">${quotaLabel}</span>
+                                    </td>
+                                  </tr>
+                                </table>
+                              </td>
+                            </tr>${data.notes ? `
+                            <tr>
+                              <td style="padding-top: 12px; border-top: 1px solid #E2E2EA;">
+                                <span style="display: block; font-size: 10px; font-weight: 700; color: #8787A0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; font-family: ${FONT_STACK};">Note</span>
+                                <span style="font-family: ${FONT_STACK}; font-size: 14px; color: #4A4A68;">${data.notes}</span>
+                              </td>
+                            </tr>` : ''}
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- CTA Button -->
+                <tr>
+                  <td style="padding: 0 40px 16px;" class="mobile-padding">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr>
+                        <td align="center">
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                            <tr>
+                              <td style="border-radius: 12px; background: linear-gradient(135deg, #4F46E5 0%, #6D5BF7 100%);">
+                                <a href="${inviteLink}" target="_blank" style="display: inline-block; padding: 16px 40px; font-family: ${FONT_STACK}; font-size: 15px; font-weight: 700; color: #ffffff; text-decoration: none; letter-spacing: 0.3px;">
+                                  Accept Invitation &rarr;
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Link fallback -->
+                <tr>
+                  <td style="padding: 0 40px 36px;" class="mobile-padding">
+                    <p style="margin: 0; font-family: ${FONT_STACK}; font-size: 12px; color: #8787A0; text-align: center; line-height: 1.6;">
+                      Or copy this link: <a href="${inviteLink}" style="color: #5D5FEF; text-decoration: underline; word-break: break-all;">${inviteLink}</a>
+                    </p>
+                  </td>
+                </tr>`;
+
+  const mailOptions = {
+    from: process.env.SMTP_FROM || 'Arcellite <noreply@arcellite.com>',
+    to: data.toEmail,
+    subject: `${ownerLabel} invited you to Arcellite`,
+    html: emailLayout({
+      headerTitle: 'You\u2019re invited!',
+      headerSubtitle: `${ownerLabel} wants to share their personal cloud with you`,
+      bodyHtml,
+      preheader: `${ownerLabel} invited you to join their Arcellite cloud with ${quotaLabel} of storage`,
+      hideAccentBar: true,
+      logoImageUrl: `${publicUrl}/images/logo.png`,
+      hideFooterAccountText: true,
+      footerNote: 'This invitation was sent via Arcellite. If you didn&#8217;t expect this, you can safely ignore it.',
+      containerWidth: 600,
+    }),
+  };
+
+  await sendWithRetry(createTransporter, mailOptions, 'Family Invite');
 }

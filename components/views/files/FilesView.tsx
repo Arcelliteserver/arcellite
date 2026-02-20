@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
-  X,
   FolderPlus,
   FileText,
   Monitor,
@@ -22,7 +21,7 @@ import {
 } from 'lucide-react';
 import FileGrid from '../../files/FileGrid';
 import FileListView from '../../files/FileListView';
-import { FileItem } from '../../../types';
+import { FileItem } from '@/types';
 
 type TypeFilter = 'all' | 'images' | 'videos' | 'audio' | 'documents' | 'code' | 'books';
 
@@ -131,8 +130,11 @@ const FilesView: React.FC<FilesViewProps> = ({
         return 0;
       });
     } else if (isOverview) {
-      // Recent Assets: always sort by most recently accessed first
-      items.sort((a, b) => b.modifiedTimestamp - a.modifiedTimestamp);
+      items.sort((a, b) => {
+        if (sortBy === 'name') return a.name.localeCompare(b.name);
+        if (sortBy === 'size') return (b.sizeBytes || 0) - (a.sizeBytes || 0);
+        return b.modifiedTimestamp - a.modifiedTimestamp;
+      });
     }
     return items;
   }, [filteredFilesOnly, typeFilter, sortBy, isOverview]);
@@ -211,14 +213,7 @@ const FilesView: React.FC<FilesViewProps> = ({
               />
             </div>
 
-            {/* Close button */}
-            <button
-              onClick={() => setShowBanner(false)}
-              className="absolute top-3 right-3 sm:top-4 sm:right-4 md:top-5 md:right-5 lg:top-6 lg:right-8 p-2 sm:p-2 md:p-2.5 text-gray-300 hover:text-gray-600 transition-colors bg-white/50 backdrop-blur-sm rounded-full border border-transparent hover:border-gray-100"
-              aria-label="Close banner"
-            >
-              <X className="w-4 h-4 sm:w-4 sm:h-4 md:w-5 md:h-5" />
-            </button>
+            {/* Close button removed — banner is always visible */}
           </div>
         </div>
       )}

@@ -9,7 +9,7 @@ interface SearchBarProps {
 
 const SearchBar: React.FC<SearchBarProps> = ({ value, onChange, placeholder = 'Search assets...' }) => {
   return (
-    <div className="flex-1 max-w-md md:max-w-xl lg:max-w-2xl mx-2 md:mx-8 lg:mx-12 relative flex items-center gap-2 md:gap-3 lg:gap-5">
+    <div role="search" aria-label="Search files" className="flex-1 max-w-md md:max-w-xl lg:max-w-2xl mx-2 md:mx-8 lg:mx-12 relative flex items-center gap-2 md:gap-3 lg:gap-5">
       <div className="relative flex-1 group min-w-0">
         <Search className="absolute left-2.5 sm:left-3 md:left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 md:w-4 md:h-4 text-gray-400 group-focus-within:text-[#5D5FEF] transition-colors flex-shrink-0" />
         <input 

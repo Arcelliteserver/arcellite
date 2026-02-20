@@ -1,40 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import { Users, ExternalLink, FileText, Image, File, Video, Music, RefreshCw, ChevronRight, Loader2, FolderDown, MessageSquare, Database as DatabaseIcon, LayoutGrid, List } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  ArrowDownToLine, ArrowUpFromLine, FileText, Image, File, Video, Music,
+  RefreshCw, Loader2, Trash2, Eye, Clock,
+  Search, FolderOpen, X, Share2, ChevronLeft, Check
+} from 'lucide-react';
 
-interface GoogleFile {
-  id: string;
-  name: string;
-  type?: string;
-  mimeType?: string;
-  webViewLink?: string;
-  url?: string;
-  size?: number | string;
-  modifiedTime?: string;
-  modified?: string;
-  created?: string;
-  thumbnailLink?: string;
-  iconLink?: string;
-  [key: string]: any;
-}
+const SHARE_ICON_SRC = '/assets/icons/share_windows_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
+const KEEP_ICON_SRC = '/assets/icons/keep_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
 
-interface DiscordChannel {
-  id: string;
-  name: string;
-  type?: string;
-}
-
-interface ConnectedApp {
-  id: string;
-  name: string;
-  icon: string;
-  description?: string;
-  category?: string;
-  status: 'available' | 'connected' | 'disconnected' | 'error' | 'connecting';
-  statusMessage?: string;
-  webhookUrl?: string;
-  files?: GoogleFile[];
-  discordChannels?: DiscordChannel[];
-  children?: ConnectedApp[];
+interface SharedFileItem {
+  id: number;
+  filePath: string;
+  fileName: string;
+  fileType: string | null;
+  category: string | null;
+  sizeBytes: number;
+  message: string | null;
+  sharedAt: string;
+  keptAt?: string | null;
+  sender?: { id: number; name: string; avatarUrl: string | null };
+  recipient?: { id: number; name: string; avatarUrl: string | null };
 }
 
 interface SharedViewProps {
@@ -42,556 +27,628 @@ interface SharedViewProps {
 }
 
 const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
-  const [apps, setApps] = useState<ConnectedApp[]>([]);
+  const [tab, setTab] = useState<'received' | 'sent'>('received');
+  const [received, setReceived] = useState<SharedFileItem[]>([]);
+  const [sent, setSent] = useState<SharedFileItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
-  const [savingFile, setSavingFile] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [removingId, setRemovingId] = useState<number | null>(null);
+  const [keepingId, setKeepingId] = useState<number | null>(null);
+  const [keptIds, setKeptIds] = useState<Set<number>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewerFile, setViewerFile] = useState<SharedFileItem | null>(null);
 
-  // Load connected apps from localStorage, with server fallback
-  useEffect(() => {
-    // Filter apps that are connected AND have content (files or channels)
-    // Does NOT depend on connectedAppIds — just checks app.status directly
-    const filterConnected = (allApps: any[]) => {
-      return allApps.filter((app: ConnectedApp) =>
-        app.status === 'connected' && (
-          (app.files && app.files.length > 0) ||
-          (app.discordChannels && app.discordChannels.length > 0)
-        )
-      );
-    };
-
-    const loadConnectedApps = () => {
-      try {
-        const savedApps = localStorage.getItem('connectedApps');
-
-        if (savedApps) {
-          const allApps = JSON.parse(savedApps);
-          if (Array.isArray(allApps)) {
-            const connectedApps = filterConnected(allApps);
-            setApps(connectedApps);
-            setExpandedApps(new Set(connectedApps.map((app: ConnectedApp) => app.id)));
-          }
-        }
-      } catch (e) {
-        // Silent — UI shows empty state
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    // Also try loading from server (cross-device sync)
-    const loadFromServer = async () => {
-      try {
-        const token = localStorage.getItem('sessionToken');
-        if (!token) return;
-        const resp = await fetch('/api/apps/connections', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        if (data.apps && Array.isArray(data.apps) && data.apps.length > 0) {
-          // Sync to localStorage
-          localStorage.setItem('connectedApps', JSON.stringify(data.apps));
-          const connectedApps = filterConnected(data.apps);
-          if (connectedApps.length > 0) {
-            setApps(connectedApps);
-            setExpandedApps(new Set(connectedApps.map((app: ConnectedApp) => app.id)));
-          }
-        }
-      } catch {
-        // Silent — localStorage data is used as fallback
-      }
-    };
-
-    loadConnectedApps();
-    loadFromServer();
-
-    // Listen for localStorage changes (when apps are connected/disconnected)
-    const handleStorageChange = () => {
-      loadConnectedApps();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    // Also listen for custom event from MyAppsView
-    window.addEventListener('apps-updated', handleStorageChange);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('apps-updated', handleStorageChange);
-    };
-  }, []);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-
-    const filterConnected = (allApps: any[]) => {
-      return allApps.filter((app: ConnectedApp) =>
-        app.status === 'connected' && (
-          (app.files && app.files.length > 0) ||
-          (app.discordChannels && app.discordChannels.length > 0)
-        )
-      );
-    };
-
-    // Try loading fresh data from server first
+  const fetchShares = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    else setRefreshing(true);
     try {
       const token = localStorage.getItem('sessionToken');
-      if (token) {
-        const resp = await fetch('/api/apps/connections', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data.apps && Array.isArray(data.apps)) {
-            localStorage.setItem('connectedApps', JSON.stringify(data.apps));
-            const connectedApps = filterConnected(data.apps);
-            setApps(connectedApps);
-            setExpandedApps(new Set(connectedApps.map((app: ConnectedApp) => app.id)));
-            setRefreshing(false);
-            return;
-          }
-        }
-      }
-    } catch {}
-
-    // Fallback to localStorage
-    const savedApps = localStorage.getItem('connectedApps');
-    if (savedApps) {
-      const allApps = JSON.parse(savedApps);
-      const connectedApps = filterConnected(allApps);
-      setApps(connectedApps);
-    }
-
-    setRefreshing(false);
-  };
-
-  const toggleAppExpand = (appId: string) => {
-    setExpandedApps(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(appId)) {
-        newSet.delete(appId);
-      } else {
-        newSet.add(appId);
-      }
-      return newSet;
-    });
-  };
-
-  const handleFileClick = (file: GoogleFile) => {
-    const link = file.webViewLink || file.url;
-    if (link) {
-      window.open(link, '_blank');
-    }
-  };
-
-  const handleSaveToVault = async (file: GoogleFile, app: ConnectedApp) => {
-    if (savingFile) return;
-    setSavingFile(file.id);
-    showToast?.(`Saving "${file.name}" to vault...`, 'info');
-
-    try {
-      const response = await fetch('/api/files/save-shared', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileId: file.id,
-          fileName: file.name,
-          mimeType: file.mimeType,
-          appId: app.id,
-          webhookUrl: app.webhookUrl,
-        }),
+      const resp = await fetch('/api/share/list', {
+        headers: { Authorization: `Bearer ${token}` },
       });
-
-      const result = await response.json();
-      if (result.ok) {
-        showToast?.(`Saved "${result.savedFileName}" to ${result.category}`, 'success');
-      } else {
-        showToast?.(result.error || 'Failed to save file', 'error');
-      }
+      if (!resp.ok) throw new Error('Failed to load shares');
+      const data = await resp.json();
+      setReceived(data.received || []);
+      setSent(data.sent || []);
+      // Initialise keptIds from server data
+      const alreadyKept = new Set<number>();
+      (data.received || []).forEach((f: SharedFileItem) => { if (f.keptAt) alreadyKept.add(f.id); });
+      setKeptIds(alreadyKept);
     } catch (e) {
-      showToast?.(`Save failed: ${(e as Error).message}`, 'error');
+      if (!quiet) showToast?.((e as Error).message, 'error');
     } finally {
-      setSavingFile(null);
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => { fetchShares(); }, [fetchShares]);
+
+  const handleRemove = async (shareId: number) => {
+    setRemovingId(shareId);
+    try {
+      const token = localStorage.getItem('sessionToken');
+      const resp = await fetch(`/api/share/${shareId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error('Failed to remove');
+      setReceived(prev => prev.filter(s => s.id !== shareId));
+      setSent(prev => prev.filter(s => s.id !== shareId));
+      showToast?.('Share removed', 'success');
+    } catch (e) {
+      showToast?.((e as Error).message, 'error');
+    } finally {
+      setRemovingId(null);
     }
   };
 
-  const getFileIcon = (file: GoogleFile) => {
-    switch (file.type) {
-      case 'image':
-        return <Image className="w-5 h-5 text-blue-500" />;
-      case 'video':
-        return <Video className="w-5 h-5 text-purple-500" />;
-      case 'audio':
-        return <Music className="w-5 h-5 text-green-500" />;
-      case 'doc':
-      case 'sheet':
-      case 'slide':
-        return <FileText className="w-5 h-5 text-orange-500" />;
-      default:
-        return <File className="w-5 h-5 text-gray-500" />;
+  const handleKeep = async (shareId: number, fileName: string) => {
+    if (keptIds.has(shareId)) return; // Already kept
+    setKeepingId(shareId);
+    try {
+      const token = localStorage.getItem('sessionToken');
+      const resp = await fetch(`/api/share/keep/${shareId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({ error: 'Failed to keep file' }));
+        if (resp.status === 409) {
+          // Already kept on server — just mark locally
+          setKeptIds(prev => new Set(prev).add(shareId));
+          showToast?.(`"${fileName}" already saved`, 'info');
+          return;
+        }
+        throw new Error(data.error || 'Failed to keep file');
+      }
+      const data = await resp.json();
+      setKeptIds(prev => new Set(prev).add(shareId));
+      showToast?.(`"${fileName}" saved to ${data.destFolder}/`, 'success');
+    } catch (e) {
+      showToast?.((e as Error).message, 'error');
+    } finally {
+      setKeepingId(null);
     }
   };
 
-  const formatFileSize = (bytes?: number) => {
-    if (!bytes) return 'Unknown size';
+  const handlePreview = (shareId: number) => {
+    // On mobile, open the in-app viewer; on desktop, open in new tab
+    const isMobile = window.innerWidth < 640;
+    if (isMobile) {
+      const file = [...received, ...sent].find(f => f.id === shareId);
+      if (file) setViewerFile(file);
+    } else {
+      const token = localStorage.getItem('sessionToken');
+      window.open(`/api/share/download/${shareId}?token=${encodeURIComponent(token || '')}`, '_blank');
+    }
+  };
+
+  const isVideoFile = (fileType: string | null, fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    return fileType === 'video' || ['mp4', 'mkv', 'avi', 'webm', 'mov'].includes(ext);
+  };
+
+  const isAudioFile = (fileType: string | null, fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    return fileType === 'audio' || ['mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a'].includes(ext);
+  };
+
+  const getFileIcon = (fileType: string | null, fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic'];
+    const videoExts = ['mp4', 'mkv', 'avi', 'webm', 'mov'];
+    const audioExts = ['mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a'];
+    const docExts = ['pdf', 'doc', 'docx', 'txt', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'];
+
+    if (fileType === 'image' || imageExts.includes(ext)) return <Image className="w-5 h-5 text-blue-500" />;
+    if (fileType === 'video' || videoExts.includes(ext)) return <Video className="w-5 h-5 text-purple-500" />;
+    if (fileType === 'audio' || audioExts.includes(ext)) return <Music className="w-5 h-5 text-pink-500" />;
+    if (docExts.includes(ext)) return <FileText className="w-5 h-5 text-amber-500" />;
+    return <File className="w-5 h-5 text-gray-400" />;
+  };
+
+  const getFileIconBg = (fileType: string | null, fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic'];
+    const videoExts = ['mp4', 'mkv', 'avi', 'webm', 'mov'];
+    const audioExts = ['mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a'];
+    const docExts = ['pdf', 'doc', 'docx', 'txt', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'];
+
+    if (fileType === 'image' || imageExts.includes(ext)) return 'bg-blue-50 border-blue-100';
+    if (fileType === 'video' || videoExts.includes(ext)) return 'bg-[#5D5FEF]/5 border-[#5D5FEF]/10';
+    if (fileType === 'audio' || audioExts.includes(ext)) return 'bg-pink-50 border-pink-100';
+    if (docExts.includes(ext)) return 'bg-amber-50 border-amber-100';
+    return 'bg-gray-50 border-gray-100';
+  };
+
+  const getCategoryLabel = (cat: string | null) => {
+    if (!cat) return null;
+    const map: Record<string, string> = { general: 'General', media: 'Photos', video_vault: 'Videos', music: 'Music' };
+    return map[cat] || cat;
+  };
+
+  const isImageFile = (fileType: string | null, fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic'];
+    return fileType === 'image' || imageExts.includes(ext);
+  };
+
+  const getShareThumbnailUrl = (shareId: number) => {
+    const token = localStorage.getItem('sessionToken');
+    return `/api/share/download/${shareId}?token=${encodeURIComponent(token || '')}`;
+  };
+
+  const formatSize = (bytes: number) => {
+    if (!bytes || bytes === 0) return '';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
 
-  const formatDate = (dateStr?: string) => {
-    if (!dateStr) return 'Unknown';
+  const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
   };
 
-  const totalFiles = apps.reduce((sum, app) => sum + (app.files?.length || 0) + (app.discordChannels?.length || 0), 0);
+  const activeList = tab === 'received' ? received : sent;
+  const filtered = searchQuery
+    ? activeList.filter(f => f.fileName.toLowerCase().includes(searchQuery.toLowerCase()))
+    : activeList;
 
-  /** Resolve thumbnail URL from various API formats (Google Drive, OneDrive/Graph, etc.) */
-  const getFileThumbnail = (file: GoogleFile): string | null => {
-    // Google Drive direct thumbnailLink
-    if (file.thumbnailLink) return file.thumbnailLink;
-    // OneDrive / MS Graph: thumbnail object with url
-    if (file.thumbnail) {
-      if (typeof file.thumbnail === 'string') return file.thumbnail;
-      if (file.thumbnail.large?.url) return file.thumbnail.large.url;
-      if (file.thumbnail.medium?.url) return file.thumbnail.medium.url;
-      if (file.thumbnail.small?.url) return file.thumbnail.small.url;
-      if (file.thumbnail.url) return file.thumbnail.url;
-    }
-    // OneDrive thumbnails array
-    if (file.thumbnails && Array.isArray(file.thumbnails) && file.thumbnails.length > 0) {
-      const t = file.thumbnails[0];
-      if (t.large?.url) return t.large.url;
-      if (t.medium?.url) return t.medium.url;
-      if (t.small?.url) return t.small.url;
-    }
-    // MS Graph download URL for images — can serve as thumbnail
-    const isImageMime = file.mimeType?.startsWith('image/') || ['image'].includes(file.type || '');
-    if (isImageMime && file['@microsoft.graph.downloadUrl']) return file['@microsoft.graph.downloadUrl'];
-    if (isImageMime && file.downloadUrl) return file.downloadUrl;
-    // Dropbox thumbnail_link
-    if (file.thumbnail_link) return file.thumbnail_link;
-    return null;
-  };
+  // Group by person
+  const grouped = filtered.reduce<Record<string, { person: { id: number; name: string; avatarUrl: string | null }; files: SharedFileItem[] }>>((acc, item) => {
+    const person = tab === 'received' ? item.sender! : item.recipient!;
+    if (!person) return acc;
+    const key = String(person.id);
+    if (!acc[key]) acc[key] = { person, files: [] };
+    acc[key].files.push(item);
+    return acc;
+  }, {});
+
+  const personGroups = Object.values(grouped);
 
   return (
     <div className="w-full">
-      {/* Header with Divider */}
-      <div className="mb-10">
+      {/* Header */}
+      <div className="mb-4 sm:mb-8">
         <div className="relative">
           <div className="absolute -left-2 sm:-left-3 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative mb-2">
+          <h1 className="text-[28px] sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative">
             Shared Files
-            <span className="absolute -top-1 sm:-top-2 -right-4 sm:-right-6 md:-right-8 lg:-right-12 w-8 h-8 sm:w-12 sm:h-12 md:w-16 md:h-16 lg:w-20 lg:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
           </h1>
-        </div>
-        <div className="flex items-center justify-between pl-3 sm:pl-4 md:pl-6">
-          <p className="text-gray-500 font-medium text-sm">
-            {loading ? 'Loading...' : `${totalFiles} ${totalFiles === 1 ? 'item' : 'items'} from ${apps.length} connected ${apps.length === 1 ? 'app' : 'apps'}`}
-          </p>
-          <div className="flex items-center gap-2">
-            {/* Grid / List toggle */}
-            <div className="flex items-center bg-gray-100 rounded-xl p-1">
-              <button
-                onClick={() => setViewMode('list')}
-                className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-[#5D5FEF]' : 'text-gray-400 hover:text-gray-600'}`}
-                title="List view"
-              >
-                <List className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-[#5D5FEF]' : 'text-gray-400 hover:text-gray-600'}`}
-                title="Grid view"
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-            </div>
-            <button
-              onClick={handleRefresh}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold text-[#5D5FEF] hover:bg-[#5D5FEF]/5 transition-all"
-            >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* Connected Apps with Files */}
-      {loading ? (
-        <div className="bg-white rounded-[2rem] border border-gray-100 p-12 flex items-center justify-center">
-          <Users className="w-12 h-12 text-gray-300 animate-pulse" />
-        </div>
-      ) : apps.length === 0 ? (
-        <div className="bg-white rounded-[2rem] border border-gray-100 p-12 text-center">
-          <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-black text-gray-900 mb-2">No Connected Apps</h3>
-          <p className="text-gray-500 text-sm mb-4">
-            Connect apps like Google Drive, OneDrive, or Slack to see shared files here
-          </p>
+      {/* Tabs + Refresh — compact on mobile */}
+      <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
+        <div className="flex items-center gap-1 bg-gray-100/80 rounded-xl sm:rounded-2xl p-1 flex-1 sm:flex-none sm:w-auto">
           <button
-            onClick={() => {
-              // Navigate to My Apps
-              const event = new CustomEvent('navigate-to-apps');
-              window.dispatchEvent(event);
-            }}
-            className="px-6 py-3 bg-[#5D5FEF] text-white rounded-xl font-bold text-[13px] hover:bg-[#4D4FCF] transition-all"
+            onClick={() => setTab('received')}
+            className={`flex items-center justify-center gap-1.5 flex-1 sm:flex-none sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[12px] sm:text-[13px] font-bold transition-all ${
+              tab === 'received'
+                ? 'bg-white text-[#5D5FEF] shadow-sm'
+                : 'text-gray-500'
+            }`}
           >
-            Connect Apps
+            <ArrowDownToLine className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="truncate">Received</span>
+            {received.length > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black ${tab === 'received' ? 'bg-[#5D5FEF]/10 text-[#5D5FEF]' : 'bg-gray-200 text-gray-500'}`}>
+                {received.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTab('sent')}
+            className={`flex items-center justify-center gap-1.5 flex-1 sm:flex-none sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[12px] sm:text-[13px] font-bold transition-all ${
+              tab === 'sent'
+                ? 'bg-white text-[#5D5FEF] shadow-sm'
+                : 'text-gray-500'
+            }`}
+          >
+            <ArrowUpFromLine className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="truncate">Sent</span>
+            {sent.length > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black ${tab === 'sent' ? 'bg-[#5D5FEF]/10 text-[#5D5FEF]' : 'bg-gray-200 text-gray-500'}`}>
+                {sent.length}
+              </span>
+            )}
           </button>
         </div>
+        <button
+          onClick={() => fetchShares(true)}
+          disabled={refreshing}
+          className="w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-xl flex items-center justify-center sm:gap-2 text-[13px] font-bold text-[#5D5FEF] hover:bg-[#5D5FEF]/5 transition-all disabled:opacity-50 flex-shrink-0"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">Refresh</span>
+        </button>
+      </div>
+
+      {/* Search */}
+      {activeList.length > 0 && (
+        <div className="relative mb-4 sm:mb-6">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search shared files..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#5D5FEF]/30 focus:ring-2 focus:ring-[#5D5FEF]/10 transition-all"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2">
+              <X className="w-4 h-4 text-gray-400" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Content */}
+      {loading ? (
+        <div className="bg-white rounded-2xl sm:rounded-[2rem] border border-gray-100 p-12 sm:p-16 flex flex-col items-center justify-center">
+          <Loader2 className="w-10 h-10 text-[#5D5FEF] animate-spin mb-3" />
+          <p className="text-sm text-gray-400 font-medium">Loading shared files...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white rounded-2xl sm:rounded-[2rem] border border-gray-100 p-8 sm:p-12 text-center">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl sm:rounded-3xl bg-[#5D5FEF]/5 flex items-center justify-center mx-auto mb-4 sm:mb-5">
+            {tab === 'received' ? (
+              <ArrowDownToLine className="w-7 h-7 sm:w-9 sm:h-9 text-[#5D5FEF]/40" />
+            ) : (
+              <ArrowUpFromLine className="w-7 h-7 sm:w-9 sm:h-9 text-[#5D5FEF]/40" />
+            )}
+          </div>
+          <h3 className="text-base sm:text-lg font-black text-gray-900 mb-2">
+            {searchQuery
+              ? 'No matching files'
+              : tab === 'received'
+                ? 'No files shared with you yet'
+                : "You haven't shared any files yet"
+            }
+          </h3>
+          <p className="text-gray-500 text-[13px] sm:text-sm max-w-sm mx-auto">
+            {searchQuery
+              ? 'Try a different search term'
+              : tab === 'received'
+                ? 'When family members share files with you, they will appear here.'
+                : 'Share files with family members by clicking the share button on any file.'
+            }
+          </p>
+        </div>
       ) : (
-        <div className="space-y-6">
-          {apps.map((app) => {
-            const isExpanded = expandedApps.has(app.id);
-            const files = app.files || [];
-
-            const channels = app.discordChannels || [];
-            const itemCount = files.length + channels.length;
-            const isDiscord = app.id === 'discord';
-
-            return (
-              <div key={app.id} className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm">
-                {/* App Header */}
-                <div
-                  onClick={() => toggleAppExpand(app.id)}
-                  className="px-8 py-6 bg-[#F5F5F7]/50 border-b border-gray-100 cursor-pointer hover:bg-[#F5F5F7] transition-all"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-white border border-gray-100 flex items-center justify-center shadow-sm">
-                        <img src={app.icon} alt={app.name} className="w-7 h-7" />
-                      </div>
-                      <div>
-                        <h3 className="text-[15px] font-black text-gray-900">{app.name}</h3>
-                        <p className="text-[11px] font-bold text-gray-400">
-                          {isDiscord
-                            ? `${channels.length} ${channels.length === 1 ? 'channel' : 'channels'}`
-                            : `${files.length} ${files.length === 1 ? 'file' : 'files'}`
-                          }
-                        </p>
-                      </div>
+        <div className="space-y-4 sm:space-y-6">
+          {personGroups.map(({ person, files }) => (
+            <div key={person.id} className="bg-white rounded-2xl sm:rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm">
+              {/* Person header */}
+              <div className="px-4 sm:px-8 py-3.5 sm:py-5 bg-[#F5F5F7]/50 border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  {person.avatarUrl ? (
+                    <img src={person.avatarUrl} alt={person.name} className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover border-2 border-white shadow-sm" />
+                  ) : (
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-[#5D5FEF] to-[#8B5CF6] flex items-center justify-center shadow-sm">
+                      <span className="text-white text-[13px] sm:text-sm font-black">{person.name.charAt(0).toUpperCase()}</span>
                     </div>
-                    <ChevronRight
-                      className={`w-5 h-5 text-gray-400 transition-transform ${
-                        isExpanded ? 'rotate-90' : ''
-                      }`}
-                    />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-[14px] sm:text-[15px] font-black text-gray-900 truncate">{person.name}</h3>
+                    <p className="text-[11px] font-bold text-gray-400">
+                      {files.length} {files.length === 1 ? 'file' : 'files'} · {tab === 'received' ? 'Shared with you' : 'You shared'}
+                    </p>
                   </div>
                 </div>
+              </div>
 
-                {/* Discord Channels List */}
-                {isExpanded && isDiscord && channels.length > 0 && (
-                  <div className="divide-y divide-gray-50">
-                    {channels.map((channel, idx) => (
-                      <div
-                        key={channel.id || idx}
-                        className="px-8 py-5 hover:bg-gray-50 transition-all group"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-xl bg-[#5865F2]/10 border border-[#5865F2]/20 flex items-center justify-center shadow-sm flex-shrink-0">
-                            <MessageSquare className="w-5 h-5 text-[#5865F2]" />
+              {/* File list */}
+              <div className="divide-y divide-gray-50">
+                {files.map((file) => (
+                  <div
+                    key={file.id}
+                    className="px-4 sm:px-8 py-4 sm:py-4 hover:bg-gray-50/50 transition-all group"
+                  >
+                    {/* Desktop layout */}
+                    <div className="hidden sm:flex items-center gap-4">
+                      <div className="relative flex-shrink-0">
+                        {isImageFile(file.fileType, file.fileName) ? (
+                          <div className="w-11 h-11 rounded-xl border border-blue-100 overflow-hidden bg-gray-50">
+                            <img
+                              src={getShareThumbnailUrl(file.id)}
+                              alt={file.fileName}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={(e) => {
+                                const target = e.currentTarget.parentElement!;
+                                target.innerHTML = '';
+                                target.className = `w-11 h-11 rounded-xl border flex items-center justify-center ${getFileIconBg(file.fileType, file.fileName)}`;
+                              }}
+                            />
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[14px] font-bold text-gray-900 truncate group-hover:text-[#5865F2] transition-colors">
-                              #{channel.name}
-                            </p>
-                            {channel.type && (
-                              <p className="text-[11px] text-gray-400 font-medium mt-0.5">
-                                {channel.type} channel
-                              </p>
-                            )}
+                        ) : (
+                          <div className={`w-11 h-11 rounded-xl border flex items-center justify-center ${getFileIconBg(file.fileType, file.fileName)}`}>
+                            {getFileIcon(file.fileType, file.fileName)}
                           </div>
+                        )}
+                        {/* Share badge */}
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#5D5FEF] flex items-center justify-center shadow-sm pointer-events-none">
+                          <img src={SHARE_ICON_SRC} alt="" className="w-2.5 h-2.5" style={{ filter: 'brightness(10)' }} />
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Files — List View */}
-                {isExpanded && files.length > 0 && viewMode === 'list' && (
-                  <div className="divide-y divide-gray-50">
-                    {files.map((file, idx) => (
-                      <div
-                        key={file.id || idx}
-                        onClick={() => handleFileClick(file)}
-                        className="px-8 py-5 hover:bg-gray-50 transition-all group cursor-pointer"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-xl bg-white border border-gray-100 flex items-center justify-center shadow-sm flex-shrink-0">
-                            {(() => {
-                              const thumb = getFileThumbnail(file);
-                              if (thumb) return <img src={thumb} alt={file.name} className="w-full h-full object-cover rounded-xl" />;
-                              if (file.iconLink) return <img src={file.iconLink} alt={file.name} className="w-6 h-6" />;
-                              return getFileIcon(file);
-                            })()}
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[14px] font-bold text-gray-900 truncate group-hover:text-[#5D5FEF] transition-colors">
-                              {file.name}
-                            </p>
-                            <div className="flex items-center gap-3 mt-1">
-                              <p className="text-[11px] text-gray-400 font-medium">
-                                {formatFileSize(file.size)}
-                              </p>
-                              {file.modifiedTime && (
-                                <>
-                                  <span className="text-gray-300">·</span>
-                                  <p className="text-[11px] text-gray-400">
-                                    {formatDate(file.modifiedTime)}
-                                  </p>
-                                </>
-                              )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[14px] font-bold text-gray-900 truncate">{file.fileName}</p>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          {file.sizeBytes > 0 && (
+                            <span className="text-[11px] text-gray-400 font-medium">{formatSize(file.sizeBytes)}</span>
+                          )}
+                          {file.sizeBytes > 0 && <span className="text-gray-300">·</span>}
+                          <span className="text-[11px] text-gray-400 font-medium flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {formatDate(file.sharedAt)}
+                          </span>
+                          {file.category && (
+                            <>
+                              <span className="text-gray-300">·</span>
+                              <span className="text-[11px] text-gray-400 font-medium flex items-center gap-1">
+                                <FolderOpen className="w-3 h-3" />
+                                {getCategoryLabel(file.category)}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        {file.message && (
+                          <p className="text-[12px] text-[#5D5FEF] font-medium mt-1 truncate">"{file.message}"</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <button
+                          onClick={() => handlePreview(file.id)}
+                          className="w-9 h-9 rounded-xl flex items-center justify-center text-white bg-[#5D5FEF] hover:bg-[#4B4DD9] transition-all"
+                          title="View"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        {tab === 'received' && (
+                          keptIds.has(file.id) ? (
+                            <div
+                              className="w-9 h-9 rounded-xl flex items-center justify-center text-white bg-emerald-500 cursor-default"
+                              title="Kept — already saved to your files"
+                            >
+                              <Check className="w-4 h-4" />
                             </div>
-                          </div>
-
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {/* Save to Vault */}
-                            {app.id !== 'n8n' && app.id !== 'mcp' && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleSaveToVault(file, app); }}
-                                disabled={savingFile === file.id}
-                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-bold text-emerald-600 hover:bg-emerald-50 transition-all disabled:opacity-50"
-                                title="Save to Vault"
-                              >
-                                {savingFile === file.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <FolderDown className="w-4 h-4" />
-                                )}
-                              </button>
-                            )}
-                            {/* Open in browser */}
-                            {(file.webViewLink || file.url) && (
-                              <a
-                                href={file.webViewLink || file.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-bold text-[#5D5FEF] hover:bg-[#5D5FEF]/10 transition-all"
-                                title="Open in browser"
-                              >
-                                <ExternalLink className="w-4 h-4" />
-                                <span className="hidden sm:inline">Open</span>
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Files — Grid View */}
-                {isExpanded && files.length > 0 && viewMode === 'grid' && (
-                  <div className="p-4 sm:p-6">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-                      {files.map((file, idx) => {
-                        const isAudioFile = file.type === 'audio';
-                        const thumbnail = getFileThumbnail(file);
-                        return (
-                          <div
-                            key={file.id || idx}
-                            onClick={() => handleFileClick(file)}
-                            className="bg-white border border-gray-100 rounded-2xl overflow-hidden cursor-pointer group hover:shadow-lg hover:border-[#5D5FEF]/30 transition-all active:scale-[0.97]"
-                          >
-                            {/* Thumbnail area */}
-                            <div className="w-full aspect-square bg-gray-50 flex items-center justify-center overflow-hidden relative">
-                              {thumbnail ? (
-                                <img
-                                  src={thumbnail}
-                                  alt={file.name}
-                                  className="w-full h-full object-cover"
-                                  loading="lazy"
-                                />
-                              ) : isAudioFile ? (
-                                <img
-                                  src="/images/music_placeholder.png"
-                                  alt="Music"
-                                  className="w-full h-full object-cover"
-                                  loading="lazy"
-                                />
-                              ) : file.iconLink ? (
-                                <img
-                                  src={file.iconLink}
-                                  alt={file.name}
-                                  className="w-10 h-10"
-                                />
+                          ) : (
+                            <button
+                              onClick={() => handleKeep(file.id, file.fileName)}
+                              disabled={keepingId === file.id}
+                              className="w-9 h-9 rounded-xl flex items-center justify-center text-white bg-[#5D5FEF] hover:bg-[#4B4DD9] transition-all disabled:opacity-50"
+                              title="Keep — save a copy to your files"
+                            >
+                              {keepingId === file.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
                               ) : (
-                                <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center">
-                                  {getFileIcon(file)}
-                                </div>
+                                <img src={KEEP_ICON_SRC} alt="" className="w-4 h-4" style={{ filter: 'brightness(10)' }} />
                               )}
-                              {/* Hover actions */}
-                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all flex items-end justify-end p-2 opacity-0 group-hover:opacity-100">
-                                <div className="flex gap-1">
-                                  {app.id !== 'n8n' && app.id !== 'mcp' && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); handleSaveToVault(file, app); }}
-                                      disabled={savingFile === file.id}
-                                      className="w-8 h-8 rounded-lg bg-white/90 backdrop-blur flex items-center justify-center shadow-sm hover:bg-white transition-all disabled:opacity-50"
-                                      title="Save to Vault"
-                                    >
-                                      {savingFile === file.id ? (
-                                        <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
-                                      ) : (
-                                        <FolderDown className="w-3.5 h-3.5 text-emerald-600" />
-                                      )}
-                                    </button>
-                                  )}
-                                  {(file.webViewLink || file.url) && (
-                                    <a
-                                      href={file.webViewLink || file.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="w-8 h-8 rounded-lg bg-white/90 backdrop-blur flex items-center justify-center shadow-sm hover:bg-white transition-all"
-                                      title="Open in browser"
-                                    >
-                                      <ExternalLink className="w-3.5 h-3.5 text-[#5D5FEF]" />
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
+                            </button>
+                          )
+                        )}
+                        <button
+                          onClick={() => handleRemove(file.id)}
+                          disabled={removingId === file.id}
+                          className="w-9 h-9 rounded-xl flex items-center justify-center text-white bg-red-500 hover:bg-red-600 transition-all disabled:opacity-50"
+                          title="Remove share"
+                        >
+                          {removingId === file.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mobile layout — card style with bottom action bar */}
+                    <div className="sm:hidden">
+                      <div className="flex items-start gap-3">
+                        {/* File icon / thumbnail with share badge */}
+                        <div className="relative flex-shrink-0 mt-0.5">
+                          {isImageFile(file.fileType, file.fileName) ? (
+                            <div className="w-11 h-11 rounded-xl border border-blue-100 overflow-hidden bg-gray-50">
+                              <img
+                                src={getShareThumbnailUrl(file.id)}
+                                alt={file.fileName}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                              />
                             </div>
-                            {/* File info */}
-                            <div className="px-3 py-2.5">
-                              <p className="text-[12px] font-bold text-gray-900 truncate group-hover:text-[#5D5FEF] transition-colors">{file.name}</p>
-                              <p className="text-[10px] text-gray-400 font-medium mt-0.5 truncate">
-                                {formatFileSize(file.size)}
-                                {file.modifiedTime ? ` · ${formatDate(file.modifiedTime)}` : ''}
-                              </p>
+                          ) : (
+                            <div className={`w-11 h-11 rounded-xl border flex items-center justify-center ${getFileIconBg(file.fileType, file.fileName)}`}>
+                              {getFileIcon(file.fileType, file.fileName)}
                             </div>
+                          )}
+                          {/* Share badge */}
+                          <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#5D5FEF] flex items-center justify-center shadow-sm pointer-events-none">
+                            <img src={SHARE_ICON_SRC} alt="" className="w-2 h-2" style={{ filter: 'brightness(10)' }} />
                           </div>
-                        );
-                      })}
+                        </div>
+
+                        {/* File details */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-bold text-gray-900 truncate leading-tight">{file.fileName}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            {file.sizeBytes > 0 && (
+                              <span className="text-[10px] font-medium text-gray-400">{formatSize(file.sizeBytes)}</span>
+                            )}
+                            {file.sizeBytes > 0 && <span className="text-gray-300 text-[10px]">·</span>}
+                            <span className="text-[10px] font-medium text-gray-400">{formatDate(file.sharedAt)}</span>
+                          </div>
+                          {file.message && (
+                            <p className="text-[11px] text-[#5D5FEF] font-medium mt-1 line-clamp-1">"{file.message}"</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action buttons — bottom row */}
+                      <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-gray-100/80">
+                        <button
+                          onClick={() => handlePreview(file.id)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] font-bold text-white bg-[#5D5FEF] active:bg-[#4B4DD9] transition-all"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          View
+                        </button>
+                        {tab === 'received' && (
+                          keptIds.has(file.id) ? (
+                            <div
+                              className="w-10 h-10 rounded-xl flex items-center justify-center text-white bg-emerald-500 cursor-default"
+                              title="Kept"
+                            >
+                              <Check className="w-4 h-4" />
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleKeep(file.id, file.fileName)}
+                              disabled={keepingId === file.id}
+                              className="w-10 h-10 rounded-xl flex items-center justify-center text-white bg-[#5D5FEF] active:bg-[#4B4DD9] transition-all disabled:opacity-50"
+                              title="Keep"
+                            >
+                              {keepingId === file.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <img src={KEEP_ICON_SRC} alt="" className="w-4 h-4" style={{ filter: 'brightness(10)' }} />
+                              )}
+                            </button>
+                          )
+                        )}
+                        <button
+                          onClick={() => handleRemove(file.id)}
+                          disabled={removingId === file.id}
+                          className="w-10 h-10 rounded-xl flex items-center justify-center text-white bg-red-500 active:bg-red-600 transition-all disabled:opacity-50"
+                          title="Remove"
+                        >
+                          {removingId === file.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                )}
+                ))}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
 
       {/* Info Card */}
-      {apps.length > 0 && (
-        <div className="mt-8 p-6 bg-gray-50 rounded-2xl border border-gray-100">
-          <h3 className="text-[13px] font-black text-gray-900 mb-2">About Shared Files</h3>
-          <p className="text-[12px] text-gray-600">
-            This section displays files from all your connected apps in one place.
-            Click any file to open it in your browser, or use the save button to download it to your vault.
-            To connect more apps or manage existing connections, visit the <strong>My Apps</strong> section.
+      {!loading && (received.length > 0 || sent.length > 0) && (
+        <div className="mt-6 sm:mt-8 p-4 sm:p-6 bg-gray-50 rounded-xl sm:rounded-2xl border border-gray-100">
+          <h3 className="text-[12px] sm:text-[13px] font-black text-gray-900 mb-1.5">About Shared Files</h3>
+          <p className="text-[11px] sm:text-[12px] text-gray-600 leading-relaxed">
+            Share files with family members directly from your file browser. Files stay in the original location — only a secure link is shared.
+            Both the sender and recipient can remove a share at any time.
           </p>
         </div>
       )}
 
+      {/* ── Mobile in-app file viewer overlay ── */}
+      {viewerFile && (
+        <div className="fixed inset-0 z-[9999] bg-black flex flex-col sm:hidden">
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-md">
+            <button
+              onClick={() => setViewerFile(null)}
+              className="flex items-center gap-1.5 text-white/90 active:text-white/60"
+            >
+              <ChevronLeft className="w-5 h-5" />
+              <span className="text-[14px] font-semibold">Back</span>
+            </button>
+            <p className="flex-1 text-center text-[13px] font-bold text-white/80 truncate px-4">{viewerFile.fileName}</p>
+            <div className="w-16" />
+          </div>
+
+          {/* Content area */}
+          <div className="flex-1 flex items-center justify-center overflow-auto bg-black">
+            {isImageFile(viewerFile.fileType, viewerFile.fileName) ? (
+              <img
+                src={getShareThumbnailUrl(viewerFile.id)}
+                alt={viewerFile.fileName}
+                className="max-w-full max-h-full object-contain"
+              />
+            ) : isVideoFile(viewerFile.fileType, viewerFile.fileName) ? (
+              <video
+                src={getShareThumbnailUrl(viewerFile.id)}
+                controls
+                autoPlay
+                className="max-w-full max-h-full"
+              />
+            ) : isAudioFile(viewerFile.fileType, viewerFile.fileName) ? (
+              <div className="flex flex-col items-center gap-6 px-8">
+                <div className="w-32 h-32 rounded-3xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center shadow-2xl">
+                  <Music className="w-16 h-16 text-white" />
+                </div>
+                <p className="text-white/80 text-[15px] font-bold text-center truncate max-w-[80vw]">{viewerFile.fileName}</p>
+                <audio src={getShareThumbnailUrl(viewerFile.id)} controls autoPlay className="w-full max-w-sm" />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-4 px-8">
+                <div className="w-24 h-24 rounded-2xl bg-white/10 flex items-center justify-center">
+                  {getFileIcon(viewerFile.fileType, viewerFile.fileName)}
+                </div>
+                <p className="text-white/80 text-[14px] font-bold text-center">{viewerFile.fileName}</p>
+                <p className="text-white/40 text-[12px]">Preview not available for this file type</p>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom action bar */}
+          <div className="flex items-center justify-center gap-3 px-5 py-4 bg-black/80 backdrop-blur-md">
+            {tab === 'received' && (
+              keptIds.has(viewerFile.id) ? (
+                <div className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-[13px] font-bold text-white bg-emerald-500 cursor-default">
+                  <Check className="w-4 h-4" />
+                  Kept
+                </div>
+              ) : (
+                <button
+                  onClick={() => { handleKeep(viewerFile.id, viewerFile.fileName); }}
+                  disabled={keepingId === viewerFile.id}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-[13px] font-bold text-white bg-[#5D5FEF] active:bg-[#4B4DD9] transition-all disabled:opacity-50"
+                >
+                  {keepingId === viewerFile.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <img src={KEEP_ICON_SRC} alt="" className="w-4 h-4" style={{ filter: 'brightness(10)' }} />
+                  )}
+                  Keep
+                </button>
+              )
+            )}
+            <button
+              onClick={() => { handleRemove(viewerFile.id); setViewerFile(null); }}
+              disabled={removingId === viewerFile.id}
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-[13px] font-bold text-white bg-red-500 active:bg-red-600 transition-all disabled:opacity-50"
+            >
+              {removingId === viewerFile.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              Remove
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

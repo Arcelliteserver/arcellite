@@ -31,6 +31,8 @@ import MobileMyAppsView from './MobileMyAppsView';
 import MobileDatabaseView from './MobileDatabaseView';
 import MobileUSBView from './MobileUSBView';
 import MobileSearchDropdown from './MobileSearchDropdown';
+import MobileFamilySharingView from './MobileFamilySharingView';
+import ManageStorageView from '../views/settings/ManageStorageView';
 
 export interface MobileAppProps {
   // User
@@ -87,6 +89,12 @@ export interface MobileAppProps {
   // File viewer
   onDeselectFile: () => void;
   onDelete: (file: FileItem) => void;
+
+  // Share with family
+  onShareWithFamily?: (file: FileItem) => void;
+
+  // Family member
+  isFamilyMember?: boolean;
 }
 
 const MobileApp: React.FC<MobileAppProps> = (props) => {
@@ -126,6 +134,8 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
     onMountedDeviceOpen,
     onDeselectFile,
     onDelete,
+    isFamilyMember,
+    onShareWithFamily,
   } = props;
 
   // USB drive file viewer state
@@ -159,6 +169,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
         help: 'Help & Support',
         myapps: 'My Apps',
         drive: 'Device',
+        'manage-storage': 'Manage Storage',
       };
       return titles[subPage] || subPage;
     }
@@ -380,6 +391,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
         onNavigateToDatabase={() => handleMoreNavigate('database')}
         onNavigateToFile={onNavigateToFile}
         onBack={handleChatBack}
+        isFamilyMember={isFamilyMember}
       />
     );
   }
@@ -423,7 +435,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
           <div ref={subPageRef} className="px-5 py-5" style={{ willChange: 'transform' }}>
             
             {/* Inline back link — minimal height, sits above the component */}
-            {subPage !== 'database' && (
+            {subPage !== 'database' && subPage !== 'family' && subPage !== 'shared' && subPage !== 'manage-storage' && (
               <button
                 onClick={handleBackFromSubPage}
                 className="flex items-center gap-1 mb-2 text-[12px] font-semibold text-[#5D5FEF] active:opacity-60 transition-opacity touch-manipulation"
@@ -479,6 +491,8 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
             {subPage === 'trash' && <TrashView />}
             {subPage === 'database' && <MobileDatabaseView />}
             {subPage === 'shared' && <SharedView showToast={showToast} />}
+            {subPage === 'family' && <MobileFamilySharingView showToast={showToast} />}
+            {subPage === 'manage-storage' && <ManageStorageView />}
           </div>
         ) : mobileTab === 'overview' ? (
           <div className="px-5 py-5">
@@ -533,6 +547,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
             <MobileMore
               onNavigate={handleMoreNavigate}
               user={user}
+              isFamilyMember={isFamilyMember}
             />
           </div>
         ) : null}
@@ -552,6 +567,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
           onClose={onDeselectFile}
           onDelete={onDelete}
           onFileChange={(f) => onFileClick(f)}
+          onShareWithFamily={onShareWithFamily}
         />
       )}
 

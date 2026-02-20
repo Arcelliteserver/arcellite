@@ -5,7 +5,7 @@ import SearchBar from './SearchBar';
 import ProfileDropdown from './ProfileDropdown';
 import HelpDropdown from './HelpDropdown';
 import NotificationDropdown from './NotificationDropdown';
-import type { UserData } from '../../App';
+import type { UserData } from '@/types';
 
 interface HeaderProps {
   activeTab: string;
@@ -98,7 +98,7 @@ const Header: React.FC<HeaderProps> = ({
         .catch(() => {});
     };
     fetchCount();
-    const interval = setInterval(fetchCount, 6000);
+    const interval = setInterval(fetchCount, 15000);
     return () => clearInterval(interval);
   }, [playNotificationSound]);
 

@@ -8,6 +8,11 @@ import { handleExportRoutes } from './export.routes.js';
 import { handleSupportRoutes } from './support.routes.js';
 import { handleTransferRoutes } from './transfer.routes.js';
 import { handleChatRoutes } from './chat.routes.js';
+import { handleSystemRoutes } from './system.routes.js';
+import { handleVaultRoutes } from './vault.routes.js';
+import { handleAppsRoutes } from './apps.routes.js';
+import { handleFamilyRoutes } from './family.routes.js';
+import { handleShareRoutes } from './share.routes.js';
 
 /**
  * Central router that handles all API routes
@@ -28,7 +33,11 @@ export function handleApiRoutes(
   if (handleExportRoutes(req, res, url)) return true;
   if (handleSupportRoutes(req, res, url)) return true;
   if (handleTransferRoutes(req, res, url)) return true;
-
+  if (handleSystemRoutes(req, res, url)) return true;
+  if (handleVaultRoutes(req, res, url)) return true;
+  if (handleAppsRoutes(req, res, url)) return true;
+  if (handleFamilyRoutes(req, res, url)) return true;
+  if (handleShareRoutes(req, res, url)) return true;
   // No route matched
   return false;
 }

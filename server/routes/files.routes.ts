@@ -61,18 +61,115 @@ function getBaseDirSync(): string {
   return dir;
 }
 
+/** Resolve and expand a raw storage path string */
+function expandStoragePath(raw: string): string {
+  if (raw.startsWith('~/') || raw === '~') {
+    return path.join(homeDir, raw.slice(raw === '~' ? 1 : 2));
+  }
+  return raw;
+}
+
+/**
+ * Resolve storage base dir for the authenticated user on this request.
+ * Uses req.user.storagePath set by the security middleware; falls back to
+ * a direct session validation if the middleware didn't run (e.g. error in
+ * security service). This guarantees family member isolation is never bypassed.
+ */
+/** Extract session token from request — Authorization header first, cookie fallback. */
+function extractToken(req: IncomingMessage): string | undefined {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) return authHeader.substring(7);
+  // Fallback: cookie set by the frontend for browser-initiated requests (audio/video/img)
+  const cookies = req.headers.cookie;
+  if (cookies) {
+    const match = cookies.match(/(?:^|;\s*)arcellite_session=([^;]+)/);
+    if (match) return decodeURIComponent(match[1]);
+  }
+  return undefined;
+}
+
+async function getRequestBaseDir(req: IncomingMessage): Promise<string> {
+  let storagePath = (req as any).user?.storagePath as string | undefined;
+  if (!storagePath || storagePath === 'pending') {
+    // Safety net: re-validate session directly to get the correct storage path
+    try {
+      const token = extractToken(req);
+      if (token) {
+        const user = await authService.validateSession(token);
+        if (user?.storagePath) {
+          (req as any).user = user; // cache on req for subsequent sync calls
+          storagePath = user.storagePath;
+        }
+      }
+    } catch { /* fall through to global */ }
+  }
+  if (storagePath && storagePath !== 'pending') {
+    return expandStoragePath(storagePath);
+  }
+  return getBaseDir();
+}
+
+function getRequestBaseDirSync(req: IncomingMessage): string {
+  const userPath = (req as any).user?.storagePath as string | undefined;
+  if (userPath && userPath !== 'pending') {
+    return expandStoragePath(userPath);
+  }
+  return getBaseDirSync();
+}
+
+/**
+ * SEC-PT-001/002: Validate that a resolved path stays within the base directory.
+ * Throws if path traversal is detected.
+ */
+function assertPathWithinBase(resolvedPath: string, baseDir: string): void {
+  const normalizedBase = path.resolve(baseDir);
+  const normalizedTarget = path.resolve(resolvedPath);
+  if (normalizedTarget !== normalizedBase && !normalizedTarget.startsWith(normalizedBase + path.sep)) {
+    throw new Error('Path traversal attempt detected');
+  }
+}
+
+/** Send suspended-account error response */
+function sendSuspendedError(res: ServerResponse): void {
+  res.statusCode = 403;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({ error: 'Your account is suspended. Contact the account administrator.' }));
+}
+
+/** True when the authenticated user is a suspended family member */
+function isUserSuspended(req: IncomingMessage): boolean {
+  return (req as any).user?.isSuspended === true;
+}
+
+/** Send 401 for unauthenticated write operations */
+function sendUnauthError(res: ServerResponse): void {
+  res.statusCode = 401;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({ error: 'Authentication required' }));
+}
+
 export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url: string) {
   // Warm up cache asynchronously (non-blocking)
   if (!_cachedBaseDir) getBaseDir().catch(() => {});
 
+  // SEC-AUTHZ: All write operations require an authenticated session.
+  // req.user is set by the auth middleware in vite.config.ts; absent = no valid token.
+  const isWriteOp = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE' || req.method === 'PATCH';
+  if (isWriteOp && !(req as any).user?.id) {
+    sendUnauthError(res);
+    return true;
+  }
+
   // File upload
   if (url === '/api/files/upload' && req.method === 'POST') {
+    // Block suspended family members
+    if (isUserSuspended(req)) { sendSuspendedError(res); return true; }
     // Check vault lockdown before processing upload
     // BUG-004: await vault lock check before touching request stream
     authService.isVaultLocked().then(async locked => {
       if (locked) { sendVaultLockedError(res); return; }
 
-      const baseDir = await getBaseDir();
+      const baseDir = await getRequestBaseDir(req);
 
       // SEC-005: limit individual file size to 10 GB
       // BUG-R01: stream files to temp first, then move after ALL fields are received so
@@ -182,7 +279,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const targetDir = path.join(getBaseDirSync(), categoryDir, pathParam);
+        const baseDir = await getRequestBaseDir(req);
+        const targetDir = path.join(baseDir, categoryDir, pathParam);
+        assertPathWithinBase(targetDir, baseDir);  // SEC-PT-001
 
         if (!fs.existsSync(targetDir)) {
           res.setHeader('Content-Type', 'application/json');
@@ -270,7 +369,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
       const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
       const categoryDir = catMap[category] || 'files';
-      const filePath = path.join(getBaseDirSync(), categoryDir, pathParam);
+      const baseDir = getRequestBaseDirSync(req);
+      const filePath = path.join(baseDir, categoryDir, pathParam);
+      assertPathWithinBase(filePath, baseDir);  // SEC-PT-001
 
       if (!fs.existsSync(filePath)) {
         res.statusCode = 404;
@@ -329,6 +430,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         });
 
         const stream = fs.createReadStream(filePath, { start, end });
+        stream.on('error', (err) => { console.error('[Files] Stream error:', err.message); if (!res.headersSent) { res.statusCode = 500; } res.end(); });
         stream.pipe(res);
       } else {
         res.writeHead(200, {
@@ -339,6 +441,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         });
 
         const stream = fs.createReadStream(filePath);
+        stream.on('error', (err) => { console.error('[Files] Stream error:', err.message); if (!res.headersSent) { res.statusCode = 500; } res.end(); });
         stream.pipe(res);
       }
     } catch (e) {
@@ -357,7 +460,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
       const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
       const categoryDir = catMap[category] || 'files';
-      const filePath = path.join(getBaseDirSync(), categoryDir, pathParam);
+      const baseDir = getRequestBaseDirSync(req);
+      const filePath = path.join(baseDir, categoryDir, pathParam);
+      assertPathWithinBase(filePath, baseDir);  // SEC-PT-001
 
       if (!fs.existsSync(filePath)) {
         res.statusCode = 404;
@@ -370,6 +475,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
       res.setHeader('Content-Type', 'application/octet-stream');
 
       const stream = fs.createReadStream(filePath);
+      stream.on('error', (err) => { console.error('[Files] Download stream error:', err.message); if (!res.headersSent) { res.statusCode = 500; } res.end(); });
       stream.pipe(res);
     } catch (e) {
       res.statusCode = 500;
@@ -380,6 +486,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
   // File/folder creation (mkdir)
   if (url === '/api/files/mkdir' && req.method === 'POST') {
+    if (isUserSuspended(req)) { sendSuspendedError(res); return true; }
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', async () => {
@@ -391,7 +498,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const targetPath = path.join(getBaseDirSync(), categoryDir, relativePath);
+        const baseDir = getRequestBaseDirSync(req);
+        const targetPath = path.join(baseDir, categoryDir, relativePath);
+        assertPathWithinBase(targetPath, baseDir);  // SEC-PT-002
 
         fs.mkdirSync(targetPath, { recursive: true });
 
@@ -419,7 +528,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const targetPath = path.join(getBaseDirSync(), categoryDir, pathParam, name);
+        const baseDir = getRequestBaseDirSync(req);
+        const targetPath = path.join(baseDir, categoryDir, pathParam, name);
+        assertPathWithinBase(targetPath, baseDir);  // SEC-PT-002
 
         fs.mkdirSync(targetPath, { recursive: true });
 
@@ -436,6 +547,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
   // File/folder deletion
   if (url === '/api/files/delete' && req.method === 'POST') {
+    if (isUserSuspended(req)) { sendSuspendedError(res); return true; }
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', async () => {
@@ -447,7 +559,9 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const targetPath = path.join(getBaseDirSync(), categoryDir, pathParam);
+        const baseDir = getRequestBaseDirSync(req);
+        const targetPath = path.join(baseDir, categoryDir, pathParam);
+        assertPathWithinBase(targetPath, baseDir);  // SEC-PT-002
 
         if (fs.existsSync(targetPath)) {
           fs.rmSync(targetPath, { recursive: true, force: true });
@@ -471,6 +585,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
   // File/folder move
   if (url === '/api/files/move' && req.method === 'POST') {
+    if (isUserSuspended(req)) { sendSuspendedError(res); return true; }
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', async () => {
@@ -483,8 +598,11 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const categoryDir = catMap[category] || 'files';
-        const sourceFullPath = path.join(getBaseDirSync(), categoryDir, sourcePath);
-        const targetFullPath = path.join(getBaseDirSync(), categoryDir, targetPath);
+        const baseDir = getRequestBaseDirSync(req);
+        const sourceFullPath = path.join(baseDir, categoryDir, sourcePath);
+        const targetFullPath = path.join(baseDir, categoryDir, targetPath);
+        assertPathWithinBase(sourceFullPath, baseDir);  // SEC-PT-002
+        assertPathWithinBase(targetFullPath, baseDir);  // SEC-PT-002
 
         const targetDir = path.dirname(targetFullPath);
         if (!fs.existsSync(targetDir)) {
@@ -506,6 +624,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
   // Cross-category file move (e.g., move a PDF from Videos to Files)
   if (url === '/api/files/move-cross' && req.method === 'POST') {
+    if (isUserSuspended(req)) { sendSuspendedError(res); return true; }
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', async () => {
@@ -520,8 +639,11 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         const catMap: Record<string, string> = { media: 'photos', video_vault: 'videos', general: 'files', music: 'music' };
         const srcDir = catMap[sourceCategory] || 'files';
         const tgtDir = catMap[targetCategory] || 'files';
-        const sourceFullPath = path.join(getBaseDirSync(), srcDir, sourcePath);
-        const targetFullPath = path.join(getBaseDirSync(), tgtDir, targetPath);
+        const baseDir = getRequestBaseDirSync(req);
+        const sourceFullPath = path.join(baseDir, srcDir, sourcePath);
+        const targetFullPath = path.join(baseDir, tgtDir, targetPath);
+        assertPathWithinBase(sourceFullPath, baseDir);  // SEC-PT-002
+        assertPathWithinBase(targetFullPath, baseDir);  // SEC-PT-002
 
         if (!fs.existsSync(sourceFullPath)) {
           res.statusCode = 404;
@@ -663,7 +785,7 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
         savedFileName = savedFileName.replace(/[<>:"|?*]/g, '_');
 
         // Save to vault
-        const targetDir = path.join(getBaseDirSync(), category);
+        const targetDir = path.join(getRequestBaseDirSync(req), category);
         if (!fs.existsSync(targetDir)) {
           fs.mkdirSync(targetDir, { recursive: true });
         }

@@ -16,6 +16,7 @@ import {
   Pause,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { Users } from 'lucide-react';
 import { FileItem } from '../../types';
 import FileIcon from '../files/FileIcon';
 
@@ -135,6 +136,7 @@ interface MobileFileViewerProps {
   onClose: () => void;
   onDelete: (file: FileItem) => void;
   onFileChange: (file: FileItem) => void; // navigate to adjacent file
+  onShareWithFamily?: (file: FileItem) => void;
 }
 
 const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
@@ -143,6 +145,7 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
   onClose,
   onDelete,
   onFileChange,
+  onShareWithFamily,
 }) => {
   const [showControls, setShowControls] = useState(true);
   const [showCastMenu, setShowCastMenu] = useState(false);
@@ -693,6 +696,18 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
               </div>
               <span className="text-[10px] font-bold text-white/70">{linkCopied ? 'Copied!' : 'Share'}</span>
             </button>
+
+            {onShareWithFamily && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onShareWithFamily(file); }}
+                className="flex flex-col items-center gap-1.5 active:scale-90 transition-all"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-[#5D5FEF]/30 backdrop-blur flex items-center justify-center">
+                  <Users className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-white/70">Family</span>
+              </button>
+            )}
 
             <button
               onClick={(e) => { e.stopPropagation(); handleDownload(); }}

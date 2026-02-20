@@ -244,7 +244,7 @@ const MyAppsView: React.FC = () => {
       setPendingConnectId(null);
       connectApp(appId);
     }
-  }, [pendingConnectId, apps]);
+  }, [pendingConnectId]);
 
   const fetchN8nWorkflows = async (apiUrl: string, apiKey: string, appId?: string) => {
     try {

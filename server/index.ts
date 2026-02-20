@@ -332,7 +332,13 @@ const HAS_DIST = fs.existsSync(DIST);
 
 function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, url: string): void {
   let p = url === '/' ? '/index.html' : url;
-  const full = path.join(DIST, p);
+  // BUG-008: Prevent path traversal on static file serving
+  const full = path.resolve(DIST, '.' + p);
+  if (!full.startsWith(DIST + path.sep) && full !== DIST && full !== path.join(DIST, 'index.html')) {
+    res.writeHead(403);
+    res.end();
+    return;
+  }
   if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
     res.writeHead(404);
     res.end();
@@ -349,7 +355,9 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, url: s
   };
   addSecurityHeaders(res);
   res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
-  fs.createReadStream(full).pipe(res);
+  const stream = fs.createReadStream(full);
+  stream.on('error', (err) => { console.error('[Static] Stream error:', err.message); if (!res.headersSent) { res.statusCode = 500; } res.end(); });
+  stream.pipe(res);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -445,6 +453,28 @@ server.on('error', (err: NodeJS.ErrnoException & { port?: number }) => {
   } else {
     throw err;
   }
+});
+
+// BUG-002: Graceful shutdown — close server and drain connections
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(sig, () => {
+    console.log(`[Server] Received ${sig}, shutting down gracefully...`);
+    server.close(() => {
+      console.log('[Server] HTTP server closed.');
+      process.exit(0);
+    });
+    // Force exit after 10 seconds if graceful shutdown stalls
+    setTimeout(() => { console.error('[Server] Forced exit after timeout'); process.exit(1); }, 10_000).unref();
+  });
+}
+
+// BUG-003: Global error handlers to prevent silent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Server] Unhandled rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught exception:', err);
+  process.exit(1);
 });
 
 start(0);
