@@ -794,6 +794,59 @@ const DocumentationView: React.FC = () => {
               </StepCard>
             </section>
 
+            {/* ═══ Server Monitoring Automation ═══ */}
+            <section id="doc-server-monitor">
+              <h2 className="text-xl md:text-2xl font-black text-gray-900 mb-2 flex items-center gap-3">
+                <Monitor className="w-6 h-6 text-emerald-600" />
+                Home LAB Monitoring Automation
+              </h2>
+              <p className="text-sm text-gray-500 mb-6">
+                Use n8n and the <b>Home LAB</b> workflow to monitor your Arcellite Home Lab: Docker containers, NAS storage, and more. This advanced automation leverages an AI agent to audit, report, and notify you of issues, with Discord/webhook integration for alerts.
+              </p>
+
+              <StepCard number={1} title="Download the Home LAB Workflow">
+                <p className="mb-2">Download the full-featured n8n workflow JSON:</p>
+                <div className="mb-3">
+                  <a
+                    href="/json/Home%20LAB.json"
+                    download
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Home LAB Workflow
+                  </a>
+                </div>
+                <p>Import this file into your n8n instance (Workflows → Import from File).</p>
+              </StepCard>
+
+              <StepCard number={2} title="How It Works">
+                <ul className="list-disc ml-6 text-[13px] text-gray-700 space-y-1">
+                  <li>Runs every 2 hours (or adjust the schedule in the <b>Schedule Trigger</b> node).</li>
+                  <li>Uses an AI agent to check Docker containers and NAS health, following strict SRE rules.</li>
+                  <li>Summarizes findings, takes corrective action if needed, and decides if a Discord/webhook alert is required.</li>
+                  <li>Only sends notifications for critical issues, new failures, or when action is taken (see workflow logic for details).</li>
+                </ul>
+              </StepCard>
+
+              <StepCard number={3} title="Configure & Customize">
+                <ol className="list-decimal ml-6 text-[13px] text-gray-700 space-y-1">
+                  <li>Open the <b>AI Agent</b> node to review and adjust the operational protocol, notification rules, and container/NAS list as needed.</li>
+                  <li>Set your Discord webhook or other notification endpoint in the appropriate node (see workflow for details).</li>
+                  <li>Optionally, expand the workflow to monitor additional services or send alerts to other platforms (Slack, Telegram, email, etc.).</li>
+                </ol>
+              </StepCard>
+
+              <StepCard number={4} title="Notification Example">
+                <div className="mt-3">
+                  <CodeBlock
+                    code={`// Example Discord message\n[GREEN] All services and NAS healthy\n[AMBER] Minor issue: watchtower exited\n[RED] Critical: plex container stopped, NAS > 95% full`}
+                    language="text"
+                    title="Discord/Webhook Notification"
+                  />
+                </div>
+              </StepCard>
+            </section>
+
             {/* ═══ Cloud Storage ═══ */}
             <section id="doc-cloud-storage">
               <h2 className="text-xl md:text-2xl font-black text-gray-900 mb-2 flex items-center gap-3">

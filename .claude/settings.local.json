@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(curl:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npx --yes next@16.1.6 build:*)",
+      "Bash(node --version:*)",
+      "Bash(python3:*)",
+      "Bash(node -e:*)"
     ]
   }
 }

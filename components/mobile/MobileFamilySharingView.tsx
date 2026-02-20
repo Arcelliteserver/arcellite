@@ -477,9 +477,15 @@ const MobileFamilySharingView: React.FC<MobileFamilySharingViewProps> = ({ showT
               >
                 <div className="flex items-center gap-3">
                   {/* Avatar */}
-                  {m.avatarUrl ? (
-                    <img src={m.avatarUrl} className="w-10 h-10 rounded-xl object-cover border border-gray-100 flex-shrink-0" alt={`${m.name} avatar`} />
-                  ) : (
+                  {m.avatarUrl && (
+                    <img
+                      src={m.avatarUrl}
+                      className="w-10 h-10 rounded-xl object-cover border border-gray-100 flex-shrink-0"
+                      alt={`${m.name} avatar`}
+                      onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  )}
+                  {!m.avatarUrl && (
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5D5FEF] to-[#7B7DF4] flex items-center justify-center flex-shrink-0">
                       <span className="text-white font-bold text-[13px]">{getInitials(m.name)}</span>
                     </div>

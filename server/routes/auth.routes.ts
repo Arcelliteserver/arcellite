@@ -1710,6 +1710,10 @@ async function ensureStorageRequestsTable() {
       resolved_at TIMESTAMP
     )
   `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_storage_requests_status ON storage_requests(status);
+    CREATE INDEX IF NOT EXISTS idx_storage_requests_owner ON storage_requests(owner_id, status);
+  `);
 }
 
 /**

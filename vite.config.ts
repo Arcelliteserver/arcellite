@@ -77,7 +77,7 @@ export default defineConfig(({ mode }) => {
                   // Styles: self + inline (Tailwind/emotion inject inline styles)
                   "style-src 'self' 'unsafe-inline'",
                   // Images: self + blob (thumbnails) + data URIs (base64)
-                  "img-src 'self' blob: data:",
+                  "img-src 'self' blob: data: https:",
                   // Media: self + blob (audio/video player)
                   "media-src 'self' blob:",
                   // Connections: self + ws (Vite HMR websocket)

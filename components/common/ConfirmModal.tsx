@@ -70,23 +70,23 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
       />
 
       {/* Modal */}
-      <div className={`relative bg-white rounded-3xl shadow-2xl max-w-md w-full border-2 ${styles.border} animate-in zoom-in duration-200`}>
+      <div className={`relative bg-white rounded-3xl shadow-2xl max-w-md w-full border-2 ${styles.border} animate-in zoom-in duration-200 max-h-[90vh] overflow-y-auto`}>
         <button
           onClick={onCancel}
-          className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition-colors"
+          className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition-colors z-10"
         >
           <X className="w-5 h-5 text-gray-400" />
         </button>
 
-        <div className="p-8">
+        <div className="p-6 sm:p-8">
           {/* Icon */}
-          <div className={`w-16 h-16 rounded-2xl ${styles.iconBg} flex items-center justify-center mb-6`}>
+          <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl ${styles.iconBg} flex items-center justify-center mb-5 sm:mb-6`}>
             {styles.icon}
           </div>
 
           {/* Content */}
-          <h3 className="text-2xl font-black text-gray-900 mb-3">{title}</h3>
-          <p className="text-gray-600 text-base leading-relaxed mb-8">{message}</p>
+          <h3 className="text-xl sm:text-2xl font-black text-gray-900 mb-3">{title}</h3>
+          <p className="text-gray-600 text-sm sm:text-base leading-relaxed mb-6 sm:mb-8 break-words">{message}</p>
 
           {/* Actions */}
           <div className="flex items-center gap-3">
