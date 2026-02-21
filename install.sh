@@ -603,49 +603,55 @@ else
 fi
 
 # ── Detect existing installation and offer reset ──────────────────────
-PSQL_CMD="PGPASSWORD=${DB_PASSWORD} psql -h ${DB_HOST} -p ${PG_PORT} -U ${DB_USER} -d ${DB_NAME}"
-USERS_TABLE=$(eval "$PSQL_CMD" -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='users'" 2>/dev/null | xargs || echo "0")
-PERFORM_RESET=false
+# Helper: run a psql query and return the result (empty string on failure)
+_psql() {
+  PGPASSWORD="${DB_PASSWORD}" psql -h "${DB_HOST}" -p "${PG_PORT}" \
+    -U "${DB_USER}" -d "${DB_NAME}" -t -A -c "$1" 2>/dev/null || true
+}
 
-if [[ "$USERS_TABLE" == "1" ]]; then
-  USER_COUNT=$(eval "$PSQL_CMD" -t -c "SELECT COUNT(*) FROM users" 2>/dev/null | xargs || echo "0")
-  if [[ -n "$USER_COUNT" ]] && (( USER_COUNT > 0 )) 2>/dev/null; then
-    echo ""
-    echo -e "  ${YELLOW}${BOLD}⚠  Existing Arcellite installation detected${NC}"
-    echo -e "  Found ${USER_COUNT} account(s) in the database from a previous install."
-    echo ""
-    if [[ "$RESET_INSTALL" == true ]]; then
-      PERFORM_RESET=true
-      warn "Reset flag set — wiping existing database and config..."
-    else
+_do_reset() {
+  # Stop any running instance first
+  if command -v pm2 &>/dev/null; then
+    pm2 stop arcellite >/dev/null 2>&1 || true
+    pm2 delete arcellite >/dev/null 2>&1 || true
+  fi
+  # Drop and recreate the database — this wipes ALL user accounts and setup state
+  sudo -u postgres psql -p "$PG_PORT" -c "DROP DATABASE IF EXISTS ${DB_NAME};" >/dev/null 2>&1 || true
+  sudo -u postgres psql -p "$PG_PORT" -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" >/dev/null 2>&1
+  sudo -u postgres psql -p "$PG_PORT" -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" >/dev/null 2>&1
+  # Clear config (API keys, settings) — data files like photos/videos are kept
+  if [[ -d "${HOME}/arcellite-data/config" ]]; then
+    rm -rf "${HOME}/arcellite-data/config"
+    mkdir -p "${HOME}/arcellite-data/config"
+  fi
+  success "Database reset complete — setup wizard will appear on next login"
+}
+
+if [[ "$RESET_INSTALL" == true ]]; then
+  # --reset flag: always wipe, no questions asked
+  info "Wiping existing database and config..."
+  _do_reset
+
+else
+  # No flag: check if existing users are present and ask the user
+  USERS_TABLE=$(_psql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='users'")
+  if [[ "$USERS_TABLE" == "1" ]]; then
+    USER_COUNT=$(_psql "SELECT COUNT(*) FROM users")
+    if [[ "$USER_COUNT" =~ ^[0-9]+$ ]] && (( USER_COUNT > 0 )); then
+      echo ""
+      echo -e "  ${YELLOW}${BOLD}⚠  Existing Arcellite installation detected${NC}"
+      echo -e "  Found ${USER_COUNT} account(s) in the database from a previous install."
+      echo ""
       echo -e "  ${BOLD}Options:${NC}"
       echo -e "    ${CYAN}y${NC} — Wipe the database (fresh setup wizard on next login)"
-      echo -e "    ${CYAN}n${NC} — Keep existing data (update/reinstall only)"
+      echo -e "    ${CYAN}n${NC} — Keep existing data (update / reinstall only)"
       echo ""
       read -rp "  Reset database and start fresh? (y/N): " RESET_CHOICE || RESET_CHOICE=""
       if [[ "${RESET_CHOICE,,}" == "y" || "${RESET_CHOICE,,}" == "yes" ]]; then
-        PERFORM_RESET=true
+        _do_reset
       else
         info "Keeping existing data — continuing as update..."
       fi
-    fi
-
-    if [[ "$PERFORM_RESET" == true ]]; then
-      # Stop running processes first
-      if command -v pm2 &>/dev/null; then
-        pm2 stop arcellite >/dev/null 2>&1 || true
-        pm2 delete arcellite >/dev/null 2>&1 || true
-      fi
-      # Drop and recreate the database (wipes all user accounts and setup state)
-      sudo -u postgres psql -p "$PG_PORT" -c "DROP DATABASE IF EXISTS ${DB_NAME};" >/dev/null 2>&1 || true
-      sudo -u postgres psql -p "$PG_PORT" -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" >/dev/null 2>&1
-      sudo -u postgres psql -p "$PG_PORT" -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" >/dev/null 2>&1
-      # Clear config directory so API keys and settings are also reset
-      if [[ -d "${HOME}/arcellite-data/config" ]]; then
-        rm -rf "${HOME}/arcellite-data/config"
-        mkdir -p "${HOME}/arcellite-data/config"
-      fi
-      success "Database reset — setup wizard will appear on next login"
     fi
   fi
 fi
