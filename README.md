@@ -90,7 +90,7 @@ Open `http://<your-server-ip>:3000` in your browser and complete the setup wizar
 | 7 | Run `npm install` |
 | 8 | Build the frontend and compile the server |
 | 9 | Install PM2, start the app, configure auto-start on boot |
-| 10 | Open firewall ports (3000, 80, 443) via UFW or firewalld |
+| 10 | Configure firewall securely: SSH (rate-limited), 3000, 80, 443 — database NOT exposed |
 | 11 | Optional: install Cloudflare Tunnel for remote access |
 
 ---
@@ -166,25 +166,52 @@ The `.env` file is generated automatically by `install.sh`. Key variables:
 
 ---
 
+## Security
+
+The installer configures the firewall with a **secure-by-default** policy:
+
+| Port | Rule | Reason |
+|------|------|--------|
+| SSH (auto-detected) | Rate-limited (`ufw limit`) | Blocks brute-force attacks — max 6 attempts/30s per IP |
+| 3000 | Allowed | Arcellite web app |
+| 80 | Allowed | HTTP (for reverse proxy / Cloudflare Tunnel) |
+| 443 | Allowed | HTTPS |
+| 5432 (PostgreSQL) | **Blocked** | Database stays localhost-only — never exposed to internet |
+| Everything else | **Denied** | Default deny incoming |
+
+**Connecting to PostgreSQL remotely** (DataGrip, DBeaver, etc.):
+
+The database is intentionally not exposed publicly. Use an SSH tunnel instead:
+
+```bash
+# On your local machine — forwards localhost:5432 → server's localhost:5432
+ssh -L 5432:127.0.0.1:5432 your_user@your_server_ip
+
+# Then connect your DB tool to: localhost:5432
+```
+
+This is significantly more secure than opening a database port to the internet.
+
+---
+
 ## Troubleshooting
 
 ### Can't reach the app — `ERR_CONNECTION_TIMED_OUT`
 
-The installer automatically opens port 3000 via UFW or firewalld. If you still can't connect:
+The installer automatically opens port 3000. If you still can't connect:
 
 ```bash
-# Check if the app is running
+# 1. Check if the app is running
 pm2 status
 pm2 logs arcellite
 
-# Manually open the port (UFW)
+# 2. Check firewall status
+sudo ufw status verbose
+
+# 3. Manually open port 3000 if missing
+sudo ufw limit ssh        # ALWAYS do this first to protect yourself
 sudo ufw allow 3000/tcp
 sudo ufw reload
-sudo ufw status
-
-# Or for firewalld (Fedora/CentOS)
-sudo firewall-cmd --permanent --add-port=3000/tcp
-sudo firewall-cmd --reload
 ```
 
 Then try `http://<your-ip>:3000` again.
@@ -212,9 +239,9 @@ pm2 restart arcellite
 [WARN]  Could not access MySQL as root. Configure the MySQL user manually.
 ```
 
-This is non-critical. PostgreSQL is the primary database for Arcellite. MySQL/MariaDB is only used for user-created MySQL databases through the Database Manager UI. The app works fully without it.
+This is non-critical. PostgreSQL is the primary database. MySQL/MariaDB is only used for user-created MySQL databases through the Database Manager UI. The app works fully without it.
 
-To fix it manually:
+To fix manually:
 
 ```bash
 sudo mysql
@@ -229,8 +256,8 @@ Then update `MYSQL_PASSWORD` in `.env` and run `pm2 restart arcellite`.
 ### PM2 shows `errored` status
 
 ```bash
-pm2 logs arcellite --lines 50   # See what crashed
-pm2 restart arcellite           # Try restarting
+pm2 logs arcellite --lines 50   # See the crash reason
+pm2 restart arcellite
 ```
 
 Common causes:
@@ -241,20 +268,30 @@ Common causes:
 ### App starts but shows a blank page
 
 ```bash
-# Rebuild the frontend
 npm run build
-npm run build:server
 pm2 restart arcellite
 ```
 
-### Sudo password fails during install
+### Lost SSH access after install (firewall locked you out)
 
-The installer requires sudo. If you're repeatedly prompted, your user may not have sudo configured:
+If you somehow lost SSH access (e.g., running install on a remote machine via console):
+
+```bash
+# From the server console / recovery mode:
+sudo ufw allow ssh
+sudo ufw reload
+# Or disable UFW temporarily:
+sudo ufw disable
+```
+
+The installer always allows SSH before enabling UFW, so this should not happen with the current version.
+
+### Sudo password fails during install
 
 ```bash
 # Add your user to sudoers (run as root)
 usermod -aG sudo your_username
-# Then log out and back in, and re-run install.sh
+# Then log out, log back in, and re-run install.sh
 ```
 
 ---

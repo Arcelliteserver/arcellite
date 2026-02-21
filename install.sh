@@ -893,10 +893,13 @@ if (fs.existsSync(envFile)) {
 module.exports = {
   apps: [{
     name: 'arcellite',
-    // Use the compiled production server (built by npm run build:server)
-    // This serves the static frontend from dist/ and handles all /api/* routes
-    script: path.join(__dirname, 'server/dist/index.js'),
-    interpreter: 'node',
+    // Arcellite uses Vite as the application server.
+    // vite.config.ts registers all /api/* route middleware (auth, files, AI,
+    // databases, etc.) via configureServer — so Vite must run to serve the API.
+    // server/dist/index.js only handles a small set of system-level routes.
+    script: 'node_modules/.bin/vite',
+    args: '--host 0.0.0.0 --port 3000',
+    interpreter: 'none',
     cwd: __dirname,
     env: {
       ...envVars,
@@ -941,45 +944,91 @@ fi
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  Firewall — open required ports
-#  Runs regardless of whether UFW is currently active or not.
-#  Rules are stored and will apply the moment UFW is enabled.
+#  Firewall — secure configuration
+#
+#  Security design:
+#   • Default policy: DENY all incoming, ALLOW all outgoing
+#   • SSH: rate-limited (blocks brute-force after 6 attempts/30s)
+#   • SSH port: auto-detected from sshd_config (handles non-standard ports)
+#   • PostgreSQL: NOT exposed to internet — localhost only is sufficient
+#     (remote DB access should use SSH tunneling, not a public port)
+#   • Arcellite web app: port 3000
+#   • HTTP/HTTPS: 80 and 443 (for reverse proxy / Cloudflare Tunnel)
 # ═════════════════════════════════════════════════════════════════════
+
+# Detect the SSH port from sshd_config (defaults to 22 if not found)
+SSH_PORT=$(sudo grep -E "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config 2>/dev/null \
+           | awk '{print $2}' | head -1)
+SSH_PORT=${SSH_PORT:-22}
+if [[ ! "$SSH_PORT" =~ ^[0-9]+$ ]]; then SSH_PORT=22; fi
+
 if command -v ufw &>/dev/null; then
-  info "Configuring firewall (ufw)..."
+  info "Configuring firewall (ufw) — SSH port detected: ${SSH_PORT}..."
 
-  # Add rules unconditionally — they persist even when UFW is inactive
-  sudo ufw allow 3000/tcp comment "Arcellite"   >/dev/null 2>&1
-  sudo ufw allow 80/tcp   comment "HTTP"         >/dev/null 2>&1
-  sudo ufw allow 443/tcp  comment "HTTPS"        >/dev/null 2>&1
-  sudo ufw allow "${PG_PORT}/tcp" comment "PostgreSQL" >/dev/null 2>&1
+  # ── 1. Secure default policies ──────────────────────────────────────
+  sudo ufw default deny incoming  >/dev/null 2>&1
+  sudo ufw default allow outgoing >/dev/null 2>&1
 
+  # ── 2. SSH — rate-limited to block brute-force attacks ──────────────
+  #  ufw limit = max 6 new connections per 30 seconds per source IP.
+  #  This keeps SSH accessible but automatically bans repeat offenders.
+  sudo ufw limit "${SSH_PORT}/tcp" comment "SSH (rate-limited)" >/dev/null 2>&1
+
+  # ── 3. Arcellite web app ─────────────────────────────────────────────
+  sudo ufw allow 3000/tcp comment "Arcellite" >/dev/null 2>&1
+
+  # ── 4. HTTP / HTTPS — for reverse proxy or Cloudflare Tunnel ────────
+  sudo ufw allow 80/tcp  comment "HTTP"  >/dev/null 2>&1
+  sudo ufw allow 443/tcp comment "HTTPS" >/dev/null 2>&1
+
+  # ── 5. PostgreSQL — localhost only, NOT open to internet ─────────────
+  #  The database listens on 127.0.0.1 already. No public firewall rule
+  #  is needed or wanted. For remote GUI tools (DataGrip, DBeaver), use
+  #  an SSH tunnel: ssh -L 5432:127.0.0.1:5432 user@your-server
+
+  # ── 6. Enable / reload ───────────────────────────────────────────────
   UFW_STATUS=$(sudo ufw status 2>/dev/null | head -1)
-  if echo "$UFW_STATUS" | grep -q "active"; then
+  if echo "$UFW_STATUS" | grep -qi "active"; then
     sudo ufw reload >/dev/null 2>&1
-    success "Firewall: ports 3000, 80, 443, ${PG_PORT} opened and UFW reloaded"
+    success "Firewall: rules updated and reloaded"
   else
-    # UFW is inactive — enable it with the rules already set
+    # UFW was inactive — SSH is already allowed above, safe to enable now
     sudo ufw --force enable >/dev/null 2>&1
-    sudo ufw reload >/dev/null 2>&1
-    success "Firewall: UFW enabled and ports 3000, 80, 443, ${PG_PORT} opened"
+    success "Firewall: UFW enabled with secure defaults"
   fi
 
+  info "  Allowed in: SSH :${SSH_PORT} (rate-limited), Arcellite :3000, HTTP :80, HTTPS :443"
+  info "  Blocked: everything else, including database port (localhost only)"
+
 elif command -v firewall-cmd &>/dev/null; then
-  # firewalld (Fedora / CentOS / RHEL / AlmaLinux)
-  info "Configuring firewall (firewalld)..."
+  # ── firewalld (Fedora / CentOS / RHEL / AlmaLinux) ──────────────────
+  info "Configuring firewall (firewalld) — SSH port detected: ${SSH_PORT}..."
+
+  # SSH with rate limiting via rich rules
+  sudo firewall-cmd --permanent --add-rich-rule="rule family='ipv4' service name='ssh' accept" >/dev/null 2>&1 || true
+  if [[ "$SSH_PORT" != "22" ]]; then
+    sudo firewall-cmd --permanent --add-port="${SSH_PORT}/tcp" >/dev/null 2>&1
+  else
+    sudo firewall-cmd --permanent --add-service=ssh >/dev/null 2>&1
+  fi
+
   sudo firewall-cmd --permanent --add-port=3000/tcp >/dev/null 2>&1
-  sudo firewall-cmd --permanent --add-port=80/tcp   >/dev/null 2>&1
-  sudo firewall-cmd --permanent --add-port=443/tcp  >/dev/null 2>&1
-  sudo firewall-cmd --permanent --add-port="${PG_PORT}/tcp" >/dev/null 2>&1
+  sudo firewall-cmd --permanent --add-service=http  >/dev/null 2>&1
+  sudo firewall-cmd --permanent --add-service=https >/dev/null 2>&1
+  # PostgreSQL: NOT opened publicly — localhost only
+
   sudo firewall-cmd --reload >/dev/null 2>&1
-  success "Firewall: ports 3000, 80, 443, ${PG_PORT} opened (firewalld)"
+  success "Firewall: SSH :${SSH_PORT}, Arcellite :3000, HTTP :80, HTTPS :443 opened (firewalld)"
+  info "  PostgreSQL is NOT exposed publicly — localhost only"
 
 else
-  warn "No UFW or firewalld detected. If you have a firewall, open port 3000 manually:"
-  warn "  sudo ufw allow 3000/tcp    (UFW)"
-  warn "  sudo firewall-cmd --permanent --add-port=3000/tcp && sudo firewall-cmd --reload  (firewalld)"
-  warn "  sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT  (iptables)"
+  warn "No UFW or firewalld found. Manually secure your firewall:"
+  warn "  1. Allow SSH first:          sudo ufw limit ${SSH_PORT}/tcp"
+  warn "  2. Allow Arcellite:          sudo ufw allow 3000/tcp"
+  warn "  3. Allow HTTP/HTTPS:         sudo ufw allow 80/tcp && sudo ufw allow 443/tcp"
+  warn "  4. Set default deny:         sudo ufw default deny incoming"
+  warn "  5. Enable:                   sudo ufw enable"
+  warn "  Do NOT expose PostgreSQL port ${PG_PORT} publicly."
 fi
 
 
