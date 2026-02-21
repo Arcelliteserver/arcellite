@@ -775,6 +775,56 @@ SESSION_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | x
 # Detect LAN IP
 LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
+# ── Email / SMTP configuration ────────────────────────────────────────
+# Default placeholder values (used if user skips the prompt)
+SMTP_HOST_VAL="smtp.example.com"
+SMTP_PORT_VAL="587"
+SMTP_SECURE_VAL="false"
+SMTP_USER_VAL="your-email@example.com"
+SMTP_PASSWORD_VAL="your-email-password"
+
+echo ""
+echo -e "  ${BOLD}Email setup${NC} (SMTP) — used for:"
+echo -e "    • Sending the verification code when a new account is created"
+echo -e "    • Sending password reset emails if you forget your password"
+echo -e "    ${DIM}You can skip now and fill in the values in .env later.${NC}"
+echo ""
+read -rp "  Configure email (SMTP) now? (y/N): " SETUP_SMTP || SETUP_SMTP=""
+echo ""
+
+if [[ "${SETUP_SMTP,,}" == "y" || "${SETUP_SMTP,,}" == "yes" ]]; then
+  echo -e "  ${DIM}Gmail users: use an App Password, not your regular password.${NC}"
+  echo -e "  ${DIM}Guide: https://support.google.com/accounts/answer/185833${NC}"
+  echo ""
+
+  read -rp "  SMTP host       [e.g. smtp.gmail.com]: " _h  || _h=""
+  read -rp "  SMTP port       [587 = TLS / 465 = SSL]: " _p || _p=""
+  read -rp "  SMTP username   [your full email address]: " _u || _u=""
+  read -rsp "  SMTP password   [input hidden]: " _pw || _pw=""
+  echo ""
+
+  [[ -n "$_h"  ]] && SMTP_HOST_VAL="$_h"
+  [[ -n "$_p"  ]] && SMTP_PORT_VAL="$_p"
+  [[ -n "$_u"  ]] && SMTP_USER_VAL="$_u"
+  [[ -n "$_pw" ]] && SMTP_PASSWORD_VAL="$_pw"
+
+  # Auto-detect SMTP_SECURE from port
+  if [[ "$SMTP_PORT_VAL" == "465" ]]; then
+    SMTP_SECURE_VAL="true"
+  else
+    SMTP_SECURE_VAL="false"
+  fi
+
+  success "Email configuration saved"
+else
+  info "Skipped — edit SMTP_* values in .env before using signup or password reset"
+fi
+
+# Build the FROM addresses using the configured email
+SMTP_FROM_VAL="Arcellite <${SMTP_USER_VAL}>"
+AI_SMTP_FROM_VAL="Arcellite AI <${SMTP_USER_VAL}>"
+AI_NOREPLY_FROM_VAL="Arcellite <${SMTP_USER_VAL}>"
+
 if [[ -f ".env" ]]; then
   warn ".env already exists — backing up to .env.backup"
   cp .env ".env.backup.$(date +%Y%m%d%H%M%S)"
@@ -817,13 +867,24 @@ ARCELLITE_DATA=~/arcellite-data
 # Override if your server is behind NAT and you know your public IP
 # ARCELLITE_DB_HOST=
 
-# ── Email (optional — for account verification & notifications) ──
-# Configure with your SMTP provider (Gmail, Mailgun, SendGrid, etc.)
-# SMTP_HOST=smtp.gmail.com
-# SMTP_PORT=587
-# SMTP_USER=your-email@gmail.com
-# SMTP_PASSWORD=your-app-password
-# SMTP_FROM=Arcellite <your-email@gmail.com>
+# ── Email — required for signup verification & password reset ──────────
+# Gmail tip: use an App Password (not your regular password)
+# Guide: https://support.google.com/accounts/answer/185833
+SMTP_HOST=${SMTP_HOST_VAL}
+SMTP_PORT=${SMTP_PORT_VAL}
+SMTP_SECURE=${SMTP_SECURE_VAL}
+SMTP_USER=${SMTP_USER_VAL}
+SMTP_PASSWORD=${SMTP_PASSWORD_VAL}
+SMTP_FROM=${SMTP_FROM_VAL}
+
+# ── AI assistant email notifications ────────────────────────────────────
+AI_SMTP_HOST=${SMTP_HOST_VAL}
+AI_SMTP_PORT=${SMTP_PORT_VAL}
+AI_SMTP_SECURE=${SMTP_SECURE_VAL}
+AI_SMTP_USER=${SMTP_USER_VAL}
+AI_SMTP_PASSWORD=${SMTP_PASSWORD_VAL}
+AI_SMTP_FROM=${AI_SMTP_FROM_VAL}
+AI_NOREPLY_FROM=${AI_NOREPLY_FROM_VAL}
 
 # ── AI API Keys ──
 # API keys are managed through the web UI: Settings → AI Models
