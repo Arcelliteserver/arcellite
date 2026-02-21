@@ -35,10 +35,33 @@ fi
 PROJECT_DIR="$(pwd)"
 ARCELLITE_USER="$(whoami)"
 
+# ── Parse flags ──────────────────────────────────────────────────────
+RESET_INSTALL=false
+for arg in "$@"; do
+  case $arg in
+    --reset|--fresh|-r)
+      RESET_INSTALL=true
+      ;;
+  esac
+done
+
 echo -e "\n${BOLD}${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
 echo -e "${BOLD}${CYAN}║        Arcellite — Self-Hosted Personal Cloud        ║${NC}"
 echo -e "${BOLD}${CYAN}║              Automated Installer v2.0                ║${NC}"
 echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${NC}\n"
+
+if [[ "$RESET_INSTALL" == true ]]; then
+  echo -e "  ${YELLOW}${BOLD}⚠  Reset mode — existing data will be wiped${NC}\n"
+fi
+
+# ── Verify sudo access early ─────────────────────────────────────────
+if ! sudo -n true 2>/dev/null; then
+  info "This installer requires sudo. You may be prompted for your password."
+  if ! sudo true; then
+    fail "Cannot obtain sudo. Please run as a user with sudo privileges."
+  fi
+fi
+success "Sudo access confirmed"
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -579,6 +602,54 @@ else
   DB_HOST="127.0.0.1"
 fi
 
+# ── Detect existing installation and offer reset ──────────────────────
+PSQL_CMD="PGPASSWORD=${DB_PASSWORD} psql -h ${DB_HOST} -p ${PG_PORT} -U ${DB_USER} -d ${DB_NAME}"
+USERS_TABLE=$(eval "$PSQL_CMD" -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='users'" 2>/dev/null | xargs || echo "0")
+PERFORM_RESET=false
+
+if [[ "$USERS_TABLE" == "1" ]]; then
+  USER_COUNT=$(eval "$PSQL_CMD" -t -c "SELECT COUNT(*) FROM users" 2>/dev/null | xargs || echo "0")
+  if [[ -n "$USER_COUNT" ]] && (( USER_COUNT > 0 )) 2>/dev/null; then
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}⚠  Existing Arcellite installation detected${NC}"
+    echo -e "  Found ${USER_COUNT} account(s) in the database from a previous install."
+    echo ""
+    if [[ "$RESET_INSTALL" == true ]]; then
+      PERFORM_RESET=true
+      warn "Reset flag set — wiping existing database and config..."
+    else
+      echo -e "  ${BOLD}Options:${NC}"
+      echo -e "    ${CYAN}y${NC} — Wipe the database (fresh setup wizard on next login)"
+      echo -e "    ${CYAN}n${NC} — Keep existing data (update/reinstall only)"
+      echo ""
+      read -rp "  Reset database and start fresh? (y/N): " RESET_CHOICE || RESET_CHOICE=""
+      if [[ "${RESET_CHOICE,,}" == "y" || "${RESET_CHOICE,,}" == "yes" ]]; then
+        PERFORM_RESET=true
+      else
+        info "Keeping existing data — continuing as update..."
+      fi
+    fi
+
+    if [[ "$PERFORM_RESET" == true ]]; then
+      # Stop running processes first
+      if command -v pm2 &>/dev/null; then
+        pm2 stop arcellite >/dev/null 2>&1 || true
+        pm2 delete arcellite >/dev/null 2>&1 || true
+      fi
+      # Drop and recreate the database (wipes all user accounts and setup state)
+      sudo -u postgres psql -p "$PG_PORT" -c "DROP DATABASE IF EXISTS ${DB_NAME};" >/dev/null 2>&1 || true
+      sudo -u postgres psql -p "$PG_PORT" -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};" >/dev/null 2>&1
+      sudo -u postgres psql -p "$PG_PORT" -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" >/dev/null 2>&1
+      # Clear config directory so API keys and settings are also reset
+      if [[ -d "${HOME}/arcellite-data/config" ]]; then
+        rm -rf "${HOME}/arcellite-data/config"
+        mkdir -p "${HOME}/arcellite-data/config"
+      fi
+      success "Database reset — setup wizard will appear on next login"
+    fi
+  fi
+fi
+
 
 # ═════════════════════════════════════════════════════════════════════
 #  STEP 3 — MySQL / MariaDB
@@ -816,18 +887,26 @@ if (fs.existsSync(envFile)) {
 module.exports = {
   apps: [{
     name: 'arcellite',
-    script: 'node_modules/.bin/vite',
-    args: '--host 0.0.0.0 --port 3000',
-    interpreter: 'none',
+    // Use the compiled production server (built by npm run build:server)
+    // This serves the static frontend from dist/ and handles all /api/* routes
+    script: path.join(__dirname, 'server/dist/index.js'),
+    interpreter: 'node',
     cwd: __dirname,
-    env: envVars,
+    env: {
+      ...envVars,
+      NODE_ENV: 'production',
+    },
     watch: false,
     max_memory_restart: '500M',
     log_date_format: 'YYYY-MM-DD HH:mm:ss',
+    error_file: path.join(__dirname, 'logs/arcellite-error.log'),
+    out_file: path.join(__dirname, 'logs/arcellite-out.log'),
   }],
 };
 PMEOF
-success "PM2 ecosystem config created"
+# Ensure logs directory exists
+mkdir -p "${PROJECT_DIR}/logs"
+success "PM2 ecosystem config created (production server)"
 
 # Stop any existing arcellite process
 pm2 delete arcellite >/dev/null 2>&1 || true
@@ -857,33 +936,44 @@ fi
 
 # ═════════════════════════════════════════════════════════════════════
 #  Firewall — open required ports
+#  Runs regardless of whether UFW is currently active or not.
+#  Rules are stored and will apply the moment UFW is enabled.
 # ═════════════════════════════════════════════════════════════════════
-if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "active"; then
+if command -v ufw &>/dev/null; then
   info "Configuring firewall (ufw)..."
 
-  # Port 3000 — Arcellite web app
-  if ! sudo ufw status | grep -q "3000/tcp"; then
-    sudo ufw allow 3000/tcp comment "Arcellite" >/dev/null 2>&1
-    success "Firewall: port 3000 opened (Arcellite web app)"
+  # Add rules unconditionally — they persist even when UFW is inactive
+  sudo ufw allow 3000/tcp comment "Arcellite"   >/dev/null 2>&1
+  sudo ufw allow 80/tcp   comment "HTTP"         >/dev/null 2>&1
+  sudo ufw allow 443/tcp  comment "HTTPS"        >/dev/null 2>&1
+  sudo ufw allow "${PG_PORT}/tcp" comment "PostgreSQL" >/dev/null 2>&1
+
+  UFW_STATUS=$(sudo ufw status 2>/dev/null | head -1)
+  if echo "$UFW_STATUS" | grep -q "active"; then
+    sudo ufw reload >/dev/null 2>&1
+    success "Firewall: ports 3000, 80, 443, ${PG_PORT} opened and UFW reloaded"
   else
-    success "Firewall: port 3000 already open"
+    # UFW is inactive — enable it with the rules already set
+    sudo ufw --force enable >/dev/null 2>&1
+    sudo ufw reload >/dev/null 2>&1
+    success "Firewall: UFW enabled and ports 3000, 80, 443, ${PG_PORT} opened"
   fi
 
-  # Port 80 — HTTP (for reverse proxy / Cloudflare Tunnel)
-  if ! sudo ufw status | grep -q "80/tcp"; then
-    sudo ufw allow 80/tcp comment "HTTP" >/dev/null 2>&1
-    success "Firewall: port 80 opened (HTTP)"
-  else
-    success "Firewall: port 80 already open"
-  fi
+elif command -v firewall-cmd &>/dev/null; then
+  # firewalld (Fedora / CentOS / RHEL / AlmaLinux)
+  info "Configuring firewall (firewalld)..."
+  sudo firewall-cmd --permanent --add-port=3000/tcp >/dev/null 2>&1
+  sudo firewall-cmd --permanent --add-port=80/tcp   >/dev/null 2>&1
+  sudo firewall-cmd --permanent --add-port=443/tcp  >/dev/null 2>&1
+  sudo firewall-cmd --permanent --add-port="${PG_PORT}/tcp" >/dev/null 2>&1
+  sudo firewall-cmd --reload >/dev/null 2>&1
+  success "Firewall: ports 3000, 80, 443, ${PG_PORT} opened (firewalld)"
 
-  # PostgreSQL port — for remote/global database access via DataGrip, DBeaver, etc.
-  if ! sudo ufw status | grep -q "${PG_PORT}/tcp"; then
-    sudo ufw allow "${PG_PORT}/tcp" comment "PostgreSQL" >/dev/null 2>&1
-    success "Firewall: port ${PG_PORT} opened (PostgreSQL)"
-  else
-    success "Firewall: port ${PG_PORT} already open"
-  fi
+else
+  warn "No UFW or firewalld detected. If you have a firewall, open port 3000 manually:"
+  warn "  sudo ufw allow 3000/tcp    (UFW)"
+  warn "  sudo firewall-cmd --permanent --add-port=3000/tcp && sudo firewall-cmd --reload  (firewalld)"
+  warn "  sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT  (iptables)"
 fi
 
 

@@ -15,51 +15,58 @@
 
 ---
 
-Arcellite is a minimalist, self-hosted personal cloud platform built with React and Node.js. It gives you full control over your files, databases, and connected services from a clean, modern interface — no third-party cloud required.
+Arcellite is a self-hosted personal cloud platform built with React and Node.js. It gives you full control over your files, databases, and AI assistant from a clean, modern interface — no third-party cloud required.
 
 ## Features
 
 ### File Management
-- **Multi-category storage** — Organize files across General, Photos, Videos, and Music categories
+- **Multi-category storage** — General, Photos, Videos, and Music categories
 - **Drag-and-drop upload** with real-time progress tracking
 - **Grid and list views** with sorting and type filtering
-- **File preview** — Inline image display, PDF thumbnails with cover art, video/audio playback
-- **Folder navigation** with breadcrumb paths and accurate item counts
-- **File operations** — Rename, move, download, delete with trash/restore support
-- **Removable storage** — Mount and browse USB drives and external devices
+- **File preview** — Images, PDF thumbnails, video/audio playback
+- **Folder navigation** with breadcrumb paths
+- **File operations** — Rename, move, download, delete with trash/restore
+- **Removable storage** — Mount and browse USB drives from the UI
 - **Search** across all files and categories
 
 ### AI Assistant
 - **Built-in chat** powered by DeepSeek (or any OpenAI-compatible API)
 - **File-aware** — The AI knows your file system and can organize, move, and create files
 - **Database-aware** — Query, create, and manage databases through natural conversation
-- **Multi-step actions** — The AI can chain operations (create database → add tables → insert data)
 - **Streaming responses** via Server-Sent Events
 
 ### Database Management
-- **PostgreSQL integration** — Create, manage, and query databases from the UI
+- **PostgreSQL & MySQL** — Create, manage, and query databases from the UI
 - **SQL editor** with syntax-highlighted results
 - **Table browser** — View schemas, data, row counts, and sizes
-- **AI-powered queries** — Ask questions in natural language, get SQL results
+- **SQLite** — File-based databases, no setup required
 
-### Connected Apps
-- **n8n workflows** — Connect to your n8n instance to trigger automations
-- **MCP servers** — Connect Model Context Protocol servers
-- **External databases** — Connect to remote PostgreSQL and MySQL instances
+### Security
+- **Two-factor authentication** (2FA via TOTP — Google Authenticator, Authy)
+- **Session management** with multi-device support
+- **IP allowlist** (Strict Isolation mode)
+- **Ghost folders** — Hidden folders not visible in the main UI
+- **Screen lock** with PIN protection
+- **Email verification** via SMTP
 
-### System & Security
-- **User authentication** with session management and multi-device support
-- **Email verification** via SMTP (Gmail, custom providers)
+### System
 - **Activity logging** and system stats (CPU, memory, network, storage)
+- **Family sharing** — Multi-user support with storage quotas per member
 - **Export data** — Full account data export as ZIP
 - **PWA support** — Install as a standalone app on any device
-- **Dark/light mode** with customizable appearance
+- **Dark/light mode**
+
+---
 
 ## Quick Start
 
-### One-command install (recommended)
+### Requirements
 
-The install script handles everything — Node.js, PostgreSQL, MySQL/MariaDB, PM2, database setup, data directories, environment config, and auto-start:
+- Linux server (Ubuntu 22.04+, Debian 12, Raspberry Pi OS 64-bit, Fedora)
+- A user account with **sudo privileges**
+- That's it — the installer handles everything else
+
+### One-command install
 
 ```bash
 git clone https://github.com/Roberadesissai/arcellite.git
@@ -67,103 +74,76 @@ cd arcellite
 chmod +x install.sh && ./install.sh
 ```
 
-That's it. Open `http://<your-ip>:3000` in your browser and complete the setup wizard.
+Open `http://<your-server-ip>:3000` in your browser and complete the setup wizard.
 
 ### What the installer does
 
-1. **Node.js** — Installs Node.js 20 if not present
-2. **PostgreSQL** — Installs and configures PostgreSQL (app database)
-3. **MySQL/MariaDB** — Installs MariaDB (for user-created MySQL databases)
-4. **SQLite** — Ready out of the box (pure JS via sql.js)
-5. **Data directories** — Creates `~/arcellite-data/` with all category folders
-6. **Environment** — Generates `.env` with secure random credentials
-7. **Dependencies** — Runs `npm install`
-8. **Build** — Builds the frontend
-9. **PM2** — Installs PM2, starts the app, configures auto-start on boot
+| Step | Action |
+|------|--------|
+| 1 | Install Node.js 20 (if not present) |
+| 1b | Set up removable storage support (udisks2) |
+| 2 | Install and configure PostgreSQL |
+| 3 | Install MariaDB (for user-created MySQL databases) |
+| 4 | SQLite (ready out of the box via sql.js) |
+| 5 | Create `~/arcellite-data/` with all category folders |
+| 6 | Generate `.env` with secure random credentials |
+| 7 | Run `npm install` |
+| 8 | Build the frontend and compile the server |
+| 9 | Install PM2, start the app, configure auto-start on boot |
+| 10 | Open firewall ports (3000, 80, 443) via UFW or firewalld |
+| 11 | Optional: install Cloudflare Tunnel for remote access |
 
-### After install
+---
+
+## Fresh Reinstall
+
+If you already have Arcellite installed and want to start completely fresh (new setup wizard, new account), run with the `--reset` flag:
+
+```bash
+./install.sh --reset
+```
+
+This will:
+- Drop and recreate the PostgreSQL database (wipes all accounts and settings)
+- Clear the config directory (`~/arcellite-data/config/`)
+- Your uploaded files in `~/arcellite-data/` are **not** deleted
+
+Without the flag, the installer will detect an existing installation and ask you interactively:
+
+```
+⚠  Existing Arcellite installation detected
+Found 1 account(s) in the database from a previous install.
+
+  Reset database and start fresh? (y/N):
+```
+
+---
+
+## After Install
 
 ```bash
 pm2 status              # Check if arcellite is running
-pm2 logs arcellite      # View logs
-pm2 restart arcellite   # Restart after changes
-pm2 monit               # Real-time monitoring
+pm2 logs arcellite      # View live logs
+pm2 restart arcellite   # Restart after config changes
+pm2 monit               # Real-time monitoring dashboard
 ```
 
-### Updating
+---
+
+## Updating
 
 ```bash
 cd arcellite
 git pull
 npm install
 npm run build
+npm run build:server
 pm2 restart arcellite
 ```
 
 ---
 
-<details>
-<summary><strong>Manual setup</strong> (if you prefer doing it yourself)</summary>
-
-#### Prerequisites
-
-- **Node.js** ≥ 18
-- **PostgreSQL** ≥ 14
-- **PM2** (`npm install -g pm2`)
-- **npm** ≥ 9
-
-#### 1. Clone and install
-
-```bash
-git clone https://github.com/Roberadesissai/arcellite.git
-cd arcellite
-npm install
-```
-
-#### 2. Set up PostgreSQL
-
-```sql
-CREATE USER arcellite_user WITH PASSWORD 'your_secure_password';
-CREATE DATABASE arcellite OWNER arcellite_user;
-GRANT ALL PRIVILEGES ON DATABASE arcellite TO arcellite_user;
-ALTER USER arcellite_user CREATEDB;  -- allows AI to create user databases
-```
-
-#### 3. Configure environment
-
-```bash
-cp .env.example .env
-# Edit .env with your database credentials and a random session secret
-```
-
-#### 4. Create data directories
-
-```bash
-mkdir -p ~/arcellite-data/{files,photos,videos,music,shared,databases}
-```
-
-#### 5. Run in development
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) — the setup wizard will guide you through creating your first account.
-
-#### 6. Run in production (with PM2)
-
-```bash
-npm run build                     # Build the frontend
-pm2 start ecosystem.config.cjs    # Start with PM2
-pm2 save                          # Save process list
-pm2 startup                       # Auto-start on boot
-```
-
-The server runs on `0.0.0.0:3000` by default.
-
-</details>
-
-### Environment Variables
+## Environment Variables
 
 The `.env` file is generated automatically by `install.sh`. Key variables:
 
@@ -177,14 +157,171 @@ The `.env` file is generated automatically by `install.sh`. Key variables:
 | `MYSQL_HOST` | MySQL host | `127.0.0.1` |
 | `MYSQL_PORT` | MySQL port | `3306` |
 | `SESSION_SECRET` | Session encryption key | *(auto-generated)* |
-| `NODE_ENV` | Environment mode | `production` |
+| `NODE_ENV` | Environment | `production` |
 | `ARCELLITE_DATA` | Data storage path | `~/arcellite-data` |
 | `SMTP_HOST` | Email server (optional) | `smtp.gmail.com` |
 | `SMTP_PORT` | Email port | `587` |
 | `SMTP_USER` | Email username | `you@gmail.com` |
-| `SMTP_PASSWORD` | Email password / app password | *(your password)* |
+| `SMTP_PASSWORD` | Email app password | *(your password)* |
 
-> **Note:** `DB_HOST` is auto-detected by the installer. It tries TCP (`127.0.0.1`) first, then Unix socket (`/var/run/postgresql`). Both work — the installer picks whichever connects successfully on your system.
+---
+
+## Troubleshooting
+
+### Can't reach the app — `ERR_CONNECTION_TIMED_OUT`
+
+The installer automatically opens port 3000 via UFW or firewalld. If you still can't connect:
+
+```bash
+# Check if the app is running
+pm2 status
+pm2 logs arcellite
+
+# Manually open the port (UFW)
+sudo ufw allow 3000/tcp
+sudo ufw reload
+sudo ufw status
+
+# Or for firewalld (Fedora/CentOS)
+sudo firewall-cmd --permanent --add-port=3000/tcp
+sudo firewall-cmd --reload
+```
+
+Then try `http://<your-ip>:3000` again.
+
+### Setup wizard doesn't appear — shows login instead
+
+This means a previous installation's data is still in the PostgreSQL database. Run:
+
+```bash
+./install.sh --reset
+```
+
+Or wipe the database manually:
+
+```bash
+sudo -u postgres psql -c "DROP DATABASE arcellite;"
+sudo -u postgres psql -c "CREATE DATABASE arcellite OWNER arcellite_user;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE arcellite TO arcellite_user;"
+pm2 restart arcellite
+```
+
+### MySQL warnings during install
+
+```
+[WARN]  Could not access MySQL as root. Configure the MySQL user manually.
+```
+
+This is non-critical. PostgreSQL is the primary database for Arcellite. MySQL/MariaDB is only used for user-created MySQL databases through the Database Manager UI. The app works fully without it.
+
+To fix it manually:
+
+```bash
+sudo mysql
+CREATE USER IF NOT EXISTS 'arcellite_user'@'localhost' IDENTIFIED BY 'your_password';
+GRANT ALL PRIVILEGES ON `arcellite_%`.* TO 'arcellite_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+Then update `MYSQL_PASSWORD` in `.env` and run `pm2 restart arcellite`.
+
+### PM2 shows `errored` status
+
+```bash
+pm2 logs arcellite --lines 50   # See what crashed
+pm2 restart arcellite           # Try restarting
+```
+
+Common causes:
+- Database not running: `sudo systemctl restart postgresql`
+- Wrong `.env` credentials: check `DB_HOST`, `DB_PASSWORD` in `.env`
+- Port 3000 already in use: `sudo lsof -i :3000`
+
+### App starts but shows a blank page
+
+```bash
+# Rebuild the frontend
+npm run build
+npm run build:server
+pm2 restart arcellite
+```
+
+### Sudo password fails during install
+
+The installer requires sudo. If you're repeatedly prompted, your user may not have sudo configured:
+
+```bash
+# Add your user to sudoers (run as root)
+usermod -aG sudo your_username
+# Then log out and back in, and re-run install.sh
+```
+
+---
+
+## Manual Setup
+
+<details>
+<summary>Prefer setting things up yourself?</summary>
+
+### Prerequisites
+
+- Node.js ≥ 18
+- PostgreSQL ≥ 14
+- PM2 (`npm install -g pm2`)
+- npm ≥ 9
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/Roberadesissai/arcellite.git
+cd arcellite
+npm install
+```
+
+### 2. Set up PostgreSQL
+
+```sql
+CREATE USER arcellite_user WITH PASSWORD 'your_secure_password' CREATEDB;
+CREATE DATABASE arcellite OWNER arcellite_user;
+GRANT ALL PRIVILEGES ON DATABASE arcellite TO arcellite_user;
+```
+
+### 3. Configure environment
+
+```bash
+cp .env.example .env
+# Edit .env with your database credentials
+```
+
+### 4. Create data directories
+
+```bash
+mkdir -p ~/arcellite-data/{files,photos,videos,music,shared,databases,config}
+```
+
+### 5. Build and run
+
+```bash
+npm run build           # Build frontend
+npm run build:server    # Compile backend
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup
+```
+
+### 6. Open the firewall
+
+```bash
+sudo ufw allow 3000/tcp
+sudo ufw reload
+```
+
+Open `http://localhost:3000` — the setup wizard will guide you through creating your admin account.
+
+</details>
+
+---
 
 ## Project Structure
 
@@ -198,31 +335,34 @@ The `.env` file is generated automatically by `install.sh`. Key variables:
 │   └── views/
 │       ├── features/          # AI Chat, My Apps, Help
 │       ├── files/             # Files browser, Shared view
-│       ├── settings/          # Account, Appearance, API Keys
-│       └── system/            # Stats, Logs, Database, Trash
+│       ├── settings/          # Account, Appearance, API Keys, Family Sharing
+│       └── system/            # Stats, Logs, Database, Trash, Security Vault
+├── hooks/                     # Custom React hooks (auth, files, upload, layout)
 ├── server/
 │   ├── index.ts               # Production HTTP server
-│   ├── ai.ts                  # AI assistant (DeepSeek integration)
-│   ├── databases.ts           # PostgreSQL database management
+│   ├── ai.ts                  # AI assistant integration
+│   ├── databases.ts           # Database management
 │   ├── files.ts               # File system operations
-│   ├── storage.ts             # Storage & mount helpers
-│   ├── trash.ts               # Trash management
-│   ├── db/                    # App database (connection, schema)
-│   ├── routes/                # API route handlers
-│   └── services/              # Auth, email services
+│   ├── db/                    # PostgreSQL connection and schema
+│   ├── routes/                # API route handlers (23 modules)
+│   └── services/              # Auth, email, security, family services
 ├── services/
 │   └── api.client.ts          # Frontend API client
 ├── vite.config.ts             # Vite + dev API middleware
+├── ecosystem.config.cjs       # PM2 configuration (auto-generated)
+├── install.sh                 # One-command installer
 └── types.ts                   # Shared TypeScript types
 ```
+
+---
 
 ## API Overview
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/files/list` | List files and folders in a category/path |
+| `GET /api/files/list` | List files and folders |
 | `POST /api/files/upload` | Upload files (multipart/form-data) |
-| `GET /api/files/serve` | Serve/download a file |
+| `GET /api/files/serve` | Serve / download a file |
 | `POST /api/files/delete` | Delete files |
 | `POST /api/ai/chat` | AI assistant (SSE streaming) |
 | `GET /api/databases/list` | List managed databases |
@@ -232,56 +372,31 @@ The `.env` file is generated automatically by `install.sh`. Key variables:
 | `GET /api/trash/list` | List trashed items |
 | `POST /api/auth/login` | User authentication |
 
-## Configuration
-
-### AI Models
-
-Arcellite uses DeepSeek by default. To configure an API key:
-
-1. Go to **Profile → AI Models → API Keys**
-2. Enter your DeepSeek API key
-3. The AI assistant is now ready to use
-
-Any OpenAI-compatible API can be used by modifying the endpoint in `server/ai.ts`.
-
-### Data Storage
-
-All user data is stored under the data directory (default `~/arcellite-data/`):
-
-```
-~/arcellite-data/
-├── files/       # General files
-├── photos/      # Media/photos
-├── videos/      # Video vault
-├── music/       # Music library
-├── shared/      # Shared files
-├── databases/   # Database metadata
-└── config/      # API keys, settings
-```
-
-### Removable Storage
-
-Arcellite can mount and browse USB drives on Linux. Requires `udisksctl` and appropriate permissions. For password-protected mounts, the UI will prompt for credentials.
+---
 
 ## Tech Stack
 
 - **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS, Lucide Icons, Recharts
-- **Backend**: Node.js, Vite middleware (API server), PM2 (process manager)
-- **Database**: PostgreSQL (via `pg`), MySQL/MariaDB, SQLite (via sql.js)
-- **AI**: DeepSeek, OpenAI, Anthropic, Google, Grok, Qwen (OpenAI-compatible)
-- **File handling**: `busboy` (uploads), `archiver` (exports)
-- **Auth**: bcrypt, session tokens, SMTP email verification
+- **Backend**: Node.js 20, TypeScript, PM2
+- **Database**: PostgreSQL (primary), MySQL/MariaDB, SQLite (via sql.js)
+- **AI**: DeepSeek, OpenAI, Anthropic, Google Gemini, Grok, Qwen, Ollama
+- **File handling**: busboy (uploads), archiver (exports), sharp (image processing)
+- **Auth**: bcrypt, session tokens, SMTP email verification, otplib (2FA)
 - **PWA**: Service worker, installable on any device
+
+---
 
 ## Contributing
 
-Contributions are welcome! Please:
+Contributions are welcome!
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes (`git commit -am 'Add my feature'`)
-4. Push to the branch (`git push origin feature/my-feature`)
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit your changes: `git commit -am 'Add my feature'`
+4. Push to the branch: `git push origin feature/my-feature`
 5. Open a Pull Request
+
+---
 
 ## License
 
