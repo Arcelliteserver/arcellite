@@ -65,7 +65,7 @@ const DeviceCard: React.FC<DeviceCardProps> = ({
   }, [menuOpen]);
 
   return (
-    <div className="w-full bg-white p-5 md:p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col relative">
+    <div className="w-full bg-white p-5 md:p-6 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col relative">
       {/* Header: Icon, Name, Status, Menu */}
       <div className="flex items-start justify-between mb-4 gap-3">
         <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -441,14 +441,14 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
   const removable = data?.removable ?? [];
 
   return (
-    <div className="w-full animate-in fade-in duration-500">
+    <div className="w-full">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-10 gap-4">
-        <div className="relative">
-          <div className="absolute -left-2 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-4 md:pl-6 relative">
+        <div className="relative flex-1 min-w-0">
+          <div className="absolute -left-2 sm:-left-3 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
+          <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-heading font-bold tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative">
             External Storage
-            <span className="absolute -top-2 -right-8 md:-right-12 w-16 h-16 md:w-20 md:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
           </h2>
+          <p className="text-gray-500 font-medium text-xs md:text-sm pl-3 sm:pl-4 md:pl-6 mt-1">Manage USB drives, SD cards, and connected storage devices</p>
         </div>
         <button
           onClick={() => {
@@ -456,29 +456,47 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
             fetchStorage();
           }}
           disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-50 border border-gray-100 hover:bg-gray-100 text-gray-600 font-bold text-xs uppercase tracking-wider disabled:opacity-50"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#5D5FEF] text-white hover:bg-[#4B4DD4] font-bold text-xs transition-all disabled:opacity-60 shadow-sm shadow-[#5D5FEF]/20 flex-shrink-0"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
+          {loading ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
-      {/* Storage overview – main disk used/total */}
+      {/* Storage overview – main disk — dark card */}
       {!loading && !error && root && (
-        <div className="mb-6 md:mb-8 p-4 md:p-5 rounded-xl md:rounded-2xl bg-white border border-gray-100 shadow-sm">
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-4">Whole storage (main disk)</p>
-          <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2">
-            <div className="flex items-baseline gap-3">
-              <span className="text-2xl md:text-3xl lg:text-4xl font-extrabold text-gray-900">{root.usedHuman}</span>
-              <span className="text-sm text-gray-400">used</span>
-              <span className="text-gray-300 mx-2">/</span>
-              <span className="text-lg md:text-xl font-black text-gray-700">{root.totalHuman}</span>
-              <span className="hidden sm:inline text-sm text-gray-400 ml-2">total</span>
+        <div className="mb-6 md:mb-8 rounded-2xl sm:rounded-3xl bg-[#1d1d1f] border border-[#2d2d2f] p-6 sm:p-8 md:p-10 shadow-xl shadow-black/10 overflow-hidden relative">
+          <div className="pointer-events-none absolute -top-20 -right-20 h-64 w-64 rounded-full bg-[#5D5FEF]/15 blur-3xl" />
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center">
+                  <HardDrive className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/40">Main Disk Storage</p>
+                  <div className="flex items-baseline gap-2 mt-0.5">
+                    <span className="text-2xl sm:text-3xl font-heading font-bold text-white leading-tight">{root.usedHuman}</span>
+                    <span className="text-sm text-white/40">used</span>
+                  </div>
+                </div>
+              </div>
+              <div className="hidden sm:flex items-center gap-5 md:gap-8">
+                <div className="text-right">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">Total</p>
+                  <p className="text-lg md:text-xl font-heading font-bold text-white">{root.totalHuman}</p>
+                </div>
+                <div className="w-px h-10 bg-white/10" />
+                <div className="text-right">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">Available</p>
+                  <p className="text-lg md:text-xl font-heading font-bold text-emerald-400">{root.availableHuman}</p>
+                </div>
+              </div>
             </div>
-            <div className="flex items-baseline gap-3">
-              <span className="text-sm font-bold text-green-600">{root.availableHuman} available</span>
-              <span className="text-xs text-gray-400">({root.usedPercent}% used)</span>
+            <div className="h-3 w-full rounded-full bg-white/10 mb-3 overflow-hidden">
+              <div className="h-full bg-[#5D5FEF] rounded-full transition-all duration-700" style={{ width: `${Math.min(root.usedPercent ?? 0, 100)}%` }} />
             </div>
+            <p className="text-[11px] font-bold text-white/40">{root.usedPercent}% of total storage used</p>
           </div>
         </div>
       )}
@@ -511,7 +529,9 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
       )}
 
       {!loading && !error && removable.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4 ml-1">Connected Devices</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
           {removable.map((dev: RemovableDeviceInfo, i: number) => (
             <DeviceCard
               key={`${dev.name}-${i}`}
@@ -531,6 +551,7 @@ const RemovableStorageView: React.FC<RemovableStorageViewProps> = ({ onMountedDe
               }}
             />
           ))}
+          </div>
         </div>
       )}
 

@@ -62,7 +62,7 @@ export default function AccessDeniedView() {
             <ShieldX className="w-10 h-10 sm:w-12 sm:h-12 text-[#5D5FEF]" strokeWidth={2} />
           </div>
 
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-gray-900 mb-2 sm:mb-3 tracking-tight">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-heading font-bold text-gray-900 mb-2 sm:mb-3 tracking-tight">
             You can&apos;t access this page
           </h1>
           <p className="text-sm sm:text-base text-gray-500 font-medium max-w-sm mx-auto leading-relaxed">

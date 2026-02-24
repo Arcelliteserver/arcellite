@@ -29,6 +29,9 @@ server/dist
 # .env.*
 arcellite-data/
 
+# Runtime-generated installer data (contains private keys, databases)
+data/
+
 # Temporary / debug files
 *.bak
 _test*

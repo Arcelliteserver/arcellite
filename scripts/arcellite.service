@@ -1,0 +1,40 @@
+[Unit]
+Description=Arcellite Self-Hosted Personal Cloud
+Documentation=https://github.com/ArcelliteProject/arcellite
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/arcellite
+EnvironmentFile=/home/%i/arcellite/.env
+
+# The compiled server entry point
+ExecStart=/usr/bin/node /home/%i/arcellite/server/dist/index.js
+
+# Auto-restart on crash — critical for production reliability
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Logging — send to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=arcellite
+
+# Resource limits — prevent runaway memory usage
+LimitNOFILE=65536
+MemoryMax=2G
+CPUQuota=80%
+
+# Security hardening — reduce attack surface
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/%i/arcellite-data /home/%i/arcellite-backups /home/%i/arcellite /tmp
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

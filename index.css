@@ -22,10 +22,23 @@
   }
 }
 
+/* ── Global font rendering ── */
+body {
+  background-color: #111214;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Sidebar: force Space Grotesk so nav text has consistent, polished style */
+nav[aria-label="Main navigation"] {
+  font-family: "Space Grotesk", sans-serif;
+}
+
 /* Custom scrollbar styles */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 5px;
+  height: 5px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -33,12 +46,12 @@
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #e5e5e5;
-  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 99px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #d1d1d1;
+  background: rgba(0, 0, 0, 0.22);
 }
 
 /* Animation utilities */
@@ -189,17 +202,23 @@
   }
 }
 
+/* ── Sidebar scrollbar — completely hidden but still scrollable ── */
+nav[aria-label="Main navigation"] ::-webkit-scrollbar {
+  display: none;
+}
+
 /* Force left alignment for sidebar items on mobile */
 @media (max-width: 768px) {
   .sidebar-nav button {
     justify-content: flex-start !important;
     text-align: left !important;
   }
-  
+
   .sidebar-nav button > * {
     margin-left: 0 !important;
   }
 }
+
 
 /* Mobile-specific improvements */
 @media (max-width: 640px) {

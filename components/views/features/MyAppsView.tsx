@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Loader2, RefreshCw, AlertCircle, Check, X, ExternalLink, ArrowRight, CheckCircle2, XCircle, Plus, ChevronRight, ChevronDown } from 'lucide-react';
+import { Loader2, RefreshCw, AlertCircle, Check, X, ExternalLink, ArrowRight, CheckCircle2, XCircle, Plus, ChevronRight, ChevronDown, Download, Link2, Store, Server } from 'lucide-react';
+import InstallerAppsSection from './InstallerAppsSection';
+import ConnectAppsSection from './ConnectAppsSection';
+import MarketSection from './MarketSection';
+import MCPView from './MCPView';
 
 interface GoogleFile {
   id?: string;
@@ -65,10 +69,12 @@ const ALL_POSSIBLE_APPS = [
   { id: 'postgresql', name: 'PostgreSQL', icon: '/assets/apps/postgresql.svg', description: 'Connect to an external PostgreSQL database', category: 'database' },
   { id: 'mysql', name: 'MySQL', icon: '/assets/apps/mysql.svg', description: 'Connect to an external MySQL database', category: 'database' },
   { id: 'n8n', name: 'n8n', icon: '/assets/apps/n8n.svg', description: 'Connect your n8n automation workflows', category: 'automation' },
-  { id: 'mcp', name: 'MCP', icon: '/assets/icons/webhook_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg', description: 'Connect a Model Context Protocol server', category: 'ai' },
+  { id: 'mcp', name: 'MCP', icon: '/assets/apps/mcp.svg', description: 'Connect a Model Context Protocol server', category: 'ai' },
 ];
 
-const MyAppsView: React.FC = () => {
+const MyAppsView: React.FC<{ isMobile?: boolean }> = ({ isMobile }) => {
+  const [activeSection, setActiveSection] = useState<'install' | 'connect' | 'market' | 'mcp'>('install');
+
   // Force-clear stale data on version bump — clears localStorage AND server
   const justMigrated = React.useRef(false);
   if (localStorage.getItem('myapps_version') !== 'v3') {
@@ -1163,26 +1169,82 @@ const MyAppsView: React.FC = () => {
     return [...connected, ...disconnected];
   }, [apps, connectedAppIds]);
 
+  const sidebarItems: { id: 'install' | 'connect' | 'market' | 'mcp'; label: string; icon: React.FC<{ className?: string }>; desc: string }[] = [
+    { id: 'install', label: 'Install', icon: Download, desc: 'Self-hosted apps' },
+    { id: 'connect', label: 'Connect', icon: Link2, desc: 'External services' },
+    { id: 'market', label: 'Market', icon: Store, desc: 'Browse apps' },
+    { id: 'mcp', label: 'MCP', icon: Server, desc: 'Protocol servers' },
+  ];
+
   return (
-    <div className="w-full animate-in fade-in duration-500">
+    <div className="py-2">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-10 gap-4">
-        <div className="relative">
-          <div className="absolute -left-2 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-4 md:pl-6 relative">
-            My Apps
-            <span className="absolute -top-2 -right-8 md:-right-12 w-16 h-16 md:w-20 md:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
-          </h2>
+      <div className="mb-6 md:mb-8 pb-5 border-b border-gray-200">
+        <div className="flex items-center gap-3">
+          <div className="w-1 h-8 md:h-10 bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full flex-shrink-0" />
+          <div>
+            <h1 className="text-2xl md:text-3xl font-heading font-bold text-gray-900 tracking-tight">Integration</h1>
+            <p className="text-sm text-gray-500 mt-1">Install, connect, and manage apps on your server.</p>
+          </div>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing || apps.length === 0}
-          className="flex items-center gap-2 px-4 md:px-6 py-2.5 md:py-3 bg-white text-gray-600 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest border border-gray-100 hover:bg-gray-50 hover:border-[#5D5FEF]/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 md:w-4 md:h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          <span>Refresh</span>
-        </button>
       </div>
+
+      <div className={`flex gap-6 md:gap-8 ${isMobile ? 'flex-col' : 'flex-row'}`}>
+        {/* Navigation: top tabs on mobile, sidebar on desktop */}
+        {isMobile ? (
+          <div className="flex gap-1 p-1 bg-white rounded-xl border border-gray-200 shadow-sm">
+            {sidebarItems.map((item) => {
+              const isActive = activeSection === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveSection(item.id)}
+                  className={`flex-1 min-w-0 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                    isActive ? 'bg-[#5D5FEF] text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <nav className="w-52 flex-shrink-0">
+            <div className="space-y-1">
+              {sidebarItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeSection === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveSection(item.id)}
+                    className={`flex items-center gap-3 w-full px-4 py-2.5 rounded-lg text-left transition-all text-[14px] font-medium ${
+                      isActive ? 'bg-[#F5F5F7] text-gray-900' : 'text-gray-500 hover:bg-[#F5F5F7] hover:text-gray-900'
+                    }`}
+                  >
+                    <Icon className={`w-[18px] h-[18px] flex-shrink-0 ${isActive ? 'text-[#5D5FEF]' : 'text-gray-400'}`} />
+                    <div className="flex-1 min-w-0">
+                      <span className="block">{item.label}</span>
+                      <span className="block text-[11px] text-gray-400 font-normal">{item.desc}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+        )}
+
+        {/* Content Area */}
+        <div className="flex-1 min-w-0">
+          {activeSection === 'install' && <InstallerAppsSection />}
+          {activeSection === 'connect' && <ConnectAppsSection />}
+          {activeSection === 'market' && <MarketSection />}
+          {activeSection === 'mcp' && <MCPView />}
+        </div>
+      </div>
+
+      {/* Legacy integrations (hidden — kept for data compatibility) */}
+      {false && (<>
 
       {/* Global Error Banner */}
       {error && (
@@ -1810,6 +1872,7 @@ const MyAppsView: React.FC = () => {
           </div>
         ))}
       </div>
+      </>)}
     </div>
   );
 };

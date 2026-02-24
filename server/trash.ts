@@ -44,7 +44,7 @@ function getBaseDir(): string {
   return dir;
 }
 
-function getTrashDir(): string {
+export function getTrashDir(): string {
   return path.join(getBaseDir(), '.trash');
 }
 

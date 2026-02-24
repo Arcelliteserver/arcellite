@@ -127,6 +127,17 @@ function assertPathWithinBase(resolvedPath: string, baseDir: string): void {
   if (normalizedTarget !== normalizedBase && !normalizedTarget.startsWith(normalizedBase + path.sep)) {
     throw new Error('Path traversal attempt detected');
   }
+  // Resolve symlinks to prevent traversal via symlinks inside the storage dir
+  try {
+    const realBase = fs.realpathSync(normalizedBase);
+    const realTarget = fs.realpathSync(normalizedTarget);
+    if (realTarget !== realBase && !realTarget.startsWith(realBase + path.sep)) {
+      throw new Error('Path traversal attempt detected (symlink)');
+    }
+  } catch (e: any) {
+    if (e.message?.includes('Path traversal')) throw e;
+    // File doesn't exist yet (e.g. during upload) — skip realpath check
+  }
 }
 
 /** Send suspended-account error response */
@@ -413,6 +424,17 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
       const contentType = contentTypes[ext] || 'application/octet-stream';
       const fileSize = fileStat.size;
 
+      // ETag for browser cache validation (size + mtime fingerprint)
+      const etag = `"${fileStat.size}-${Math.floor(fileStat.mtimeMs)}"`;
+      const lastModified = fileStat.mtime.toUTCString();
+
+      // 304 Not Modified — serve from browser cache if unchanged
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, { ETag: etag, 'Last-Modified': lastModified, 'Cache-Control': 'public, max-age=31536000' });
+        res.end();
+        return true;
+      }
+
       // Support HTTP Range requests (required for mobile video/audio playback)
       const rangeHeader = req.headers.range;
       if (rangeHeader) {
@@ -427,6 +449,8 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
           'Content-Length': chunkSize,
           'Content-Type': contentType,
           'Cache-Control': 'public, max-age=31536000',
+          'ETag': etag,
+          'Last-Modified': lastModified,
         });
 
         const stream = fs.createReadStream(filePath, { start, end });
@@ -438,6 +462,8 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
           'Content-Type': contentType,
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'public, max-age=31536000',
+          'ETag': etag,
+          'Last-Modified': lastModified,
         });
 
         const stream = fs.createReadStream(filePath);
@@ -471,7 +497,8 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
       }
 
       const filename = path.basename(filePath);
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      const encodedFilename = encodeURIComponent(filename).replace(/'/g, '%27');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
       res.setHeader('Content-Type', 'application/octet-stream');
 
       const stream = fs.createReadStream(filePath);

@@ -25,7 +25,7 @@ import APIKeysView from '../views/settings/APIKeysView';
 import AISecurityView from '../views/settings/AISecurityView';
 import NotificationsView from '../views/settings/NotificationsView';
 import HelpSupportView from '../views/features/HelpSupportView';
-import MobileMyAppsView from './MobileMyAppsView';
+import MyAppsView from '../views/features/MyAppsView';
 
 // Mobile-optimised views
 import MobileDatabaseView from './MobileDatabaseView';
@@ -68,6 +68,7 @@ export interface MobileAppProps {
 
   // Smart features
   pdfThumbnails: boolean;
+  videoThumbnails: boolean;
   aiRenamedSet: Set<string>;
 
   // Callbacks
@@ -76,7 +77,7 @@ export interface MobileAppProps {
   onNavigateToFile: (category: string, itemPath: string, isFolder: boolean) => void;
 
   // Settings callbacks
-  onSettingsChange: (s: { pdfThumbnails: boolean; aiAutoRename: boolean }) => void;
+  onSettingsChange: (s: { pdfThumbnails: boolean; videoThumbnails: boolean; aiAutoRename: boolean }) => void;
   onDeleteAccount: () => void;
   onAutoLockChange?: (enabled: boolean, timeout: number, pin: string) => void;
   onFolderLockChange?: (enabled: boolean, lockedFolders: string[], pin: string) => void;
@@ -121,6 +122,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
     selectedModel,
     onModelChange,
     pdfThumbnails,
+    videoThumbnails,
     aiRenamedSet,
     showToast,
     onRefreshFiles,
@@ -425,28 +427,14 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
 
       {/* Main Content Area */}
       <main
-        className="flex-1 overflow-y-auto overflow-x-hidden pt-[76px] pb-[130px] scroll-smooth custom-scrollbar"
+        className="flex-1 overflow-y-auto overflow-x-hidden pt-[76px] pb-[120px] sm:pb-[130px] scroll-smooth custom-scrollbar min-h-0"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
         {subPage ? (
           /* Sub-page from "More" menu — reuse desktop views */
-          <div ref={subPageRef} className="px-5 py-5" style={{ willChange: 'transform' }}>
-            
-            {/* Inline back link — minimal height, sits above the component */}
-            {subPage !== 'database' && subPage !== 'family' && subPage !== 'shared' && subPage !== 'manage-storage' && (
-              <button
-                onClick={handleBackFromSubPage}
-                className="flex items-center gap-1 mb-2 text-[12px] font-semibold text-[#5D5FEF] active:opacity-60 transition-opacity touch-manipulation"
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-                </svg>
-                Back
-              </button>
-            )}
-
+          <div ref={subPageRef} className="px-4 sm:px-5 py-5" style={{ willChange: 'transform' }}>
             {subPage === 'stats' && <StatsView />}
             {subPage === 'server' && <ServerView onNavigateToLogs={() => { setSubPage('logs'); onTabChange('logs'); }} />}
             {subPage === 'logs' && <SystemLogsView />}
@@ -475,6 +463,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
                 user={user}
                 onUserUpdate={onUserUpdate}
                 onDeleteAccount={onDeleteAccount}
+                isMobile
               />
             )}
             {subPage === 'security' && <MobileSecurityVaultView onAutoLockChange={onAutoLockChange} onFolderLockChange={onFolderLockChange} />}
@@ -483,19 +472,19 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
               <AppearanceView showToast={showToast} onSettingsChange={onSettingsChange} />
             )}
             {subPage === 'apikeys' && <APIKeysView showToast={showToast} />}
-            {subPage === 'aisecurity' && <AISecurityView showToast={showToast} />}
+            {subPage === 'aisecurity' && <AISecurityView showToast={showToast} isMobile />}
             {subPage === 'activity' && <ActivityLogView />}
             {subPage === 'export' && <ExportDataView />}
             {subPage === 'help' && <HelpSupportView user={user} />}
-            {subPage === 'myapps' && <MobileMyAppsView />}
+            {subPage === 'myapps' && <MyAppsView isMobile />}
             {subPage === 'trash' && <TrashView />}
             {subPage === 'database' && <MobileDatabaseView />}
             {subPage === 'shared' && <SharedView showToast={showToast} />}
             {subPage === 'family' && <MobileFamilySharingView showToast={showToast} />}
-            {subPage === 'manage-storage' && <ManageStorageView />}
+            {subPage === 'manage-storage' && <ManageStorageView isFamilyMember={isFamilyMember} />}
           </div>
         ) : mobileTab === 'overview' ? (
-          <div className="px-5 py-5">
+          <div className="px-4 sm:px-5 py-5">
             <MobileOverview
               user={user}
               recentItems={recentItems}
@@ -510,7 +499,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
             />
           </div>
         ) : mobileTab === 'files' ? (
-          <div className="px-5 py-5">
+          <div className="px-4 sm:px-5 py-5">
             <MobileFiles
               activeCategory={activeTab}
               currentFolderId={currentFolderId}
@@ -529,7 +518,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
             />
           </div>
         ) : mobileTab === 'photos' ? (
-          <div className="px-5 py-5">
+          <div className="px-4 sm:px-5 py-5">
             <MobileGallery
               currentFolderId={currentFolderId}
               filteredFolders={filteredFolders}
@@ -543,7 +532,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
             />
           </div>
         ) : mobileTab === 'settings' ? (
-          <div className="px-5 py-5">
+          <div className="px-4 sm:px-5 py-5">
             <MobileMore
               onNavigate={handleMoreNavigate}
               user={user}

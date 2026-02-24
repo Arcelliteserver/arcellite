@@ -25,12 +25,31 @@ const BODY_LIMIT = 1 * 1024 * 1024;
 /** Configurable CORS origin (SEC-N04). Set ALLOWED_ORIGIN=http://your-domain.com in .env. Empty = no CORS header (same-origin policy). */
 const CORS_ORIGIN = process.env.ALLOWED_ORIGIN || '';
 
-/** Add security headers to every response (SEC-007) */
+/** Add security headers to every response (SEC-007, SEC-008) */
 function addSecurityHeaders(res: http.ServerResponse): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-XSS-Protection', '1; mode=block');
+  // CSP: allow same-origin + trusted CDNs used by the app. Adjust as needed.
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  // React/Vite bundle requires unsafe-inline
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "img-src 'self' data: blob: https:",
+      "media-src 'self' blob:",
+      "connect-src 'self' https://generativelanguage.googleapis.com https://api.anthropic.com https://api.openai.com",
+      "font-src 'self' data: https://fonts.gstatic.com",
+      "frame-src 'none'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; ')
+  );
+  // Prevent MIME type sniffing
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 }
 
 function sendJson(res: http.ServerResponse, status: number, data: object): void {
@@ -340,6 +359,14 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, url: s
     return;
   }
   if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+    // SPA fallback: serve index.html for client-side routes (not API or asset requests)
+    const indexPath = path.join(DIST, 'index.html');
+    if (!p.startsWith('/api/') && !p.match(/\.\w+$/) && fs.existsSync(indexPath)) {
+      addSecurityHeaders(res);
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      fs.createReadStream(indexPath).pipe(res);
+      return;
+    }
     res.writeHead(404);
     res.end();
     return;

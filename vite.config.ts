@@ -410,7 +410,7 @@ export default defineConfig(({ mode }) => {
               }
 
               // Try organized route modules first
-              if (handleApiRoutes(req, res, fullUrl)) {
+              if (await handleApiRoutes(req, res, fullUrl)) {
                 return;
               }
 
@@ -419,10 +419,6 @@ export default defineConfig(({ mode }) => {
           },
         },
       ],
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
-      },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),

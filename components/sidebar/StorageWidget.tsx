@@ -1,11 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings2 } from 'lucide-react';
-
-const CableIcon: React.FC<{ className?: string }> = ({ className = 'w-6 h-6' }) => (
-  <svg className={className} viewBox="0 -960 960 960" fill="currentColor">
-    <path d="M200-120q-17 0-28.5-11.5T160-160v-40h-40v-160q0-17 11.5-28.5T160-400h40v-280q0-66 47-113t113-47q66 0 113 47t47 113v400q0 33 23.5 56.5T600-200q33 0 56.5-23.5T680-280v-280h-40q-17 0-28.5-11.5T600-600v-160h40v-40q0-17 11.5-28.5T680-840h80q17 0 28.5 11.5T800-800v40h40v160q0 17-11.5 28.5T800-560h-40v280q0 66-47 113t-113 47q-66 0-113-47t-47-113v-400q0-33-23.5-56.5T360-760q-33 0-56.5 23.5T280-680v280h40q17 0 28.5 11.5T360-360v160h-40v40q0 17-11.5 28.5T280-120h-80Z"/>
-  </svg>
-);
+import { Settings2, HardDrive, Usb } from 'lucide-react';
 import type { SystemStorageResponse, FamilyMemberStorageInfo } from '@/types';
 
 function formatFamilyBytes(bytes: number): string {
@@ -23,11 +17,12 @@ interface StorageWidgetProps {
   onUsbClick?: () => void;
   isFamilyMember?: boolean;
   isSuspended?: boolean;
+  collapsed?: boolean;
 }
 
 const STORAGE_API = '/api/system/storage';
 const USB_EVENTS_API = '/api/system/usb-events';
-const REFRESH_INTERVAL_MS = 30_000; // Fallback polling (SSE handles real-time)
+const REFRESH_INTERVAL_MS = 30_000;
 
 function useSystemStorage() {
   const [data, setData] = useState<SystemStorageResponse | null>(null);
@@ -58,20 +53,15 @@ function useSystemStorage() {
     return () => clearInterval(id);
   }, [fetchStorage]);
 
-  // SSE: instant updates when USB devices change
   useEffect(() => {
     let es: EventSource | null = null;
     let reconnect: ReturnType<typeof setTimeout>;
-
     const connect = () => {
       es = new EventSource(USB_EVENTS_API);
       es.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
-          if (msg.type === 'change') {
-            // Immediately refetch full storage data for accurate info
-            fetchStorage();
-          }
+          if (msg.type === 'change') fetchStorage();
         } catch {}
       };
       es.onerror = () => {
@@ -80,14 +70,9 @@ function useSystemStorage() {
       };
     };
     connect();
-
-    return () => {
-      es?.close();
-      clearTimeout(reconnect);
-    };
+    return () => { es?.close(); clearTimeout(reconnect); };
   }, [fetchStorage]);
 
-  // Refetch when user comes back to the tab
   useEffect(() => {
     const onFocus = () => fetchStorage();
     window.addEventListener('focus', onFocus);
@@ -97,7 +82,15 @@ function useSystemStorage() {
   return { data, loading, error, refetch: fetchStorage };
 }
 
-const StorageWidget: React.FC<StorageWidgetProps> = ({ activeTab, onManageServer, onManageStorage, onUsbClick, isFamilyMember, isSuspended }) => {
+const StorageWidget: React.FC<StorageWidgetProps> = ({
+  activeTab,
+  onManageServer,
+  onManageStorage,
+  onUsbClick,
+  isFamilyMember,
+  isSuspended,
+  collapsed,
+}) => {
   const { data, loading, error } = useSystemStorage();
 
   const removable = data?.removable ?? [];
@@ -105,247 +98,149 @@ const StorageWidget: React.FC<StorageWidgetProps> = ({ activeTab, onManageServer
   const firstRemovable = removable[0];
   const root = data?.rootStorage;
   const familyStorage: FamilyMemberStorageInfo | undefined = data?.familyMemberStorage;
-  const familyAllocated: number = data?.familyAllocated ?? 0;
 
-  const usbSummary = hasRemovable
-    ? removable.length > 1
-      ? `${removable.length} drives`
-      : (firstRemovable?.model || firstRemovable?.sizeHuman || 'Connected')
-    : null;
+  // ── Collapsed mode — just small icons ──
+  if (collapsed) {
+    const pct = root?.usedPercent ?? (familyStorage?.usedPercent ?? 0);
+    return (
+      <div className="px-2 pb-4 mt-auto flex flex-col items-center gap-2">
+        {hasRemovable && (
+          <button
+            onClick={onUsbClick}
+            title="USB Drive Connected"
+            className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 hover:bg-white/10 transition-all relative"
+          >
+            <Usb className="w-4 h-4 text-green-400" />
+            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-green-400 border border-[#111214]" />
+          </button>
+        )}
+        <button
+          onClick={isFamilyMember ? onManageStorage : onManageServer}
+          title={`Storage ${pct}% used`}
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 hover:bg-white/10 transition-all relative"
+        >
+          <HardDrive className="w-4 h-4 text-gray-400" />
+          {pct >= 80 && (
+            <span className={`absolute top-1 right-1 w-2 h-2 rounded-full border border-[#111214] ${pct >= 90 ? 'bg-red-400' : 'bg-amber-400'}`} />
+          )}
+        </button>
+      </div>
+    );
+  }
+
+  // ── Family member suspended ──
+  if (isFamilyMember && isSuspended) {
+    return (
+      <div className="px-3 mt-auto pb-4">
+        <div className="rounded-2xl p-4 bg-amber-500/10 border border-amber-500/20">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">Suspended</span>
+          </div>
+          <p className="text-[10px] text-gray-500 leading-relaxed mb-3">Contact admin to restore access.</p>
+          <button
+            onClick={onManageStorage}
+            className="flex items-center justify-center gap-2 w-full py-2 rounded-xl font-bold text-[11px] transition-all bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+            Request Access
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Family member view ──
   if (isFamilyMember) {
-    // Suspended state
-    if (isSuspended) {
-      return (
-        <div className="px-4 mt-auto pb-6">
-          <div className="rounded-2xl md:rounded-3xl p-4 md:p-5 shadow-xl bg-amber-500 text-white relative overflow-hidden">
-            <div className="absolute -right-4 -top-4 w-16 h-16 bg-white/10 rounded-full blur-xl" />
-            <div className="relative z-10">
-              <div className="flex items-center gap-2 mb-2">
-                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                </svg>
-                <span className="text-[10px] font-black uppercase tracking-wider text-white/90">Account Suspended</span>
-              </div>
-              <p className="text-[10px] text-white/80 leading-relaxed mb-3">Your account has been suspended. Contact the administrator to restore access.</p>
-              <button
-                onClick={onManageStorage}
-                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-xs transition-all active:scale-95 bg-white text-amber-600"
-              >
-                <Settings2 className="w-3.5 h-3.5" />
-                <span>Request Access</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const pct = familyStorage ? familyStorage.usedPercent : 0;
-    const barColor = pct >= 90 ? 'bg-red-400' : pct >= 70 ? 'bg-amber-400' : 'bg-white';
+    const pct = familyStorage?.usedPercent ?? 0;
+    const barColor = pct >= 90 ? 'bg-red-400' : pct >= 70 ? 'bg-amber-400' : 'bg-[#5D5FEF]';
     return (
-      <div className="px-4 mt-auto space-y-3 pb-6">
-        <div className="rounded-2xl md:rounded-3xl p-4 md:p-5 shadow-xl bg-[#5D5FEF] text-white shadow-[#5D5FEF]/20 relative overflow-hidden">
-          <div className="absolute -right-4 -top-4 w-16 h-16 bg-white/10 rounded-full blur-xl" />
-          <div className="relative z-10">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-white/70">
-                My Storage
-              </span>
-              {loading && <span className="text-[10px] font-bold opacity-70">—</span>}
-              {error && <span className="text-[10px] font-bold text-amber-200">—</span>}
-              {!loading && !error && familyStorage && (
-                <span className="text-[10px] font-bold">{familyStorage.usedPercent}%</span>
-              )}
-            </div>
-            <div className="h-1.5 w-full rounded-full mb-3 overflow-hidden bg-white/20">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-                style={{ width: loading || error || !familyStorage ? '0%' : `${Math.min(100, pct)}%` }}
-              />
-            </div>
-            <p className="text-[10px] font-medium mb-1 text-center text-white/60">
-              {loading && 'Loading…'}
-              {error && 'Unavailable'}
-              {!loading && !error && familyStorage && (
-                <>{familyStorage.usedHuman} used / {familyStorage.quotaHuman} total</>
-              )}
-              {!loading && !error && !familyStorage && '—'}
-            </p>
-            {!loading && !error && familyStorage && (
-              <p className="text-[9px] font-bold text-center text-white/40 mb-3">
-                {familyStorage.freeHuman} free
-              </p>
-            )}
-            {(!familyStorage || loading || error) && <div className="mb-3" />}
-            <button
-              onClick={onManageStorage}
-              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-xs shadow-sm hover:shadow-md transition-all active:scale-95 bg-white text-[#5D5FEF]"
-            >
-              <Settings2 className="w-3.5 h-3.5" />
-              <span>Manage Storage</span>
-            </button>
+      <div className="px-3 mt-auto pb-4">
+        <div className="rounded-2xl p-4 bg-white/[0.05] border border-white/[0.08]">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">My Storage</span>
+            <span className="text-[10px] font-bold text-gray-400">{pct}%</span>
           </div>
+          <div className="h-[5px] w-full rounded-full mb-3 overflow-hidden bg-white/10">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+              style={{ width: loading || error || !familyStorage ? '0%' : `${Math.min(100, pct)}%` }}
+            />
+          </div>
+          <p className="text-[10px] font-medium text-center text-gray-600 mb-3">
+            {loading && 'Loading…'}
+            {error && 'Unavailable'}
+            {!loading && !error && familyStorage && (
+              <>{familyStorage.usedHuman} / {familyStorage.quotaHuman}</>
+            )}
+            {!loading && !error && !familyStorage && '—'}
+          </p>
+          <button
+            onClick={onManageStorage}
+            className="flex items-center justify-center gap-2 w-full py-2 rounded-xl font-semibold text-[11px] transition-all bg-white/[0.08] text-gray-300 hover:bg-white/[0.12] hover:text-white"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+            Manage Storage
+          </button>
         </div>
       </div>
     );
   }
 
   // ── Owner view ──
-  return (
-    <div className="px-4 mt-auto space-y-3 pb-6">
-      {/* USB / Removable – clickable card */}
-      <button
-        type="button"
-        onClick={onUsbClick}
-        className={`w-full rounded-xl md:rounded-2xl p-3.5 md:p-4 shadow-lg transition-all relative overflow-hidden group/disk text-left ${
-          activeTab === 'server' || activeTab === 'usb'
-            ? 'bg-white border border-gray-100'
-            : 'bg-gray-50 border border-gray-100 hover:bg-gray-100'
-        }`}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <CableIcon
-                className={`w-6 h-6 ${activeTab === 'server' || activeTab === 'usb' ? 'text-gray-700' : 'text-gray-600'}`}
-              />
-              <div
-                className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${
-                  loading
-                    ? 'bg-amber-400 border-white animate-pulse'
-                    : hasRemovable
-                      ? 'bg-green-500 border-white'
-                      : 'bg-gray-300 border-white'
-                }`}
-              />
-            </div>
-            <div className="min-w-0">
-              <p
-                className={`text-[10px] md:text-[11px] font-black uppercase tracking-wider ${
-                  activeTab === 'server' || activeTab === 'usb' ? 'text-gray-700' : 'text-gray-600'
-                }`}
-              >
-                USB
-              </p>
-              <p
-                className={`text-[8px] md:text-[9px] font-bold ${
-                  loading ? 'text-gray-400' : error ? 'text-amber-600' : hasRemovable ? 'text-green-600' : 'text-gray-400'
-                }`}
-              >
-                {loading
-                  ? 'Checking…'
-                  : error
-                    ? 'Unavailable'
-                    : hasRemovable
-                      ? usbSummary
-                      : 'Nothing connected'}
-              </p>
-            </div>
-          </div>
-          {hasRemovable && firstRemovable && !loading && (
-            <div className="text-right">
-              <p
-                className={`text-[9px] md:text-[10px] font-black ${
-                  activeTab === 'server' || activeTab === 'usb' ? 'text-gray-700' : 'text-gray-600'
-                }`}
-              >
-                {removable.length > 1 ? `${removable.length} devices` : firstRemovable.sizeHuman}
-              </p>
-              <p
-                className={`text-[7px] md:text-[8px] font-bold ${
-                  activeTab === 'server' || activeTab === 'usb' ? 'text-gray-400' : 'text-gray-500'
-                }`}
-              >
-                {removable.length > 1 ? 'View all' : 'Available'}
-              </p>
-            </div>
-          )}
-        </div>
-      </button>
+  const pct = root?.usedPercent ?? 0;
+  const barColor = pct >= 90 ? 'bg-red-400' : pct >= 70 ? 'bg-amber-400' : 'bg-[#5D5FEF]';
 
-      {/* Storage (root filesystem) */}
-      <div
-        className={`rounded-2xl md:rounded-3xl p-4 md:p-5 shadow-xl transition-all relative overflow-hidden group/storage ${
-          activeTab === 'server' ? 'bg-white border border-[#5D5FEF] ring-1 ring-[#5D5FEF]' : 'bg-[#5D5FEF] text-white shadow-[#5D5FEF]/20'
-        }`}
-      >
-        <div className="absolute -right-4 -top-4 w-16 h-16 bg-white/10 rounded-full blur-xl" />
-        <div className="relative z-10">
-          <div className="flex justify-between items-center mb-2">
-            <span
-              className={`text-[10px] font-bold uppercase tracking-wider ${
-                activeTab === 'server' ? 'text-[#5D5FEF]' : 'text-white/70'
-              }`}
-            >
-              Storage
-            </span>
-            {loading && (
-              <span className={`text-[10px] font-bold opacity-70 ${activeTab === 'server' ? 'text-[#5D5FEF]' : ''}`}>
-                —
-              </span>
-            )}
-            {error && (
-              <span className={`text-[10px] font-bold ${activeTab === 'server' ? 'text-amber-600' : 'text-amber-200'}`}>
-                —
-              </span>
-            )}
-            {!loading && !error && root && (
-              <span className={`text-[10px] font-bold ${activeTab === 'server' ? 'text-[#5D5FEF]' : ''}`}>
-                {root.usedPercent}%
-              </span>
+  return (
+    <div className="px-3 mt-auto space-y-2 pb-4">
+      {/* USB card */}
+      {hasRemovable && (
+        <button
+          type="button"
+          onClick={onUsbClick}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.08] hover:bg-white/[0.08] transition-all text-left"
+        >
+          <div className="relative flex-shrink-0">
+            <Usb className="w-4 h-4 text-gray-400" />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-400 border border-[#111214]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">USB</p>
+            {firstRemovable && (
+              <p className="text-[11px] font-semibold text-gray-400 truncate">
+                {removable.length > 1 ? `${removable.length} drives` : firstRemovable.sizeHuman}
+              </p>
             )}
           </div>
-          <div
-            className={`h-1.5 w-full rounded-full mb-3 overflow-hidden ${
-              activeTab === 'server' ? 'bg-[#5D5FEF]/10' : 'bg-white/20'
-            }`}
-          >
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                activeTab === 'server' ? 'bg-[#5D5FEF]' : 'bg-white'
-              }`}
-              style={{
-                width: loading || error ? '0%' : root ? `${Math.min(100, root.usedPercent)}%` : '0%',
-              }}
-            />
-          </div>
-          <p
-            className={`text-[10px] font-medium mb-1 text-center ${
-              activeTab === 'server' ? 'text-[#5D5FEF]/60' : 'text-white/60'
-            }`}
-          >
-            {loading && 'Loading…'}
-            {error && 'Unavailable'}
-            {!loading && !error && root && (
-              <>
-                {root.usedHuman} used / {root.totalHuman} total
-              </>
-            )}
-            {!loading && !error && !root && '—'}
-          </p>
-          {/* Family allocated indicator */}
-          {!loading && !error && familyAllocated > 0 && (
-            <p
-              className={`text-[9px] font-bold text-center mb-3 ${
-                activeTab === 'server' ? 'text-[#5D5FEF]/50' : 'text-white/40'
-              }`}
-            >
-              {formatFamilyBytes(familyAllocated)} given to family
-            </p>
-          )}
-          {!loading && !error && familyAllocated === 0 && <div className="mb-3" />}
-          <button
-            onClick={onManageServer}
-            className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-xs shadow-sm hover:shadow-md transition-all active:scale-95 ${
-              activeTab === 'server' ? 'bg-[#5D5FEF] text-white' : 'bg-white text-[#5D5FEF]'
-            }`}
-          >
-            <Settings2 className="w-3.5 h-3.5" />
-            <span>Manage Server</span>
-          </button>
+        </button>
+      )}
+
+      {/* Storage card */}
+      <div className="rounded-2xl p-4 bg-white/[0.05] border border-white/[0.08]">
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Storage</span>
+          <span className="text-[10px] font-bold text-gray-400">
+            {loading ? '—' : error ? '—' : root ? `${pct}%` : '—'}
+          </span>
         </div>
+        <div className="h-[5px] w-full rounded-full mb-2 overflow-hidden bg-white/10">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+            style={{ width: loading || error || !root ? '0%' : `${Math.min(100, pct)}%` }}
+          />
+        </div>
+        <p className="text-[10px] font-medium text-center text-gray-600 mb-3">
+          {loading && 'Loading…'}
+          {error && 'Unavailable'}
+          {!loading && !error && root && <>{root.usedHuman} / {root.totalHuman}</>}
+          {!loading && !error && !root && '—'}
+        </p>
+        <button
+          onClick={onManageServer}
+          className="flex items-center justify-center gap-2 w-full py-2 rounded-xl font-semibold text-[11px] transition-all bg-white/[0.08] text-gray-300 hover:bg-white/[0.12] hover:text-white"
+        >
+          <Settings2 className="w-3.5 h-3.5" />
+          Manage Server
+        </button>
       </div>
     </div>
   );

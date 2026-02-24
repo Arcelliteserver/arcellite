@@ -74,7 +74,7 @@ const HelpDropdown: React.FC<HelpDropdownProps> = ({ isOpen, onClose, onNavigate
   if (!isOpen) return null;
 
   return (
-    <div className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-auto sm:mt-3 w-[calc(100vw-1rem)] sm:w-80 max-w-sm sm:max-w-none bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl shadow-gray-200 border border-gray-100 py-3 z-[500] animate-in fade-in zoom-in duration-200 origin-top-right overflow-hidden" ref={dropdownRef}>
+    <div className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-auto sm:mt-3 w-[calc(100vw-1rem)] sm:w-80 max-w-sm sm:max-w-none bg-white rounded-2xl sm:rounded-[2rem] border border-gray-200 shadow-md shadow-gray-900/5 py-3 z-[9999] animate-in fade-in zoom-in duration-200 origin-top-right overflow-hidden" ref={dropdownRef}>
       <div className="px-6 py-4 bg-[#F5F5F7]/50 border-b border-gray-50">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-[#5D5FEF]/10 rounded-2xl flex items-center justify-center">
@@ -139,7 +139,7 @@ const HelpDropdown: React.FC<HelpDropdownProps> = ({ isOpen, onClose, onNavigate
           <span className="text-sm sm:text-[14px] font-bold text-gray-700 group-hover:text-[#5D5FEF]">Contact Support</span>
         </button>
         <button
-          onClick={() => handleNavigate('server')}
+          onClick={() => handleNavigate('system')}
           className="flex items-center gap-3 sm:gap-4 w-full px-4 sm:px-5 py-3 hover:bg-[#F5F5F7] transition-all text-left group rounded-xl sm:rounded-2xl min-h-[44px]"
         >
           <Server className="w-4 h-4 sm:w-4 sm:h-4 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />

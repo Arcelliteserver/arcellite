@@ -162,13 +162,14 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
   const hasMoreFolders = filteredFolders.length > 4;
 
   return (
-    <div className="animate-in fade-in duration-300">
-      {/* App-Style Header */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between">
-          <div className="relative">
+    <div className="font-heading animate-in fade-in duration-300">
+      {/* Header */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="relative min-w-0">
             <div className="absolute -left-3 top-0 w-[3px] h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full" />
-            <h1 className="text-[32px] font-black text-gray-900 tracking-tight leading-none pl-1">Files</h1>
+            <h1 className="text-2xl sm:text-[28px] font-bold text-gray-900 tracking-tight leading-none pl-1">Files</h1>
+            <p className="text-xs font-medium text-gray-500 mt-0.5 pl-1">Documents, PDFs, and general files</p>
           </div>
           {currentFolderId ? (
             <button
@@ -192,8 +193,8 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
       {/* Folders */}
       {filteredFolders.length > 0 && (
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[16px] font-bold text-gray-900 tracking-tight">Folders</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-gray-500 tracking-tight uppercase tracking-wider">Folders</h3>
             {hasMoreFolders && (
               <button
                 onClick={() => setShowAllFolders(!showAllFolders)}
@@ -204,6 +205,7 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
               </button>
             )}
           </div>
+          <div className="mb-3 h-px bg-gradient-to-r from-gray-200 via-gray-200 to-transparent" />
           <div className="grid grid-cols-2 gap-3 pt-2">
             {visibleFolders.map((folder) => (
               <button
@@ -258,11 +260,12 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
         <div className="space-y-6">
           {groupedByDate.map(({ key, label, items }) => (
             <div key={key}>
-              <div className="flex items-center gap-2 mb-3">
-                <Calendar className="w-4 h-4 text-gray-400" />
-                <h3 className="text-[14px] font-bold text-gray-600">{label}</h3>
-                <span className="text-[12px] font-medium text-gray-400">{items.length}</span>
+              <div className="flex items-center gap-2 mb-2">
+                <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <h3 className="text-sm font-bold text-gray-600">{label}</h3>
+                <span className="text-xs font-medium text-gray-400">{items.length}</span>
               </div>
+              <div className="mb-2 h-px bg-gradient-to-r from-gray-200 to-transparent" />
               <div className="grid grid-cols-2 gap-3">
                 {items.map((file) => {
                   const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -280,7 +283,7 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
                       onTouchMove={handleTouchMove}
                       onTouchEnd={handleTouchEnd}
                       onContextMenu={(e) => { e.preventDefault(); }}
-                      className="bg-white border border-gray-200/80 rounded-2xl shadow-sm active:scale-[0.97] transition-all overflow-hidden text-left touch-manipulation min-w-0"
+                      className="bg-white border border-gray-200 rounded-2xl shadow-sm active:scale-[0.97] transition-all overflow-hidden text-left touch-manipulation min-w-0"
                     >
                       {isPdfBook ? (
                         <PdfThumbnailCard file={file} enabled={pdfThumbnails} />
@@ -312,12 +315,12 @@ const MobileFiles: React.FC<MobileFilesProps> = ({
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center py-24">
-          <div className="w-[88px] h-[88px] rounded-full bg-gray-100 flex items-center justify-center mb-4 shadow-sm">
+        <div className="flex flex-col items-center justify-center py-20 sm:py-24">
+          <div className="w-20 h-20 rounded-2xl bg-white border border-gray-200 flex items-center justify-center mb-4 shadow-sm">
             <FileText className="w-10 h-10 text-gray-300" />
           </div>
-          <p className="text-[22px] font-extrabold text-gray-300 tracking-tight">No Files Yet</p>
-          <p className="text-[15px] font-medium text-gray-400 mt-1">Upload files to get started</p>
+          <p className="font-heading text-xl font-bold text-gray-400 tracking-tight">No Files Yet</p>
+          <p className="text-sm font-medium text-gray-500 mt-1 px-2">Upload files to get started</p>
         </div>
       )}
     </div>

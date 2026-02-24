@@ -37,6 +37,7 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
   const [newFolderModal, setNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [renameName, setRenameName] = useState('');
+  const [opError, setOpError] = useState<string | null>(null);
   // Current browsing path — starts at device root
   const [currentPath, setCurrentPath] = useState<string>(device.mountpoint || '');
 
@@ -111,11 +112,11 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
           });
           if (!res.ok) {
             const err = await res.json();
-            alert(`Delete failed: ${err.error || 'Unknown error'}`);
+            setOpError(`Delete failed: ${err.error || 'Unknown error'}`);
           }
           await fetchBrowse();
         } catch {
-          alert('Delete failed');
+          setOpError('Delete failed');
         }
       },
     });
@@ -141,12 +142,12 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
       });
       if (!res.ok) {
         const err = await res.json();
-        alert(`Rename failed: ${err.error || 'Unknown error'}`);
+        setOpError(`Rename failed: ${err.error || 'Unknown error'}`);
       }
       setRenameModal(prev => ({ ...prev, isOpen: false }));
       await fetchBrowse();
     } catch {
-      alert('Rename failed');
+      setOpError('Rename failed');
     }
   }, [renameName, renameModal, fetchBrowse]);
 
@@ -162,13 +163,13 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
       });
       if (!res.ok) {
         const err = await res.json();
-        alert(`Create folder failed: ${err.error || 'Unknown error'}`);
+        setOpError(`Create folder failed: ${err.error || 'Unknown error'}`);
       }
       setNewFolderModal(false);
       setNewFolderName('');
       await fetchBrowse();
     } catch {
-      alert('Create folder failed');
+      setOpError('Create folder failed');
     }
   }, [newFolderName, currentPath, device.mountpoint, fetchBrowse]);
 
@@ -344,7 +345,7 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
         <div className="flex items-start justify-between mb-6 md:mb-10">
           <div className="relative flex-1 min-w-0">
             <div className="absolute -left-2 sm:-left-3 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-            <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-3 sm:pl-4 md:pl-6 relative truncate">
+            <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-heading font-bold tracking-tight text-gray-900 capitalize pl-3 sm:pl-4 md:pl-6 relative truncate">
               {deviceDisplayName}
               <span className="absolute -top-1 sm:-top-2 -right-4 sm:-right-6 md:-right-8 lg:-right-12 w-8 h-8 sm:w-12 sm:h-12 md:w-16 md:h-16 lg:w-20 lg:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
             </h2>
@@ -416,6 +417,14 @@ const MountedDeviceView: React.FC<MountedDeviceViewProps> = ({ device, onFileSel
               </div>
             </div>
           </div>
+
+          {/* Operation error banner */}
+          {opError && (
+            <div className="flex items-center gap-2 mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+              <span className="flex-1">{opError}</span>
+              <button onClick={() => setOpError(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">&times;</button>
+            </div>
+          )}
 
           {/* Collections section (folders only) */}
           {folders.length > 0 && (

@@ -617,10 +617,13 @@ const MobileDatabaseView: React.FC = () => {
   return (
     <div className="animate-in fade-in duration-200">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-1 h-8 bg-[#5D5FEF] rounded-full" />
-          <h1 className="text-[28px] font-extrabold text-gray-900 tracking-tight leading-none">Databases</h1>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-[3px] h-8 bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full flex-shrink-0" />
+          <div>
+            <h1 className="font-heading text-2xl sm:text-[28px] font-bold text-gray-900 tracking-tight leading-none">Database</h1>
+            <p className="text-xs font-medium text-gray-500 mt-0.5">Manage instances and run queries</p>
+          </div>
         </div>
         <button
           onClick={() => setShowCreate(true)}

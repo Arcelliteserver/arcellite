@@ -34,6 +34,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [storagePath, setStoragePath] = useState('~/arcellite-data');
   const [error, setError] = useState('');
+  const [resendSent, setResendSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -1080,12 +1081,17 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                 )}
               </button>
 
+              {resendSent && (
+                <p className="text-xs text-green-600 font-semibold pt-1 pb-2">Verification code sent!</p>
+              )}
+
               <div className="flex items-center justify-between pt-2">
                 <button
                   onClick={async () => {
                     try {
                       await authApi.resendCode();
-                      alert('Verification code sent!');
+                      setResendSent(true);
+                      setTimeout(() => setResendSent(false), 4000);
                     } catch (err: any) {
                       setError(err.message);
                     }

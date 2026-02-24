@@ -120,7 +120,7 @@ const NotificationsView: React.FC = () => {
     <div className="w-full">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-[24px] sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tight text-gray-900 mb-1">
+        <h1 className="text-[24px] sm:text-2xl md:text-3xl lg:text-4xl font-heading font-bold tracking-tight text-gray-900 mb-1">
           Notifications
         </h1>
         <p className="text-gray-400 font-medium text-[14px]">

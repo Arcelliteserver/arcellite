@@ -8,7 +8,13 @@ export default {
     './constants.tsx',
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        heading: ['"Space Grotesk"', 'sans-serif'],
+        display: ['"Noto Sans Display"', 'sans-serif'],
+        sidebar: ['"Space Grotesk"', 'sans-serif'],
+      },
+    },
   },
   plugins: [],
 };

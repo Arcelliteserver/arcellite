@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import os from 'os';
+import fs from 'fs';
 import nodePath from 'path';
 import * as authService from '../services/auth.service.js';
 
@@ -52,6 +53,48 @@ export function handleTrashRoutes(req: IncomingMessage, res: ServerResponse, url
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ error: String((e as Error).message) }));
       }
+    }).catch((e) => {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: String((e as Error).message) }));
+    });
+    return true;
+  }
+
+  // Serve trash file for preview (thumbnail)
+  if (url.startsWith('/api/trash/serve/') && req.method === 'GET') {
+    const trashId = decodeURIComponent(url.replace('/api/trash/serve/', ''));
+    if (!trashId) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Missing trashId' }));
+      return true;
+    }
+    import('../trash.js').then(({ getTrashDir }) => {
+      const trashDir = withUserBaseDir(req, () => getTrashDir());
+      const filePath = nodePath.join(trashDir, trashId);
+      if (!fs.existsSync(filePath)) {
+        res.statusCode = 404;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'File not found' }));
+        return;
+      }
+      const ext = trashId.split('.').pop()?.toLowerCase() || '';
+      const mimeMap: Record<string, string> = {
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+        webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', heic: 'image/heic',
+        avif: 'image/avif', tiff: 'image/tiff',
+        mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', mkv: 'video/x-matroska',
+        avi: 'video/x-msvideo', m4v: 'video/mp4',
+        mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', ogg: 'audio/ogg',
+        pdf: 'application/pdf',
+      };
+      const contentType = mimeMap[ext] || 'application/octet-stream';
+      const stat = fs.statSync(filePath);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', stat.size);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      fs.createReadStream(filePath).pipe(res);
     }).catch((e) => {
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json');

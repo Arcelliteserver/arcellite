@@ -154,7 +154,13 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
   const [showDetails, setShowDetails] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [audioPlaying, setAudioPlaying] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Reset image loaded state whenever the file changes
+  useEffect(() => {
+    setImgLoaded(false);
+  }, [file.id, file.url]);
 
   // Touch/swipe state
   const touchStartX = useRef(0);
@@ -526,12 +532,23 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
       <div className="flex-1 flex items-center justify-center overflow-hidden" onClick={handleContentTap}>
         {isImage ? (
           file.url ? (
-            <img
-              src={file.url}
-              alt={cleanTitle}
-              className="max-w-full max-h-full object-contain select-none"
-              draggable={false}
-            />
+            <div className="relative max-w-full max-h-full flex items-center justify-center">
+              {/* Spinner shown until image fully decoded */}
+              {!imgLoaded && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 text-white/40 animate-spin" />
+                </div>
+              )}
+              <img
+                src={file.url}
+                alt={cleanTitle}
+                className={`max-w-full max-h-full object-contain select-none transition-opacity duration-200 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+                draggable={false}
+                decoding="async"
+                onLoad={() => setImgLoaded(true)}
+                onError={() => setImgLoaded(true)}
+              />
+            </div>
           ) : (
             <div className="flex flex-col items-center gap-3">
               <FileIcon type={file.type} className="w-24 h-24 text-white/30" />

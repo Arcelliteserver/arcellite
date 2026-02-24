@@ -180,7 +180,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onAccessDenied }) => {
   // ── Invite Acceptance UI ──────────────────────────────────────────────────
   if (inviteMode) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#5D5FEF]/5 via-white to-[#5D5FEF]/5 flex items-center justify-center p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 sm:p-6">
         <div className="w-full max-w-md">
           {/* Logo */}
           <div className="flex items-center justify-center gap-2 mb-8 sm:mb-12">
@@ -192,7 +192,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onAccessDenied }) => {
             </h1>
           </div>
 
-          <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] border border-gray-100 shadow-2xl shadow-gray-200/50 p-6 sm:p-8 md:p-10">
+          <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] border-2 border-gray-200 shadow-xl shadow-gray-300/40 p-6 sm:p-8 md:p-10">
             {/* Header */}
             <div className="text-center mb-6 sm:mb-8">
               <div className="w-12 h-12 bg-[#5D5FEF]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -333,7 +333,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onAccessDenied }) => {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#5D5FEF]/5 via-white to-[#5D5FEF]/5 flex items-center justify-center p-4 sm:p-6">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-md">
         {/* App Logo/Name */}
         <div className="flex items-center justify-center gap-2 mb-8 sm:mb-12">
@@ -346,7 +346,7 @@ const AuthView: React.FC<AuthViewProps> = ({ onLogin, onAccessDenied }) => {
         </div>
 
         {/* Auth Form */}
-        <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] border border-gray-100 shadow-2xl shadow-gray-200/50 p-6 sm:p-8 md:p-10">
+        <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] border-2 border-gray-200 shadow-xl shadow-gray-300/40 p-6 sm:p-8 md:p-10">
           {/* Header */}
           <div className="text-center mb-6 sm:mb-8">
             {needs2FA ? (

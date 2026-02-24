@@ -80,18 +80,18 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
   }, [playNotificationSound]);
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-[200] safe-area-top">
-      <div className="flex items-center gap-3 px-5 h-[72px] pt-1">
-        {/* Search input — individual container with border */}
-        <div className="flex-1 relative">
-          <div className="flex items-center h-[48px] bg-white border border-[#5D5FEF]/30 rounded-[14px] px-3.5 shadow-sm">
+    <header className="font-heading fixed top-0 left-0 right-0 z-[200] safe-area-top bg-[#F7F7F7]/95 backdrop-blur-sm border-b border-gray-200/60">
+      <div className="flex items-center gap-3 px-4 sm:px-5 h-[72px] pt-1">
+        {/* Search input */}
+        <div className="flex-1 min-w-0 relative">
+          <div className="flex items-center h-[48px] bg-white border border-gray-200 rounded-2xl px-3.5 shadow-sm focus-within:border-[#5D5FEF]/40 focus-within:ring-2 focus-within:ring-[#5D5FEF]/10 transition-all">
             <Search className="w-[18px] h-[18px] text-gray-400 flex-shrink-0" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange?.(e.target.value)}
               placeholder="Search files..."
-              className="flex-1 ml-3 text-[15px] font-medium text-gray-900 placeholder:text-gray-400 bg-transparent focus:outline-none"
+              className="flex-1 min-w-0 ml-3 text-[15px] font-medium text-gray-900 placeholder:text-gray-400 bg-transparent focus:outline-none"
             />
             {searchQuery && (
               <button
@@ -107,7 +107,7 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
         {/* Notification Bell — individual container with border */}
         <button
           onClick={onNotificationsClick}
-          className="w-[48px] h-[48px] flex items-center justify-center active:scale-95 transition-all relative flex-shrink-0 bg-white border border-[#5D5FEF]/30 rounded-[14px] shadow-sm"
+          className="w-[48px] h-[48px] flex items-center justify-center active:scale-95 transition-all relative flex-shrink-0 bg-white border border-gray-200 rounded-2xl shadow-sm hover:border-[#5D5FEF]/30"
           aria-label="Notifications"
         >
           <Bell className="w-[21px] h-[21px] text-gray-700" />

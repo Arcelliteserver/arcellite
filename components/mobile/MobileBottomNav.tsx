@@ -25,8 +25,8 @@ const GalleryIcon: React.FC<{ color?: string }> = ({ color = 'currentColor' }) =
 const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, onTabChange }) => {
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-5 pointer-events-none safe-area-bottom">
-      <div className="pointer-events-auto bg-[#111111] border border-[#333333] rounded-3xl flex items-center justify-around px-2 h-[84px] shadow-[0_4px_24px_rgba(0,0,0,0.35)]">
+    <nav className="font-heading fixed bottom-0 left-0 right-0 z-[100] px-3 sm:px-4 pb-4 sm:pb-5 pointer-events-none safe-area-bottom">
+      <div className="pointer-events-auto bg-[#111214] border border-[#2d2d2f] rounded-3xl flex items-center justify-around px-2 h-[72px] sm:h-[84px] shadow-xl shadow-black/20">
         {/* Home — view_cozy grid icon */}
         <button
           onClick={() => onTabChange('overview')}

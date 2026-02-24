@@ -495,7 +495,7 @@ const DatabaseDetailView: React.FC<{
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs font-black text-gray-400 uppercase tracking-widest">Tables ({tables.length})</p>
             <div className="flex gap-2">
-              <button onClick={loadTables} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="Refresh">
+              <button onClick={loadTables} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="Refresh" aria-label="Refresh tables">
                 <RefreshCw className="w-4 h-4 text-gray-400" />
               </button>
               <button
@@ -572,7 +572,7 @@ const DatabaseDetailView: React.FC<{
                             />
                             Null
                           </label>
-                          <button onClick={() => removeColumn(idx)} className="ml-auto p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                          <button onClick={() => removeColumn(idx)} className="ml-auto p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" aria-label="Remove column">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -657,7 +657,7 @@ const DatabaseDetailView: React.FC<{
                   <h4 className="text-xs sm:text-sm font-black text-gray-900 truncate">{selectedTable}</h4>
                   <p className="text-[10px] sm:text-[11px] text-gray-500 font-medium">{tableTotalCount} total rows &bull; {tableColumns.length} columns</p>
                 </div>
-                <button onClick={() => setSelectedTable(null)} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+                <button onClick={() => setSelectedTable(null)} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors" aria-label="Close table view">
                   <X className="w-4 h-4 text-gray-400" />
                 </button>
               </div>
@@ -857,6 +857,7 @@ const DatabaseDetailView: React.FC<{
                     onClick={() => setShowPassword(!showPassword)}
                     className="p-1 hover:bg-gray-100 rounded-md transition-colors text-gray-400 hover:text-gray-600"
                     title={showPassword ? 'Hide password' : 'Show password'}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
@@ -864,6 +865,7 @@ const DatabaseDetailView: React.FC<{
                     onClick={() => copyToClipboard(db.config?.password || '', 'Password')}
                     className="p-1 hover:bg-gray-100 rounded-md transition-colors text-gray-300 hover:text-gray-500"
                     title="Copy password"
+                    aria-label="Copy password"
                   >
                     {copiedField === 'Password' ? <span className="text-green-500 text-[10px] font-bold">✓</span> : <Copy className="w-3 h-3" />}
                   </button>
@@ -1004,6 +1006,7 @@ const DatabaseView: React.FC = () => {
   const [selectedDbType, setSelectedDbType] = useState<string | null>(null);
   const [dbName, setDbName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -1039,6 +1042,7 @@ const DatabaseView: React.FC = () => {
   const handleCreateDatabase = async () => {
     if (!dbName.trim() || !selectedDbType) return;
     setCreating(true);
+    setCreateError(null);
     try {
       const response = await fetch('/api/databases/create', {
         method: 'POST',
@@ -1053,10 +1057,10 @@ const DatabaseView: React.FC = () => {
         await loadDatabases();
       } else {
         const error = await response.json();
-        alert(`Failed to create database: ${error.error || 'Unknown error'}`);
+        setCreateError(error.error || 'Failed to create database');
       }
     } catch (error) {
-      alert('Failed to create database');
+      setCreateError('Failed to create database');
     } finally {
       setCreating(false);
     }
@@ -1127,10 +1131,15 @@ const DatabaseView: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-10 gap-4">
         <div className="relative">
           <div className="absolute -left-2 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-4 md:pl-6 relative">
-            Database Management
-            <span className="absolute -top-2 -right-8 md:-right-12 w-16 h-16 md:w-20 md:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
-          </h2>
+          <div className="pl-4 md:pl-6 relative">
+            <h2 className="text-2xl md:text-3xl lg:text-4xl font-heading font-bold tracking-tight text-gray-900 capitalize">
+              Database
+              <span className="absolute -top-2 -right-8 md:-right-12 w-16 h-16 md:w-20 md:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
+            </h2>
+            <p className="mt-1 text-xs md:text-sm text-gray-500 font-medium">
+              Provision, start, stop, and explore databases on your server.
+            </p>
+          </div>
         </div>
 
         <button
@@ -1228,9 +1237,16 @@ const DatabaseView: React.FC = () => {
                   <p className="text-[11px] text-gray-400 mt-1.5 font-medium">PostgreSQL database name will be: <span className="font-mono font-bold">arcellite_{dbName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')}</span></p>
                 </div>
 
+                {createError && (
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+                    <span className="flex-1">{createError}</span>
+                    <button onClick={() => setCreateError(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">&times;</button>
+                  </div>
+                )}
+
                 <div className="flex gap-3 pt-2">
                   <button
-                    onClick={() => { setSelectedDbType(null); setDbName(''); }}
+                    onClick={() => { setSelectedDbType(null); setDbName(''); setCreateError(null); }}
                     className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-gray-700 bg-white border-2 border-gray-200 hover:bg-gray-50 transition-all"
                   >
                     Cancel
@@ -1277,7 +1293,7 @@ const DatabaseView: React.FC = () => {
         return (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
             {/* Health & Status */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
                   <Activity className="w-5 h-5 text-white" />
@@ -1305,7 +1321,7 @@ const DatabaseView: React.FC = () => {
             </div>
 
             {/* Engines Breakdown */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
                   <Database className="w-5 h-5 text-white" />
@@ -1340,7 +1356,7 @@ const DatabaseView: React.FC = () => {
             </div>
 
             {/* Storage */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-cyan-600 flex items-center justify-center shadow-lg shadow-sky-500/25">
                   <HardDrive className="w-5 h-5 text-white" />
@@ -1374,7 +1390,7 @@ const DatabaseView: React.FC = () => {
             </div>
 
             {/* Recent Activity */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
                   <Server className="w-5 h-5 text-white" />

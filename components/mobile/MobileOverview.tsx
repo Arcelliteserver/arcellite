@@ -205,20 +205,21 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
   ];
 
   return (
-    <div className="animate-in fade-in duration-300 pb-4">
-      {/* ===== Greeting ===== */}
-      <div className="mb-7 relative">
+    <div className="font-heading animate-in fade-in duration-300 pb-4">
+      {/* Greeting + name */}
+      <div className="mb-4 relative">
         <div className="absolute -left-3 top-0 w-[3px] h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full" />
-        <p className="text-[12px] font-semibold text-gray-400 leading-none mb-1 pl-1">Welcome back</p>
-        <h1 className="text-[28px] font-extrabold text-gray-900 tracking-tight leading-tight flex items-center gap-2 pl-1">
+        <p className="text-xs font-semibold text-gray-500 leading-none mb-0.5 pl-1">Welcome back</p>
+        <h1 className="text-2xl sm:text-[28px] font-bold text-gray-900 tracking-tight leading-tight flex items-center gap-2 pl-1">
           {firstName}
           <DrawIcon color="#5D5FEF" size={24} />
         </h1>
+        <p className="text-xs font-medium text-gray-500 mt-1 pl-1">Browse and manage your files</p>
       </div>
 
-      {/* ===== Quick Actions ===== */}
-      <div className="mb-7">
-        <div className="bg-white border border-gray-200/60 rounded-[20px] px-3 py-3 shadow-sm">
+      {/* Quick Actions */}
+      <div className="mb-6">
+        <div className="bg-white border border-gray-200 rounded-2xl px-3 py-3 shadow-sm">
           <div className="flex items-center justify-around">
             {quickActions.map((action) => {
               const Icon = action.icon;
@@ -237,7 +238,7 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
                       <Icon className="w-6 h-6 text-white" strokeWidth={1.8} />
                     )}
                   </div>
-                  <span className="text-[12px] font-bold text-gray-700">{action.label}</span>
+                  <span className="text-xs font-semibold text-gray-700">{action.label}</span>
                 </button>
               );
             })}
@@ -245,30 +246,33 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
         </div>
       </div>
 
-      {/* ===== Storage Hero Card ===== */}
+      {/* ===== Storage Hero Card (no left purple line) ===== */}
       {storage && (
-        <div className="mb-7 relative">
-          <div className="bg-gradient-to-br from-[#5D5FEF] to-[#4D4FCF] rounded-[20px] p-5 shadow-xl shadow-[#5D5FEF]/15 overflow-hidden min-h-[140px]">
-            {/* Decorative dots */}
+        <div className="mb-6 relative">
+          <div className="bg-[#1d1d1f] border border-[#2d2d2f] rounded-2xl p-5 shadow-xl shadow-black/10 overflow-hidden min-h-[140px] relative">
+            {/* Top-right reflection only */}
+            <div className="pointer-events-none absolute -top-12 -right-12 w-40 h-40 rounded-full bg-[#5D5FEF]/15 blur-3xl" />
             <div className="absolute top-5 right-5 w-20 h-20 rounded-full bg-white/5" />
             <div className="absolute bottom-5 right-14 w-10 h-10 rounded-full bg-white/5" />
 
             <div className="relative z-10">
               <div className="flex items-center gap-2 mb-2">
-                <Cloud className="w-5 h-5 text-white/80" />
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center">
+                  <Cloud className="w-5 h-5 text-white/90" />
+                </div>
                 <span className="text-white/80 text-xs font-bold uppercase tracking-wider">
                   Cloud Storage
                 </span>
               </div>
-              <p className="text-white text-[26px] font-extrabold tracking-tight leading-none mb-1">
+              <p className="font-heading text-white text-2xl sm:text-[26px] font-bold tracking-tight leading-none mb-1">
                 {storage.usedHuman}
               </p>
-              <p className="text-white/70 text-[14px] font-medium mb-4">
+              <p className="text-white/70 text-sm font-medium mb-4">
                 of {storage.totalHuman} used
               </p>
-              <div className="w-full h-[6px] bg-white/20 rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-white rounded-full transition-all duration-700"
+                  className="h-full bg-[#5D5FEF] rounded-full transition-all duration-700"
                   style={{ width: `${Math.min(storage.usedPercent, 100)}%` }}
                 />
               </div>
@@ -285,9 +289,9 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
 
       {/* ===== My Folders ===== */}
       {displayFolders.length > 0 && (
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[17px] font-bold text-gray-500 tracking-tight">My Folders</h2>
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-bold text-gray-500 tracking-tight">My Folders</h2>
             <button
               onClick={() => onNavigateTab('all')}
               className="text-[13px] font-semibold text-[#5D5FEF] active:opacity-60 flex items-center gap-1"
@@ -295,6 +299,7 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
               See All <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
+          <div className="mb-3 h-px bg-gradient-to-r from-gray-200 via-gray-200 to-transparent" />
           <div className="grid grid-cols-2 gap-3 pt-2">
             {displayFolders.map((folder) => (
               <button
@@ -352,8 +357,8 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
       {/* ===== Recent Files — horizontal cards ===== */}
       {recentFiles.length > 0 && (
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[17px] font-bold text-gray-500 tracking-tight">Recent Files</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-bold text-gray-500 tracking-tight">Recent Files</h2>
             <button
               onClick={() => onNavigateTab('all')}
               className="text-[13px] font-semibold text-[#5D5FEF] active:opacity-60 flex items-center gap-1"
@@ -361,6 +366,7 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
               See All <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
+          <div className="mb-3 h-px bg-gradient-to-r from-gray-200 via-gray-200 to-transparent" />
           <div className="grid grid-cols-2 gap-3">
             {recentFiles.slice(0, 12).map((file) => {
               const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -395,7 +401,7 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
                 <button
                   key={file.id}
                   onClick={() => onFileClick(file)}
-                  className="bg-white border border-gray-200/80 rounded-2xl shadow-sm active:scale-[0.97] transition-all overflow-hidden text-left touch-manipulation"
+                  className="bg-white border border-gray-200 rounded-2xl shadow-sm active:scale-[0.97] transition-all overflow-hidden text-left touch-manipulation"
                 >
                   {/* Thumbnail */}
                   <div className="relative w-full h-[110px] bg-gray-100 overflow-hidden">
@@ -442,12 +448,12 @@ const MobileOverview: React.FC<MobileOverviewProps> = ({
 
       {/* ===== Empty State ===== */}
       {displayItems.length === 0 && myFolders.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-24">
-          <div className="w-[88px] h-[88px] rounded-full bg-gray-100 flex items-center justify-center mb-4 shadow-sm">
+        <div className="flex flex-col items-center justify-center py-20 sm:py-24">
+          <div className="w-20 h-20 rounded-2xl bg-white border border-gray-200 flex items-center justify-center mb-4 shadow-sm">
             <Clock className="w-10 h-10 text-gray-300" />
           </div>
-          <p className="text-[22px] font-extrabold text-gray-300 tracking-tight">No Recent Items</p>
-          <p className="text-[15px] font-medium text-gray-400 mt-1 max-w-[280px] text-center">
+          <p className="font-heading text-xl sm:text-[22px] font-bold text-gray-400 tracking-tight">No Recent Items</p>
+          <p className="text-sm font-medium text-gray-500 mt-1 max-w-[280px] text-center px-2">
             Files you open will appear here
           </p>
         </div>

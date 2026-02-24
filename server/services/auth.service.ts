@@ -646,6 +646,7 @@ export async function getUserSettings(userId: number): Promise<{
   aiFileRead: boolean;
   aiAutoRename: boolean;
   pdfThumbnails: boolean;
+  videoThumbnails: boolean;
   secTwoFactor: boolean;
   secFileObfuscation: boolean;
   secGhostFolders: boolean;
@@ -697,6 +698,9 @@ export async function getUserSettings(userId: number): Promise<{
     // Smart features
     aiAutoRename: prefs.aiAutoRename ?? false,
     pdfThumbnails: prefs.pdfThumbnails ?? true,
+    videoThumbnails: prefs.videoThumbnails ?? true,
+    castMode: (prefs.castMode as string) ?? 'scan',
+    castWebhookUrl: (prefs.castWebhookUrl as string) ?? '',
     // Security vault features
     secTwoFactor: prefs.secTwoFactor ?? false,
     secFileObfuscation: prefs.secFileObfuscation ?? false,
@@ -808,6 +812,9 @@ export async function updateUserSettings(
     aiFileRead?: boolean;
     aiAutoRename?: boolean;
     pdfThumbnails?: boolean;
+    videoThumbnails?: boolean;
+    castMode?: string;
+    castWebhookUrl?: string;
     secTwoFactor?: boolean;
     secFileObfuscation?: boolean;
     secGhostFolders?: boolean;
@@ -846,7 +853,7 @@ export async function updateUserSettings(
     'aiFileOrganize', 'aiTrashAccess', 'aiTrashRestore', 'aiTrashEmpty',
     'aiDatabaseCreate', 'aiDatabaseDelete', 'aiDatabaseQuery',
     'aiSendEmail', 'aiCastMedia', 'aiFileRead',
-    'aiAutoRename', 'pdfThumbnails',
+    'aiAutoRename', 'pdfThumbnails', 'videoThumbnails', 'castMode', 'castWebhookUrl',
     'secTwoFactor', 'secFileObfuscation', 'secGhostFolders', 'secTrafficMasking', 'secStrictIsolation',
     'secAutoLock', 'secAutoLockTimeout', 'secAutoLockPin',
     'secFolderLock', 'secFolderLockPin', 'secLockedFolders',

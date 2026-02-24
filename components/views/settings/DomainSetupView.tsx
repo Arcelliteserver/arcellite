@@ -117,6 +117,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
     serviceInstalled: false,
   });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [runningTunnel, setRunningTunnel] = useState(false);
   const [tunnelToken, setTunnelToken] = useState('');
@@ -338,16 +339,17 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
               <WebhookIcon className="fill-white w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-2xl font-black text-gray-900">Custom Domain</h2>
+              <h2 className="text-2xl font-heading font-bold text-gray-900">Custom Domain</h2>
               <p className="text-sm text-gray-400 mt-0.5">Connect your own domain via Cloudflare Tunnel — secure, fast, no port forwarding required</p>
             </div>
           </div>
           <button
-            onClick={() => { setLoading(true); fetchStatus(); }}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-50 hover:bg-gray-100 rounded-xl text-xs font-bold text-gray-500 transition-colors"
+            onClick={async () => { setRefreshing(true); await fetchStatus(); setRefreshing(false); }}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#5D5FEF] hover:bg-[#4B4DD4] text-white rounded-xl text-xs font-bold transition-all active:scale-95 disabled:opacity-50 shadow-sm shadow-[#5D5FEF]/20"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -403,7 +405,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
             { icon: <AutomationIcon className="fill-orange-500 w-5 h-5" />, title: 'Create Tunnel', desc: 'Set up a Cloudflare Tunnel' },
             { icon: <RocketIcon className="fill-purple-500 w-5 h-5" />, title: 'Go Live', desc: 'Access Arcellite from anywhere' },
           ].map((item, i) => (
-            <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 text-center relative">
+            <div key={i} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 text-center relative">
               {i < 3 && (
                 <div className="hidden sm:block absolute -right-2 top-1/2 -translate-y-1/2 z-10">
                   <svg className="w-4 h-4 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -448,7 +450,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
 
       {/* STEP 1 — Install Cloudflared */}
       <div className={`rounded-2xl border mb-5 overflow-hidden transition-all ${
-        currentStep === 1 ? 'border-[#5D5FEF]/20 shadow-md shadow-[#5D5FEF]/5' : 'border-gray-100'
+        currentStep === 1 ? 'border-[#5D5FEF]/20 shadow-md shadow-[#5D5FEF]/5' : 'border-gray-200 shadow-sm'
       }`}>
         <div className={`px-6 py-5 flex items-start gap-4 ${currentStep === 1 ? 'bg-gradient-to-r from-[#5D5FEF]/[0.03] to-transparent' : ''}`}>
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
@@ -526,7 +528,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
             <div>
               <button
                 onClick={() => setShowManualInstall(!showManualInstall)}
-                className="flex items-center gap-2 text-xs font-bold text-gray-500 hover:text-[#5D5FEF] transition-colors w-full justify-between bg-white rounded-xl border border-gray-100 px-4 py-3"
+                className="flex items-center gap-2 text-xs font-bold text-gray-500 hover:text-[#5D5FEF] transition-colors w-full justify-between bg-white rounded-xl border border-gray-200 px-4 py-3"
               >
                 <div className="flex items-center gap-2">
                   <CodeBlocksIcon className="fill-gray-400 w-4 h-4" />
@@ -536,7 +538,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
               </button>
 
               {showManualInstall && (
-                <div className="mt-3 space-y-4 bg-white rounded-2xl border border-gray-100 p-5">
+                <div className="mt-3 space-y-4 bg-white rounded-2xl border border-gray-200 p-5">
                   {/* OS Tabs */}
                   <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
                     {(['debian', 'redhat', 'docker'] as const).map(os => (
@@ -651,7 +653,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
 
       {/* STEP 2 — Connect Tunnel */}
       <div className={`rounded-2xl border mb-5 overflow-hidden transition-all ${
-        currentStep === 2 ? 'border-[#5D5FEF]/20 shadow-md shadow-[#5D5FEF]/5' : 'border-gray-100'
+        currentStep === 2 ? 'border-[#5D5FEF]/20 shadow-md shadow-[#5D5FEF]/5' : 'border-gray-200 shadow-sm'
       } ${currentStep < 2 ? 'opacity-40 pointer-events-none' : ''}`}>
         <div className={`px-6 py-5 flex items-start gap-4 ${currentStep === 2 ? 'bg-gradient-to-r from-[#5D5FEF]/[0.03] to-transparent' : ''}`}>
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
@@ -681,18 +683,19 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
             <div className="border-t border-gray-100 pt-5" />
 
             {/* How to get token */}
-            <div className="bg-[#F5F5F7] border border-gray-200 rounded-2xl p-5">
-              <div className="flex gap-3">
-                <div className="w-9 h-9 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center flex-shrink-0">
-                  <PasswordIcon className="fill-[#5D5FEF] w-5 h-5" />
+            <div className="bg-[#1d1d1f] border border-[#2d2d2f] rounded-2xl p-5 relative overflow-hidden">
+              <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full bg-[#5D5FEF]/10 blur-3xl" />
+              <div className="flex gap-3 relative z-10">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+                  <PasswordIcon className="fill-[#8B8DF8] w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-black text-gray-800 mb-2">How to get your tunnel token</p>
-                  <ol className="text-xs text-gray-600 space-y-1.5 list-decimal list-inside">
-                    <li>Go to <a href="https://one.dash.cloudflare.com" target="_blank" rel="noopener noreferrer" className="underline font-bold text-[#5D5FEF] hover:text-[#4D4FCF]">Cloudflare Zero Trust Dashboard</a></li>
-                    <li>Navigate to <strong className="text-gray-800">Networks → Tunnels</strong></li>
-                    <li>Click <strong className="text-gray-800">Create a tunnel</strong> → Name it (e.g. "arcellite") → Save</li>
-                    <li>Copy the token from the install connector page (starts with <code className="bg-gray-200 px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-700">eyJ...</code>)</li>
+                  <p className="text-sm font-bold text-white mb-2">How to get your tunnel token</p>
+                  <ol className="text-xs text-white/50 space-y-1.5 list-decimal list-inside">
+                    <li>Go to <a href="https://one.dash.cloudflare.com" target="_blank" rel="noopener noreferrer" className="underline font-bold text-[#8B8DF8] hover:text-[#5D5FEF]">Cloudflare Zero Trust Dashboard</a></li>
+                    <li>Navigate to <strong className="text-white/70">Networks → Tunnels</strong></li>
+                    <li>Click <strong className="text-white/70">Create a tunnel</strong> → Name it (e.g. "arcellite") → Save</li>
+                    <li>Copy the token from the install connector page (starts with <code className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] font-mono text-white/60">eyJ...</code>)</li>
                   </ol>
                 </div>
               </div>
@@ -759,7 +762,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
 
             {/* Manual run commands */}
             {status.cloudflaredInstalled && tunnelToken && tunnelToken !== '••••••••' && (
-              <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
+              <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
                 <div className="flex items-center gap-2">
                   <CodeBlocksIcon className="fill-gray-400 w-4 h-4" />
                   <p className="text-xs font-black text-gray-600">Manual Commands</p>
@@ -802,7 +805,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
 
       {/* STEP 3 — Configure Domain */}
       <div className={`rounded-2xl border mb-5 overflow-hidden transition-all ${
-        currentStep === 3 || currentStep === 4 ? 'border-[#5D5FEF]/20 shadow-md shadow-[#5D5FEF]/5' : 'border-gray-100'
+        currentStep === 3 || currentStep === 4 ? 'border-[#5D5FEF]/20 shadow-md shadow-[#5D5FEF]/5' : 'border-gray-200 shadow-sm'
       } ${currentStep < 3 ? 'opacity-40 pointer-events-none' : ''}`}>
         <div className={`px-6 py-5 flex items-start gap-4 ${currentStep >= 3 ? 'bg-gradient-to-r from-[#5D5FEF]/[0.03] to-transparent' : ''}`}>
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
@@ -832,18 +835,19 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
             <div className="border-t border-gray-100 pt-5" />
 
             {/* Cloudflare routing instructions */}
-            <div className="bg-[#F5F5F7] border border-gray-200 rounded-2xl p-5">
-              <div className="flex gap-3">
-                <div className="w-9 h-9 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center flex-shrink-0">
-                  <HandshakeIcon className="fill-[#5D5FEF] w-5 h-5" />
+            <div className="bg-[#1d1d1f] border border-[#2d2d2f] rounded-2xl p-5 relative overflow-hidden">
+              <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full bg-[#5D5FEF]/10 blur-3xl" />
+              <div className="flex gap-3 relative z-10">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+                  <HandshakeIcon className="fill-[#8B8DF8] w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-black text-gray-800 mb-2">Route traffic to Arcellite</p>
-                  <ol className="text-xs text-gray-600 space-y-1.5 list-decimal list-inside">
-                    <li>In your <a href="https://one.dash.cloudflare.com" target="_blank" rel="noopener noreferrer" className="underline font-bold text-[#5D5FEF] hover:text-[#4D4FCF]">Cloudflare Tunnel settings</a>, go to the <strong>Public Hostname</strong> tab</li>
-                    <li>Click <strong>Add a public hostname</strong></li>
-                    <li>Set your <strong>Subdomain</strong> (e.g. <code className="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-mono">cloud</code>) and <strong>Domain</strong></li>
-                    <li>Set Service Type to <strong>HTTP</strong> and URL to <code className="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-mono">localhost:3000</code></li>
+                  <p className="text-sm font-bold text-white mb-2">Route traffic to Arcellite</p>
+                  <ol className="text-xs text-white/50 space-y-1.5 list-decimal list-inside">
+                    <li>In your <a href="https://one.dash.cloudflare.com" target="_blank" rel="noopener noreferrer" className="underline font-bold text-[#8B8DF8] hover:text-[#5D5FEF]">Cloudflare Tunnel settings</a>, go to the <strong className="text-white/70">Public Hostname</strong> tab</li>
+                    <li>Click <strong className="text-white/70">Add a public hostname</strong></li>
+                    <li>Set your <strong className="text-white/70">Subdomain</strong> (e.g. <code className="bg-white/10 text-white/60 px-1.5 py-0.5 rounded text-[10px] font-mono">cloud</code>) and <strong className="text-white/70">Domain</strong></li>
+                    <li>Set Service Type to <strong className="text-white/70">HTTP</strong> and URL to <code className="bg-white/10 text-white/60 px-1.5 py-0.5 rounded text-[10px] font-mono">localhost:3000</code></li>
                     <li>Save hostname</li>
                   </ol>
                 </div>
@@ -889,7 +893,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
             href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/"
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-white rounded-2xl border border-gray-100 p-4 hover:border-[#5D5FEF]/30 hover:shadow-sm transition-all group"
+            className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 hover:border-[#5D5FEF]/30 hover:shadow-md transition-all group"
           >
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gray-50 group-hover:bg-[#5D5FEF]/5 flex items-center justify-center transition-colors">
@@ -905,7 +909,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
             href="https://one.dash.cloudflare.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-white rounded-2xl border border-gray-100 p-4 hover:border-[#5D5FEF]/30 hover:shadow-sm transition-all group"
+            className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 hover:border-[#5D5FEF]/30 hover:shadow-md transition-all group"
           >
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gray-50 group-hover:bg-[#5D5FEF]/5 flex items-center justify-center transition-colors">
@@ -921,7 +925,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
             href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/"
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-white rounded-2xl border border-gray-100 p-4 hover:border-[#5D5FEF]/30 hover:shadow-sm transition-all group"
+            className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 hover:border-[#5D5FEF]/30 hover:shadow-md transition-all group"
           >
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gray-50 group-hover:bg-[#5D5FEF]/5 flex items-center justify-center transition-colors">
@@ -937,7 +941,7 @@ const DomainSetupView: React.FC<DomainSetupProps> = ({ showToast }) => {
       </div>
 
       {/* Version requirement note */}
-      <div className="mt-6 bg-gray-50 rounded-2xl border border-gray-100 p-4 flex items-start gap-3">
+      <div className="mt-6 bg-gray-50 rounded-2xl border border-gray-200 p-4 flex items-start gap-3">
         <StacksIcon className="fill-gray-400 w-5 h-5 flex-shrink-0 mt-0.5" />
         <div>
           <p className="text-xs font-bold text-gray-600">Remotely managed tunnels require cloudflared 2022.03.04 or later.</p>

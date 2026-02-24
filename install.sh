@@ -646,7 +646,7 @@ else
       echo -e "    ${CYAN}y${NC} — Wipe the database (fresh setup wizard on next login)"
       echo -e "    ${CYAN}n${NC} — Keep existing data (update / reinstall only)"
       echo ""
-      read -rp "  Reset database and start fresh? (y/N): " RESET_CHOICE || RESET_CHOICE=""
+      read -rp "  Reset database and start fresh? (y/N): " RESET_CHOICE </dev/tty || RESET_CHOICE=""
       if [[ "${RESET_CHOICE,,}" == "y" || "${RESET_CHOICE,,}" == "yes" ]]; then
         _do_reset
       else
@@ -776,7 +776,7 @@ SESSION_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | x
 LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
 # ── Email / SMTP configuration ────────────────────────────────────────
-# Default placeholder values (used if user skips the prompt)
+# Default placeholder values (used if user presses Enter to skip)
 SMTP_HOST_VAL="smtp.example.com"
 SMTP_PORT_VAL="587"
 SMTP_SECURE_VAL="false"
@@ -784,40 +784,40 @@ SMTP_USER_VAL="your-email@example.com"
 SMTP_PASSWORD_VAL="your-email-password"
 
 echo ""
-echo -e "  ${BOLD}Email setup${NC} (SMTP) — used for:"
-echo -e "    • Sending the verification code when a new account is created"
-echo -e "    • Sending password reset emails if you forget your password"
-echo -e "    ${DIM}You can skip now and fill in the values in .env later.${NC}"
+echo -e "  ${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  ${BOLD}Email setup (SMTP) — required for account creation${NC}"
+echo -e "  ${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-read -rp "  Configure email (SMTP) now? (y/N): " SETUP_SMTP || SETUP_SMTP=""
+echo -e "  Without SMTP, users ${BOLD}cannot sign up${NC} (email verification is sent"
+echo -e "  on registration) and ${BOLD}cannot reset forgotten passwords${NC}."
+echo ""
+echo -e "  ${BOLD}Gmail:${NC} create an App Password — ${CYAN}https://myaccount.google.com/apppasswords${NC}"
+echo -e "  ${DIM}Press Enter to skip a field and edit it later in .env${NC}"
 echo ""
 
-if [[ "${SETUP_SMTP,,}" == "y" || "${SETUP_SMTP,,}" == "yes" ]]; then
-  echo -e "  ${DIM}Gmail users: use an App Password, not your regular password.${NC}"
-  echo -e "  ${DIM}Guide: https://support.google.com/accounts/answer/185833${NC}"
-  echo ""
+read -rp "  SMTP host     [smtp.gmail.com / smtp.yourprovider.com]: " _h  </dev/tty || _h=""
+read -rp "  SMTP port     [587 = STARTTLS, 465 = SSL/TLS]:          " _p  </dev/tty || _p=""
+read -rp "  SMTP username [your full email address]:                 " _u  </dev/tty || _u=""
+read -rsp "  SMTP password [hidden — Gmail: use App Password]:       " _pw </dev/tty || _pw=""
+echo ""
 
-  read -rp "  SMTP host       [e.g. smtp.gmail.com]: " _h  || _h=""
-  read -rp "  SMTP port       [587 = TLS / 465 = SSL]: " _p || _p=""
-  read -rp "  SMTP username   [your full email address]: " _u || _u=""
-  read -rsp "  SMTP password   [input hidden]: " _pw || _pw=""
-  echo ""
+[[ -n "$_h"  ]] && SMTP_HOST_VAL="$_h"
+[[ -n "$_p"  ]] && SMTP_PORT_VAL="$_p"
+[[ -n "$_u"  ]] && SMTP_USER_VAL="$_u"
+[[ -n "$_pw" ]] && SMTP_PASSWORD_VAL="$_pw"
 
-  [[ -n "$_h"  ]] && SMTP_HOST_VAL="$_h"
-  [[ -n "$_p"  ]] && SMTP_PORT_VAL="$_p"
-  [[ -n "$_u"  ]] && SMTP_USER_VAL="$_u"
-  [[ -n "$_pw" ]] && SMTP_PASSWORD_VAL="$_pw"
-
-  # Auto-detect SMTP_SECURE from port
-  if [[ "$SMTP_PORT_VAL" == "465" ]]; then
-    SMTP_SECURE_VAL="true"
-  else
-    SMTP_SECURE_VAL="false"
-  fi
-
-  success "Email configuration saved"
+# Auto-detect SMTP_SECURE from port
+if [[ "$SMTP_PORT_VAL" == "465" ]]; then
+  SMTP_SECURE_VAL="true"
 else
-  info "Skipped — edit SMTP_* values in .env before using signup or password reset"
+  SMTP_SECURE_VAL="false"
+fi
+
+# Feedback to the user
+if [[ "$SMTP_HOST_VAL" == "smtp.example.com" || "$SMTP_USER_VAL" == "your-email@example.com" ]]; then
+  warn "Email not configured — edit SMTP_* values in .env before signup/password-reset will work"
+else
+  success "Email configured: ${SMTP_USER_VAL} via ${SMTP_HOST_VAL}:${SMTP_PORT_VAL}"
 fi
 
 # Build the FROM addresses using the configured email
@@ -1109,7 +1109,7 @@ else
   echo -e "  (e.g. cloud.yourdomain.com) without port forwarding or a static IP."
   echo -e "  ${DIM}You can always install it later from Settings > Domain.${NC}"
   echo ""
-  read -rp "  Install cloudflared now? (y/N): " INSTALL_CF || INSTALL_CF=""
+  read -rp "  Install cloudflared now? (y/N): " INSTALL_CF </dev/tty || INSTALL_CF=""
   echo ""
 
   if [[ "${INSTALL_CF,,}" == "y" || "${INSTALL_CF,,}" == "yes" ]]; then

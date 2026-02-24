@@ -164,7 +164,7 @@ const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user, isFamilyMembe
   };
 
   return (
-    <div className="animate-in fade-in duration-300 pb-4">
+    <div className="font-heading animate-in fade-in duration-300 pb-4">
       {/* ===== Profile Header — gradient card ===== */}
       <div className="mb-5 rounded-3xl overflow-hidden shadow-xl shadow-[#5D5FEF]/15">
         <div className="bg-gradient-to-br from-[#5D5FEF] to-[#4D4FCF] p-6">
@@ -222,7 +222,7 @@ const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user, isFamilyMembe
       {/* ===== Account Settings CTA ===== */}
       <button
         onClick={() => onNavigate('settings')}
-        className="w-full bg-white rounded-[20px] border border-gray-100 shadow-sm p-4 mb-3 flex items-center gap-4 active:scale-[0.98] transition-all"
+        className="w-full bg-white rounded-2xl border border-gray-200 shadow-sm p-4 mb-3 flex items-center gap-4 active:scale-[0.98] transition-all"
       >
         <div className="w-10 h-10 rounded-[12px] bg-gradient-to-br from-[#5D5FEF] to-[#4D4FCF] flex items-center justify-center shadow-md shadow-[#5D5FEF]/20">
           <Sparkles className="w-5 h-5 text-white" />
@@ -238,7 +238,7 @@ const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user, isFamilyMembe
       {isFamilyMember && (
         <button
           onClick={() => onNavigate('manage-storage')}
-          className="w-full bg-white rounded-[20px] border border-gray-100 shadow-sm p-4 mb-5 flex items-center gap-4 active:scale-[0.98] transition-all"
+          className="w-full bg-white rounded-2xl border border-gray-200 shadow-sm p-4 mb-5 flex items-center gap-4 active:scale-[0.98] transition-all"
         >
           <div className="w-10 h-10 rounded-[12px] bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md shadow-blue-500/20">
             <HardDrive className="w-5 h-5 text-white" />
@@ -261,7 +261,7 @@ const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user, isFamilyMembe
         return (
           <div
             key={section.title}
-            className="bg-white rounded-[20px] border border-gray-100 shadow-sm mb-5 overflow-hidden"
+            className="bg-white rounded-2xl border border-gray-200 shadow-sm mb-5 overflow-hidden"
           >
             {/* Section Header */}
             <button

@@ -143,6 +143,7 @@ const MobileChat: React.FC<MobileChatProps> = ({
   const [isStreaming, setIsStreaming] = useState(false);
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
   const [ttsLoadingIndex, setTtsLoadingIndex] = useState<number | null>(null);
+  const [ttsError, setTtsError] = useState<string | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const speakingAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -502,7 +503,8 @@ const MobileChat: React.FC<MobileChatProps> = ({
         const errData = await res.json().catch(() => ({ error: 'TTS failed' }));
         setTtsLoadingIndex(null);
         if (res.status === 400 && errData.error?.includes('not configured')) {
-          alert('ElevenLabs API key not configured. Go to Settings → API Keys to add it.');
+          setTtsError('ElevenLabs API key not configured. Go to Settings → API Keys to add it.');
+          setTimeout(() => setTtsError(null), 5000);
         }
         return;
       }
@@ -1135,6 +1137,12 @@ const MobileChat: React.FC<MobileChatProps> = ({
 
       {/* ── Input Bar (matches Arcnota chat-input) ── */}
       <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pt-2 pb-6 bg-gradient-to-t from-white via-white to-white/0">
+        {ttsError && (
+          <div className="flex items-center gap-2 mb-2 px-4 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700">
+            <span className="flex-1">{ttsError}</span>
+            <button onClick={() => setTtsError(null)} className="text-amber-400 hover:text-amber-600 text-lg leading-none">&times;</button>
+          </div>
+        )}
         <div className="flex items-end gap-2 bg-[#F7F7F7] rounded-[28px] px-2 py-2 min-h-[56px]">
           <textarea
             ref={inputRef}

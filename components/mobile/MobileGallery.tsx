@@ -167,13 +167,14 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
   const hasMoreAlbums = filteredFolders.length > 4;
 
   return (
-    <div className="animate-in fade-in duration-300">
-      {/* App-Style Header */}
+    <div className="font-heading animate-in fade-in duration-300">
+      {/* Header */}
       <div className="mb-5">
-        <div className="flex items-center justify-between">
-          <div className="relative">
+        <div className="flex items-center justify-between gap-3">
+          <div className="relative min-w-0">
             <div className="absolute -left-3 top-0 w-[3px] h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full" />
-            <h1 className="text-[32px] font-black text-gray-900 tracking-tight leading-none pl-1">Gallery</h1>
+            <h1 className="text-2xl sm:text-[28px] font-bold text-gray-900 tracking-tight leading-none pl-1">Gallery</h1>
+            <p className="text-xs font-medium text-gray-500 mt-0.5 pl-1">Photos and videos from your vault</p>
           </div>
           {currentFolderId ? (
             <button
@@ -195,7 +196,7 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
       </div>
 
       {/* Segmented Filter */}
-      <div className="flex p-1 bg-gray-100 rounded-2xl mb-6">
+      <div className="flex p-1 bg-white border border-gray-200 rounded-2xl mb-6 shadow-sm">
         {([
           { id: 'all' as GalleryFilter, label: 'All', count: photoCount + videoCount },
           { id: 'photos' as GalleryFilter, label: 'Photos', count: photoCount },
@@ -204,14 +205,14 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
           <button
             key={f.id}
             onClick={() => handleFilterChange(f.id)}
-            className={`flex-1 py-2.5 rounded-xl text-[13px] font-bold transition-all touch-manipulation ${
+            className={`flex-1 py-2.5 rounded-xl text-xs font-semibold transition-all touch-manipulation ${
               filter === f.id
-                ? 'bg-white text-[#5D5FEF] shadow-sm'
-                : 'text-gray-500'
+                ? 'bg-[#5D5FEF] text-white shadow-sm'
+                : 'text-gray-500 hover:bg-gray-50'
             }`}
           >
             {f.label}
-            <span className={`ml-1 text-[11px] ${filter === f.id ? 'text-[#5D5FEF]/60' : 'text-gray-400'}`}>
+            <span className={`ml-1 text-[11px] ${filter === f.id ? 'text-white/80' : 'text-gray-400'}`}>
               {f.count}
             </span>
           </button>
@@ -221,8 +222,8 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
       {/* Albums — indigo folder cards (same as homepage) */}
       {filteredFolders.length > 0 && !currentFolderId && (
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[16px] font-bold text-gray-900 tracking-tight">Albums</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-gray-500 tracking-tight uppercase tracking-wider">Albums</h3>
             {hasMoreAlbums && (
               <button
                 onClick={() => setShowAllAlbums(!showAllAlbums)}
@@ -233,6 +234,7 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
               </button>
             )}
           </div>
+          <div className="mb-3 h-px bg-gradient-to-r from-gray-200 via-gray-200 to-transparent" />
           <div className="grid grid-cols-2 gap-3 pt-2">
             {visibleAlbums.map((folder) => (
               <button
@@ -271,11 +273,12 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
         <div className="space-y-6">
           {groupedByMonth.map(({ key, label, items }) => (
             <div key={key}>
-              <div className="flex items-center gap-2 mb-3">
-                <Calendar className="w-4 h-4 text-gray-400" />
-                <h3 className="text-[14px] font-bold text-gray-600">{label}</h3>
-                <span className="text-[12px] font-medium text-gray-400">{items.length}</span>
+              <div className="flex items-center gap-2 mb-2">
+                <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <h3 className="text-sm font-bold text-gray-600">{label}</h3>
+                <span className="text-xs font-medium text-gray-400">{items.length}</span>
               </div>
+              <div className="mb-2 h-px bg-gradient-to-r from-gray-200 to-transparent" />
               <div className="grid grid-cols-3 gap-[3px] rounded-2xl overflow-hidden">
                 {items.map((file) => {
                   const url = getFileUrl(file);
@@ -303,12 +306,12 @@ const MobileGallery: React.FC<MobileGalleryProps> = ({
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center py-24">
-          <div className="w-[88px] h-[88px] rounded-full bg-gray-100 flex items-center justify-center mb-4 shadow-sm">
+        <div className="flex flex-col items-center justify-center py-20 sm:py-24">
+          <div className="w-20 h-20 rounded-2xl bg-white border border-gray-200 flex items-center justify-center mb-4 shadow-sm">
             <ImageIcon className="w-10 h-10 text-gray-300" />
           </div>
-          <p className="text-[22px] font-extrabold text-gray-300 tracking-tight">No Media Yet</p>
-          <p className="text-[15px] font-medium text-gray-400 mt-1">Upload photos & videos to see them here</p>
+          <p className="font-heading text-xl font-bold text-gray-400 tracking-tight">No Media Yet</p>
+          <p className="text-sm font-medium text-gray-500 mt-1 px-2">Upload photos & videos to see them here</p>
         </div>
       )}
     </div>

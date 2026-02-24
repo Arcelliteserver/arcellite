@@ -403,20 +403,21 @@ const FamilySharingView: React.FC<FamilySharingViewProps> = ({ showToast }) => {
       <div className="flex flex-row items-center justify-between mb-6 sm:mb-8 md:mb-10 gap-3 sm:gap-4">
         <div className="relative flex-1 min-w-0">
           <div className="absolute -left-2 sm:-left-3 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative">
+          <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-heading font-bold tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative">
             Family Sharing
             <span className="absolute -top-1 sm:-top-2 -right-4 sm:-right-6 md:-right-8 lg:-right-12 w-8 h-8 sm:w-12 sm:h-12 md:w-16 md:h-16 lg:w-20 lg:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
           </h2>
+          <p className="text-[11px] sm:text-xs md:text-sm text-gray-400 font-medium mt-0.5 sm:mt-1 pl-3 sm:pl-4 md:pl-6">Manage members, storage pool, and shared access</p>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search..."
+              placeholder="Search members..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-36 sm:w-48 pl-9 pr-3 py-2 sm:py-2.5 md:py-3 bg-white border border-gray-100 rounded-lg sm:rounded-xl text-[11px] sm:text-xs text-gray-700 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#5D5FEF]/20 focus:border-[#5D5FEF]/30"
+              className="w-36 sm:w-48 pl-9 pr-3 py-2 sm:py-2.5 md:py-3 bg-white border border-gray-200 rounded-lg sm:rounded-xl text-[11px] sm:text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#5D5FEF]/20 focus:border-[#5D5FEF]/30 shadow-sm"
             />
           </div>
           <button
@@ -436,77 +437,143 @@ const FamilySharingView: React.FC<FamilySharingViewProps> = ({ showToast }) => {
         const allocPct = hasPool ? Math.round((poolInfo.allocated / poolInfo.poolSize) * 100) : 0;
         const remainingAvailable = hasPool ? Math.max(poolInfo.diskAvailable - poolInfo.poolSize, 0) : poolInfo.diskAvailable;
         return (
-          <div className="mb-8 sm:mb-10 md:mb-14 space-y-3 sm:space-y-4">
-            {/* Pool Configuration Card */}
-            <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-100 p-5 sm:p-6 md:p-7 shadow-sm">
-              <div className="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-5">
-                <div className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl sm:rounded-2xl bg-[#5D5FEF] flex items-center justify-center shadow-md shadow-[#5D5FEF]/20">
-                  <Database className="w-5 h-5 sm:w-5.5 sm:h-5.5 md:w-6 md:h-6 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm sm:text-base md:text-lg font-black text-gray-900 block">Storage Pool</span>
-                  <span className="text-[11px] sm:text-xs md:text-sm font-medium text-gray-400">
-                    {hasPool
-                      ? `${formatBytes(poolInfo.poolSize)} shareable · ${formatBytes(remainingAvailable)} remaining`
-                      : `${formatBytes(poolInfo.diskAvailable)} available · No pool configured`}
-                  </span>
-                </div>
-                <button
-                  onClick={openPoolSettings}
-                  className="flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-bold uppercase tracking-wider transition-colors"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  Configure
-                </button>
-              </div>
-
-              {hasPool ? (
-                <>
-                  {/* Pool allocation bar */}
-                  <div className="mb-4 sm:mb-5">
-                    <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-bold text-gray-400 mb-1.5">
-                      <span>{formatBytes(poolInfo.allocated)} allocated</span>
-                      <span>{formatBytes(poolInfo.available)} available</span>
+          <div className="mb-8 sm:mb-10 md:mb-14 space-y-4 sm:space-y-6">
+            {/* Stat cards at top — like SystemLogsView / StatsView */}
+            {hasPool && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                {/* Pool Size */}
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5D5FEF] to-indigo-600 flex items-center justify-center shadow-lg shadow-[#5D5FEF]/25">
+                      <HardDrive className="w-5 h-5 text-white" />
                     </div>
-                    <div className="h-2.5 sm:h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Total</span>
+                  </div>
+                  <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{formatBytes(poolInfo.poolSize)}</p>
+                  <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Pool Size</p>
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">{allocPct}% allocated to members</span>
+                  </div>
+                </div>
+                {/* Allocated */}
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
+                      <Users className="w-5 h-5 text-white" />
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-violet-100 text-violet-700">{allocPct}%</span>
+                  </div>
+                  <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{formatBytes(poolInfo.allocated)}</p>
+                  <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Allocated</p>
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-violet-400" />
+                    <span className="text-[10px] sm:text-[11px] font-semibold text-violet-600">Across {stats?.totalMembers || 0} members</span>
+                  </div>
+                </div>
+                {/* Available */}
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                      <CheckCircle2 className="w-5 h-5 text-white" />
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700">Free</span>
+                  </div>
+                  <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{formatBytes(poolInfo.available)}</p>
+                  <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Available</p>
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[10px] sm:text-[11px] font-semibold text-emerald-600">Ready to allocate</span>
+                  </div>
+                </div>
+                {/* Disk Remaining */}
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                      <Gauge className="w-5 h-5 text-white" />
+                    </div>
+                    <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Disk</span>
+                  </div>
+                  <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{formatBytes(remainingAvailable)}</p>
+                  <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Remaining</p>
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">Outside pool on disk</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Pool dark anchor card — below stat cards */}
+            <div className="rounded-2xl sm:rounded-3xl bg-[#1d1d1f] border border-[#2d2d2f] p-6 sm:p-8 md:p-10 shadow-xl shadow-black/10 overflow-hidden relative">
+              <div className="pointer-events-none absolute -top-20 -right-20 h-64 w-64 rounded-full bg-[#5D5FEF]/15 blur-3xl" />
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center">
+                      <Database className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-white/40">Storage Pool</p>
+                      <p className="text-2xl sm:text-3xl font-heading font-bold text-white leading-tight">
+                        {hasPool ? formatBytes(poolInfo.allocated) : '—'} <span className="text-base font-bold text-white/40">/ {hasPool ? formatBytes(poolInfo.poolSize) : '—'}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="hidden sm:flex items-center gap-5 md:gap-8">
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">Allocated</p>
+                      <p className="text-lg md:text-xl font-heading font-bold text-white">{hasPool ? formatBytes(poolInfo.allocated) : '—'}</p>
+                    </div>
+                    <div className="w-px h-10 bg-white/10" />
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">Available</p>
+                      <p className="text-lg md:text-xl font-heading font-bold text-emerald-400">{hasPool ? formatBytes(poolInfo.available) : '—'}</p>
+                    </div>
+                    <div className="w-px h-10 bg-white/10" />
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">Members</p>
+                      <p className="text-lg md:text-xl font-heading font-bold text-white">{stats?.totalMembers || 0}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {hasPool ? (
+                  <>
+                    <div className="h-3 w-full rounded-full bg-white/10 mb-3 overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-[#5D5FEF] to-[#7B7DF4] rounded-full transition-all duration-500"
+                        className="h-full bg-[#5D5FEF] rounded-full transition-all duration-500"
                         style={{ width: `${Math.min(allocPct, 100)}%` }}
                       />
                     </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-white/40">{allocPct}% allocated</span>
+                      <button
+                        onClick={openPoolSettings}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-[#5D5FEF]/15 hover:bg-[#5D5FEF]/25 border border-[#5D5FEF]/30 text-[#8B8DF8] hover:text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        Configure Pool
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 flex-1">
+                      <Gauge className="w-5 h-5 text-[#8B8DF8] flex-shrink-0" />
+                      <p className="text-xs sm:text-sm text-white/50 font-medium">
+                        Configure a pool to share {formatBytes(poolInfo.diskAvailable)} with family members.
+                      </p>
+                    </div>
+                    <button
+                      onClick={openPoolSettings}
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 md:px-5 py-2 sm:py-2.5 md:py-3 bg-[#5D5FEF] hover:bg-[#4B4DD4] text-white rounded-lg sm:rounded-xl text-[8px] sm:text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-[#5D5FEF]/20 flex-shrink-0"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                      Configure
+                    </button>
                   </div>
-
-                  {/* Pool detail boxes */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                    <div className="bg-gray-50/80 rounded-lg sm:rounded-xl p-3 sm:p-3.5">
-                      <p className="text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Pool Size</p>
-                      <p className="text-sm sm:text-base md:text-lg font-black text-gray-800">{formatBytes(poolInfo.poolSize)}</p>
-                    </div>
-                    <div className="bg-gray-50/80 rounded-lg sm:rounded-xl p-3 sm:p-3.5">
-                      <p className="text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Allocated</p>
-                      <p className="text-sm sm:text-base md:text-lg font-black text-[#5D5FEF]">{formatBytes(poolInfo.allocated)}</p>
-                    </div>
-                    <div className="bg-gray-50/80 rounded-lg sm:rounded-xl p-3 sm:p-3.5">
-                      <p className="text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Available</p>
-                      <p className="text-sm sm:text-base md:text-lg font-black text-emerald-600">{formatBytes(poolInfo.available)}</p>
-                    </div>
-                    <div className="bg-gray-50/80 rounded-lg sm:rounded-xl p-3 sm:p-3.5">
-                      <p className="text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Remaining</p>
-                      <p className="text-sm sm:text-base md:text-lg font-black text-gray-800">{formatBytes(remainingAvailable)}</p>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center gap-3 p-4 bg-[#5D5FEF]/5 border border-[#5D5FEF]/10 rounded-xl">
-                  <Gauge className="w-5 h-5 text-[#5D5FEF] flex-shrink-0" />
-                  <p className="text-xs sm:text-sm text-[#5D5FEF]/80 font-medium">
-                    Configure a storage pool to control how much of your available space ({formatBytes(poolInfo.diskAvailable)}) is shareable with family members.
-                  </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-
-
           </div>
         );
       })()}
@@ -530,8 +597,7 @@ const FamilySharingView: React.FC<FamilySharingViewProps> = ({ showToast }) => {
             {members.length === 0 && (
               <button
                 onClick={() => setShowInvite(true)}
-                className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 bg-[#5D5FEF] hover:bg-[#4D4FCF] text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-colors opacity-100"
-                style={{ opacity: 1 }}
+                className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 bg-[#5D5FEF] hover:bg-[#4D4FCF] text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-colors"
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 Invite Your First Member

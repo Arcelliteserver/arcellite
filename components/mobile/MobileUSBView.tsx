@@ -211,15 +211,18 @@ const MobileUSBView: React.FC<{
     <div className="animate-in fade-in duration-200">
       {/* Header */}
       <div className="mb-5">
-        <h1 className="text-[28px] font-extrabold text-gray-900 tracking-tight leading-none">External Devices</h1>
-        <p className="text-[13px] font-medium text-gray-400 mt-1">
-          {devices.length} device{devices.length !== 1 ? 's' : ''} detected
-        </p>
+        <div className="flex items-center gap-3 mb-1">
+          <div className="w-[3px] h-8 bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full flex-shrink-0" />
+          <div>
+            <h1 className="font-heading text-2xl sm:text-[28px] font-bold text-gray-900 tracking-tight leading-none">External Storage</h1>
+            <p className="text-xs font-medium text-gray-500 mt-0.5">USB drives and connected devices</p>
+          </div>
+        </div>
       </div>
 
       {/* Main Storage Card */}
       {data?.rootStorage && (
-        <div className="bg-white rounded-2xl border border-gray-200/60 p-4 mb-5 shadow-sm">
+        <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-5 shadow-sm">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
               <HardDrive className="w-5 h-5 text-gray-500" />

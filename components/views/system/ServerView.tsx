@@ -16,6 +16,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import type { SystemStats, LogEntry } from '@/types';
+import { getSessionToken } from '@/services/api.client';
 
 const STATS_API = '/api/system/stats';
 const REFRESH_INTERVAL_MS = 5_000; // Update every 5 seconds
@@ -234,28 +235,48 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
     actionKey: ''
   });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<{ label: string; seconds: number } | null>(null);
+
+  // Tick the countdown down every second
+  useEffect(() => {
+    if (!countdown || countdown.seconds <= 0) return;
+    const id = setTimeout(() => {
+      setCountdown(prev => prev ? { ...prev, seconds: prev.seconds - 1 } : null);
+    }, 1000);
+    return () => clearTimeout(id);
+  }, [countdown]);
 
   const handleServerAction = async (action: string, endpoint: string, password: string) => {
     setActionLoading(action);
+    setActionError(null);
     try {
+      const token = getSessionToken();
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ password })
       });
       const result = await res.json();
 
       if (res.ok) {
-        // Show success message briefly
-        setTimeout(() => setActionLoading(null), 2000);
+        if (action === 'restart') {
+          setCountdown({ label: 'Server restarting', seconds: 45 });
+        } else if (action === 'shutdown') {
+          setCountdown({ label: 'Server shutting down', seconds: 10 });
+        } else {
+          setTimeout(() => setActionLoading(null), 2000);
+        }
+        setActionLoading(null);
       } else {
-        alert(`Error: ${result.error || 'Operation failed'}`);
+        setActionError(result.error || 'Operation failed');
         setActionLoading(null);
       }
     } catch (err) {
-      alert(`Error: ${(err as Error).message}`);
+      setActionError((err as Error).message || 'Operation failed');
       setActionLoading(null);
     }
   };
@@ -364,7 +385,7 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
   };
 
   return (
-    <div className="w-full animate-in fade-in duration-500">
+    <div className="w-full">
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}
         onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
@@ -384,19 +405,17 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
         actionName={passwordModal.actionName}
       />
 
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-10 gap-4">
-        <div className="relative">
-          <div className="absolute -left-2 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 capitalize pl-4 md:pl-6 relative">
-            {loading ? 'Loading...' : data?.hostname || 'Server Node'}
-            <span className="absolute -top-2 -right-8 md:-right-12 w-16 h-16 md:w-20 md:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
-          </h2>
+      {/* Action error banner */}
+      {actionError && (
+        <div className="flex items-center gap-2 mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1">{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">&times;</button>
         </div>
-      </div>
+      )}
 
       {/* Status Badges */}
-      <div className="flex flex-wrap items-center gap-4 mb-10 pl-2">
+      <div className="flex flex-wrap items-center gap-3 mb-5 pb-5 border-b border-gray-100">
         <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] border flex items-center gap-2 shadow-sm ${
           loading ? 'bg-amber-50 text-amber-600 border-amber-100' :
           error ? 'bg-red-50 text-red-600 border-red-100' :
@@ -418,7 +437,7 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
       {/* Metrics Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 mb-8 md:mb-12">
         {/* CPU Load */}
-        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
               <Cpu className="w-5 h-5 text-white" />
@@ -456,7 +475,7 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
         </div>
 
         {/* RAM Usage */}
-        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
               <HardDrive className="w-5 h-5 text-white" />
@@ -494,7 +513,7 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
         </div>
 
         {/* Network */}
-        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
               <Signal className="w-5 h-5 text-white" />
@@ -531,7 +550,7 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
         </div>
 
         {/* Security */}
-        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${
               loading || error ? 'bg-gradient-to-br from-gray-400 to-gray-500 shadow-gray-400/25' :
@@ -578,176 +597,160 @@ const ServerView: React.FC<ServerViewProps> = ({ onNavigateToLogs }) => {
         </div>
       </div>
 
-      {/* Bottom Sections */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-8">
-        {/* Infrastructure Log */}
-        <div className="bg-white rounded-xl md:rounded-[2rem] p-5 md:p-6 lg:p-8 border border-gray-100 shadow-sm">
-           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 md:mb-8 gap-4">
-              <h3 className="text-lg md:text-xl font-black text-gray-900 flex items-center gap-2 md:gap-3">
-                 <CloudSync className="w-5 h-5 md:w-6 md:h-6 text-[#5D5FEF]" />
-                 Infrastructure Log
-              </h3>
-              <button
-                onClick={onNavigateToLogs}
-                className="flex items-center gap-2 text-[10px] font-black text-[#5D5FEF] uppercase tracking-[0.2em] hover:opacity-70 transition-opacity group/btn whitespace-nowrap"
-              >
-                <span>View Full Log</span>
-                <ArrowRight className="w-3 h-3 group-hover/btn:translate-x-1 transition-transform" />
-              </button>
-           </div>
-           {loading && (
-             <div className="text-center py-8 text-gray-400 text-sm">Loading logs...</div>
-           )}
-           {error && (
-             <div className="text-center py-8 text-red-400 text-sm">Unable to load logs</div>
-           )}
-           {!loading && !error && logs.length === 0 && (
-             <div className="text-center py-8 text-gray-400 text-sm">No recent logs</div>
-           )}
-           {!loading && !error && logs.length > 0 && (
-             <div className="space-y-3 md:space-y-4">
-                {logs.slice(0, 4).map((log, i) => {
-                  const parsed = parseLogEvent(log.event);
-                  const style = getLogStyle(log.status);
-                  return (
-                    <div key={i} className="flex items-center gap-3 md:gap-4 p-4 md:p-6 rounded-xl md:rounded-2xl bg-gray-50/50 border border-transparent hover:border-gray-200 hover:bg-gray-50 transition-all group min-h-[72px] md:min-h-[88px]">
-                       <span className={`px-2 py-1 rounded-lg text-[9px] md:text-[10px] font-black border flex-shrink-0 whitespace-nowrap ${style.badge}`}>
-                         {style.icon}
-                       </span>
-                       <div className="flex-1 min-w-0 flex flex-col justify-center">
-                          <div className="flex items-start justify-between gap-3 mb-1.5">
-                            <span className="text-[9px] md:text-[10px] font-black text-gray-500 uppercase tracking-widest flex-shrink-0">
-                              {parsed.service}
-                            </span>
-                            <span className="text-[8px] md:text-[9px] font-black text-gray-400 flex-shrink-0">{log.time}</span>
-                          </div>
-                          <p className={`text-sm md:text-[14px] font-bold ${style.text} leading-snug line-clamp-2`}>
-                            {colorizeMessage(parsed.message)}
-                          </p>
-                       </div>
-                    </div>
-                  );
-                })}
-             </div>
-           )}
+      {/* Server Control */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm mb-6">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+              <Sliders className="w-4 h-4 text-gray-600" />
+            </div>
+            <p className="text-[13px] font-black text-gray-900 uppercase tracking-wider">Server Control</p>
+          </div>
+          <p className="text-[11px] text-gray-400 font-medium">{loading ? '—' : data?.hostname}</p>
         </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-0 divide-x divide-gray-100">
+          {/* Restart */}
+          <button
+            onClick={() => showPasswordModal(
+              'Restart Server',
+              'Enter your system password to restart the server. This will cause approximately 45 seconds of downtime.',
+              'Restart Now',
+              '/api/system/restart',
+              'restart'
+            )}
+            disabled={actionLoading === 'restart'}
+            className="flex flex-col items-center gap-2.5 p-5 hover:bg-gray-50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+          >
+            <div className="w-10 h-10 rounded-xl bg-gray-100 group-hover:bg-gray-200 flex items-center justify-center transition-colors">
+              <RefreshCw className={`w-4 h-4 text-gray-600 ${actionLoading === 'restart' ? 'animate-spin' : ''}`} />
+            </div>
+            <div className="text-center">
+              <p className="text-[12px] font-black text-gray-800">{actionLoading === 'restart' ? 'Restarting…' : 'Restart'}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">~45s downtime</p>
+            </div>
+          </button>
 
-        {/* Server Control Panel */}
-        <div className="bg-white rounded-xl md:rounded-[2rem] p-5 md:p-6 lg:p-8 border border-gray-100 shadow-sm relative overflow-hidden">
-           <div className="absolute top-0 right-0 p-6 md:p-8 opacity-5 pointer-events-none">
-              <Database className="w-20 md:w-24 h-20 md:h-24 text-gray-900" />
-           </div>
+          {/* Clear Cache */}
+          <button
+            onClick={() => showPasswordModal(
+              'Clear System Cache',
+              'Enter your system password to clear the system cache and free up memory.',
+              'Clear Cache',
+              '/api/system/clear-cache',
+              'cache'
+            )}
+            disabled={actionLoading === 'cache'}
+            className="flex flex-col items-center gap-2.5 p-5 hover:bg-gray-50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+          >
+            <div className="w-10 h-10 rounded-xl bg-gray-100 group-hover:bg-gray-200 flex items-center justify-center transition-colors">
+              <Trash2 className="w-4 h-4 text-gray-600" />
+            </div>
+            <div className="text-center">
+              <p className="text-[12px] font-black text-gray-800">{actionLoading === 'cache' ? 'Clearing…' : 'Clear Cache'}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Free memory</p>
+            </div>
+          </button>
 
-           <div className="flex items-center gap-2 md:gap-3 mb-6 md:mb-8 min-w-0 relative z-10">
-              <div className="w-9 h-9 md:w-10 md:h-10 bg-amber-50 rounded-xl flex items-center justify-center flex-shrink-0">
-                <Sliders className="text-amber-500 w-4 h-4 md:w-5 md:h-5" />
-              </div>
-              <h3 className="text-lg md:text-xl font-black text-gray-900 tracking-tight truncate">
-                Server Control Panel
-              </h3>
-           </div>
+          {/* Sync */}
+          <button
+            onClick={() => showPasswordModal(
+              'Force Synchronization',
+              'Enter your system password to force data synchronization across all services.',
+              'Sync Now',
+              '/api/system/sync',
+              'sync'
+            )}
+            className="flex flex-col items-center gap-2.5 p-5 hover:bg-gray-50 transition-all group active:scale-[0.97]"
+          >
+            <div className="w-10 h-10 rounded-xl bg-gray-100 group-hover:bg-gray-200 flex items-center justify-center transition-colors">
+              <CloudSync className="w-4 h-4 text-gray-600" />
+            </div>
+            <div className="text-center">
+              <p className="text-[12px] font-black text-gray-800">Sync</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Force sync</p>
+            </div>
+          </button>
 
-           <div className="grid grid-cols-1 gap-3 md:gap-4 relative z-10">
-              <button
-                onClick={() => showPasswordModal(
-                  'Restart Server',
-                  'Enter your system password to restart the server. This will cause approximately 45 seconds of downtime.',
-                  'Restart',
-                  '/api/system/restart',
-                  'restart'
-                )}
-                disabled={actionLoading === 'restart'}
-                className="flex items-center justify-between p-4 md:p-6 bg-gray-50/50 rounded-xl md:rounded-2xl border border-transparent hover:border-[#5D5FEF]/30 hover:bg-[#5D5FEF]/5 transition-all group active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed min-h-[72px] md:min-h-[88px]"
-              >
-                 <div className="flex items-center gap-3 md:gap-4 min-w-0">
-                    <div className="w-9 h-9 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center text-gray-400 group-hover:text-[#5D5FEF] group-hover:bg-[#5D5FEF]/10 shadow-sm transition-all flex-shrink-0">
-                       <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${actionLoading === 'restart' ? 'animate-spin' : ''}`} />
-                    </div>
-                    <div className="text-left min-w-0 flex flex-col justify-center">
-                       <span className="text-sm md:text-[14px] font-black text-gray-900 group-hover:text-[#5D5FEF] block truncate">
-                         {actionLoading === 'restart' ? 'Restarting...' : 'Restart Server'}
-                       </span>
-                       <span className="text-[8px] md:text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1 block">Approx. 45s Downtime</span>
-                    </div>
-                 </div>
-                 <ChevronRight className="w-3.5 h-3.5 md:w-4 md:h-4 text-gray-300 group-hover:text-[#5D5FEF] flex-shrink-0 ml-2" />
-              </button>
-
-              <button
-                onClick={() => showPasswordModal(
-                  'Clear System Cache',
-                  'Enter your system password to clear the system cache and free up memory.',
-                  'Clear Cache',
-                  '/api/system/clear-cache',
-                  'cache'
-                )}
-                disabled={actionLoading === 'cache'}
-                className="flex items-center justify-between p-4 md:p-6 bg-gray-50/50 rounded-xl md:rounded-2xl border border-transparent hover:border-[#5D5FEF]/30 hover:bg-[#5D5FEF]/5 transition-all group active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed min-h-[72px] md:min-h-[88px]"
-              >
-                 <div className="flex items-center gap-3 md:gap-4 min-w-0">
-                    <div className="w-9 h-9 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center text-gray-400 group-hover:text-[#5D5FEF] group-hover:bg-[#5D5FEF]/10 shadow-sm transition-all flex-shrink-0">
-                       <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
-                    </div>
-                    <div className="text-left min-w-0 flex flex-col justify-center">
-                       <span className="text-sm md:text-[14px] font-black text-gray-900 group-hover:text-[#5D5FEF] block truncate">
-                         {actionLoading === 'cache' ? 'Clearing...' : 'Clear System Cache'}
-                       </span>
-                       <span className="text-[8px] md:text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1 block">Free up memory</span>
-                    </div>
-                 </div>
-                 <ChevronRight className="w-3.5 h-3.5 md:w-4 md:h-4 text-gray-300 group-hover:text-[#5D5FEF] flex-shrink-0 ml-2" />
-              </button>
-
-              <button
-                onClick={() => setConfirmDialog({
-                  isOpen: true,
-                  title: 'Force Synchronization',
-                  message: 'This will synchronize data across all nodes. Continue?',
-                  confirmText: 'Sync Now',
-                  action: () => alert('Sync functionality would be implemented based on your infrastructure'),
-                  isDangerous: false
-                })}
-                className="flex items-center justify-between p-4 md:p-6 bg-gray-50/50 rounded-xl md:rounded-2xl border border-transparent hover:border-[#5D5FEF]/30 hover:bg-[#5D5FEF]/5 transition-all group active:scale-[0.98] min-h-[72px] md:min-h-[88px]"
-              >
-                 <div className="flex items-center gap-3 md:gap-4 min-w-0">
-                    <div className="w-9 h-9 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center text-gray-400 group-hover:text-[#5D5FEF] group-hover:bg-[#5D5FEF]/10 shadow-sm transition-all flex-shrink-0">
-                       <CloudSync className="w-4 h-4 md:w-5 md:h-5" />
-                    </div>
-                    <div className="text-left min-w-0 flex flex-col justify-center">
-                       <span className="text-sm md:text-[14px] font-black text-gray-900 group-hover:text-[#5D5FEF] block truncate">Force Synchronization</span>
-                       <span className="text-[8px] md:text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1 block">Sync data across nodes</span>
-                    </div>
-                 </div>
-                 <ChevronRight className="w-3.5 h-3.5 md:w-4 md:h-4 text-gray-300 group-hover:text-[#5D5FEF] flex-shrink-0 ml-2" />
-              </button>
-
-              <button
-                onClick={() => showPasswordModal(
-                  'Shutdown Server',
-                  'WARNING: This will completely shut down the server. You will need to manually turn it back on. Enter your system password to proceed.',
-                  'Shutdown',
-                  '/api/system/shutdown',
-                  'shutdown'
-                )}
-                disabled={actionLoading === 'shutdown'}
-                className="flex items-center justify-between p-4 md:p-6 bg-gray-50/50 rounded-xl md:rounded-2xl border border-transparent hover:border-red-200 hover:bg-red-50/50 transition-all group active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed min-h-[72px] md:min-h-[88px]"
-              >
-                 <div className="flex items-center gap-3 md:gap-4 min-w-0">
-                    <div className="w-9 h-9 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center text-gray-400 group-hover:text-red-500 group-hover:bg-red-100 shadow-sm transition-all flex-shrink-0">
-                       <Power className="w-4 h-4 md:w-5 md:h-5" />
-                    </div>
-                    <div className="text-left min-w-0 flex flex-col justify-center">
-                       <span className="text-sm md:text-[14px] font-black text-gray-900 group-hover:text-red-600 block truncate">
-                         {actionLoading === 'shutdown' ? 'Shutting down...' : 'Shutdown Server'}
-                       </span>
-                       <span className="text-[8px] md:text-[9px] font-bold text-red-300 uppercase tracking-widest mt-1 block">Permanent Shutdown</span>
-                    </div>
-                 </div>
-                 <ChevronRight className="w-3.5 h-3.5 md:w-4 md:h-4 text-gray-300 group-hover:text-red-500 flex-shrink-0 ml-2" />
-              </button>
-           </div>
+          {/* Shutdown */}
+          <button
+            onClick={() => showPasswordModal(
+              'Shutdown Server',
+              'WARNING: This will completely shut down the server. You will need physical access to turn it back on.',
+              'Shutdown',
+              '/api/system/shutdown',
+              'shutdown'
+            )}
+            disabled={actionLoading === 'shutdown'}
+            className="flex flex-col items-center gap-2.5 p-5 hover:bg-red-50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]"
+          >
+            <div className="w-10 h-10 rounded-xl bg-gray-100 group-hover:bg-red-100 flex items-center justify-center transition-colors">
+              <Power className="w-4 h-4 text-gray-600 group-hover:text-red-500 transition-colors" />
+            </div>
+            <div className="text-center">
+              <p className="text-[12px] font-black text-gray-800 group-hover:text-red-600 transition-colors">{actionLoading === 'shutdown' ? 'Shutting down…' : 'Shutdown'}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Permanent off</p>
+            </div>
+          </button>
         </div>
       </div>
+
+      {/* Infrastructure Log */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+              <CloudSync className="w-4 h-4 text-gray-600" />
+            </div>
+            <p className="text-[13px] font-black text-gray-900 uppercase tracking-wider">Infrastructure Log</p>
+          </div>
+          <button onClick={onNavigateToLogs} className="flex items-center gap-1.5 text-[11px] font-bold text-gray-400 hover:text-gray-700 transition-colors group">
+            <span>View all</span>
+            <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+          </button>
+        </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-10 text-gray-300">
+            <RefreshCw className="w-5 h-5 animate-spin" />
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center py-10">
+            <p className="text-[12px] text-red-400 font-medium">Unable to load logs</p>
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="flex items-center justify-center py-10">
+            <p className="text-[12px] text-gray-400">No recent logs</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {logs.slice(0, 6).map((log, i) => {
+              const parsed = parseLogEvent(log.event);
+              const style = getLogStyle(log.status);
+              return (
+                <div key={i} className="flex items-start gap-4 px-5 py-3.5 hover:bg-gray-50/60 transition-colors">
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border flex-shrink-0 mt-0.5 ${style.badge}`}>
+                    {parsed.service}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-[12px] font-medium ${style.text} leading-snug line-clamp-2`}>
+                      {colorizeMessage(parsed.message)}
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-gray-400 font-medium flex-shrink-0 mt-0.5">{log.time}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Countdown toast for restart / shutdown */}
+      {countdown && countdown.seconds > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 bg-gray-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl border border-white/10">
+          <RefreshCw className="w-4 h-4 animate-spin text-indigo-400 flex-shrink-0" />
+          <span className="text-[13px] font-semibold">{countdown.label}</span>
+          <span className="text-[13px] font-black tabular-nums text-indigo-300">{countdown.seconds}s</span>
+        </div>
+      )}
     </div>
   );
 };

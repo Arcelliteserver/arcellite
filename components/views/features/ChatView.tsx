@@ -1,7 +1,8 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, ArrowRight, RotateCcw, CheckCircle, XCircle, FolderPlus, Trash2, Database, FileText, Sparkles, Folder, File, ExternalLink, Image as ImageIcon, Film, Music, BookOpen, FileArchive, Table, Settings, FileCode, Mail, MessageSquare, Plus, Clock, ChevronLeft, X, Cloud, Copy, RefreshCw, Volume2, Square, Check } from 'lucide-react';
+import { Send, Loader2, ArrowRight, RotateCcw, CheckCircle, XCircle, FolderPlus, Trash2, Database, FileText, Sparkles, Folder, File, ExternalLink, Image as ImageIcon, Film, Music, BookOpen, FileArchive, Table, Settings, FileCode, Mail, MessageSquare, Plus, Clock, ChevronLeft, X, Cloud, Copy, RefreshCw, Volume2, Square, Check, Mic, ChevronDown, ArrowUp } from 'lucide-react';
 import { usePdfThumbnail } from '../../files/usePdfThumbnail';
+import { AI_MODELS } from '@/constants';
 
 /** Strip download-site tags like "(z-lib.org)", "(libgen)", "(Anna's Archive)" etc. from file names */
 function cleanDisplayName(name: string): string {
@@ -92,10 +93,45 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
   const [isStreaming, setIsStreaming] = useState(false);
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
   const [ttsLoadingIndex, setTtsLoadingIndex] = useState<number | null>(null);
+  const [ttsError, setTtsError] = useState<string | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const speakingAudioRef = useRef<HTMLAudioElement | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [localModel, setLocalModel] = useState(selectedModel);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showModelMenu, setShowModelMenu] = useState(false);
+
+  // Only show models whose provider has an API key configured
+  const [configuredProviders, setConfiguredProviders] = useState<string[]>([]);
+  const modelsWithApi = AI_MODELS.filter(m => configuredProviders.includes(m.provider));
+
+  useEffect(() => {
+    fetch('/api/ai/configured-providers')
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok && data.providers) setConfiguredProviders(data.providers);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Keep localModel in sync with selectedModel; if current model has no API, switch to first configured
+  useEffect(() => {
+    const selectedHasApi = modelsWithApi.some(m => m.id === selectedModel);
+    if (selectedHasApi) {
+      setLocalModel(selectedModel);
+      return;
+    }
+    setLocalModel(prev => {
+      const current = AI_MODELS.find(m => m.id === prev);
+      if (modelsWithApi.length === 0) return prev;
+      if (!current || !configuredProviders.includes(current.provider)) {
+        const first = modelsWithApi[0];
+        return first ? first.id : prev;
+      }
+      return prev;
+    });
+  }, [selectedModel, configuredProviders.join(','), modelsWithApi.length]);
 
   // Chat history state
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -144,7 +180,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
       const res = await fetch('/api/chat/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: selectedModel }),
+        body: JSON.stringify({ model: localModel }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -157,7 +193,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
       // Non-critical
     }
     return null;
-  }, [selectedModel]);
+  }, [localModel]);
 
   // Save a message to the DB
   const saveMessage = useCallback(async (conversationId: string, msg: ChatMessage) => {
@@ -222,7 +258,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: historyUpTo,
-          model: selectedModel,
+          model: localModel,
           userEmail: user?.email,
         }),
       });
@@ -362,9 +398,9 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ error: 'TTS failed' }));
         setTtsLoadingIndex(null);
-        // Show inline feedback — key not configured
         if (res.status === 400 && errData.error?.includes('not configured')) {
-          alert('ElevenLabs API key not configured. Go to Settings → API Keys to add it.');
+          setTtsError('ElevenLabs API key not configured. Go to Settings → API Keys to add it.');
+          setTimeout(() => setTtsError(null), 5000);
         }
         return;
       }
@@ -426,7 +462,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: history,
-          model: selectedModel,
+          model: localModel,
           userEmail: user?.email,
         }),
       });
@@ -546,9 +582,11 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         }
       }
     } catch (error) {
+      const modelInfo = AI_MODELS.find(m => m.id === localModel);
+      const providerHint = modelInfo ? `your ${modelInfo.provider} API key is configured` : 'your API key is configured';
       const errorMsg: ChatMessage = {
         role: 'assistant' as const,
-        content: 'Failed to connect to the AI service. Make sure the server is running and your DeepSeek API key is configured.',
+        content: `Failed to connect to the AI service. Make sure the server is running and ${providerHint} in Settings → AI Models.`,
         timestamp: Date.now(),
       };
       setMessages(prev => [...prev, errorMsg]);
@@ -1483,6 +1521,7 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
                 </p>
               </div>
 
+              {/* Template cards — single brand color, in context */}
               <div className="grid grid-cols-2 gap-2.5 sm:gap-3 w-full max-w-2xl px-2 sm:px-0">
                 {suggestions.map((item, i) => {
                   const Icon = item.icon;
@@ -1635,34 +1674,114 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
         </div>
       </div>
 
-      {/* Input Bar */}
-      <div className="fixed md:absolute bottom-0 left-0 right-0 md:bottom-8 md:left-1/2 md:-translate-x-1/2 z-40 px-4 md:px-0 py-4 md:py-0 md:w-full md:max-w-4xl md:mx-auto">
-        <div className="relative group">
-          <div className="absolute inset-0 bg-[#5D5FEF]/5 rounded-[3.5rem] blur-[40px] opacity-0 group-focus-within:opacity-100 transition-opacity pointer-events-none" />
-          <div className="relative bg-white/95 backdrop-blur-3xl border border-gray-100 rounded-[3.5rem] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.06)] transition-all group-focus-within:border-[#5D5FEF]/30 group-focus-within:shadow-[0_25px_60px_-15px_rgba(93,95,239,0.1)]">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-              placeholder="Ask Arcellite anything..."
-              className="w-full pl-8 sm:pl-10 pr-20 sm:pr-24 py-5 sm:py-6 bg-transparent rounded-[3.5rem] outline-none text-gray-800 placeholder:text-gray-300 font-bold text-[14px] sm:text-[16px]"
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isLoading}
-              aria-label="Send message"
-              className={`absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 p-3 sm:p-4 rounded-full transition-all ${
-                input.trim() && !isLoading
-                  ? 'bg-[#5D5FEF] text-white shadow-xl shadow-[#5D5FEF]/30 hover:scale-105 active:scale-95'
-                  : 'bg-gray-50 text-gray-200 cursor-not-allowed opacity-50'
-              }`}
-            >
-              <Send className="w-4 h-4 sm:w-5 sm:h-5" />
-            </button>
-          </div>
-        </div>
+      {/* Input Bar — original layout: input row with height + toolbar row (Plus, Model, Mic, Send) */}
+      <div className="fixed md:absolute bottom-0 left-0 right-0 md:bottom-6 md:left-1/2 md:-translate-x-1/2 z-40 px-4 md:px-0 py-4 md:py-0 md:w-full md:max-w-3xl md:mx-auto">
+        {(() => {
+          const currentModel = modelsWithApi.find(m => m.id === localModel) ?? modelsWithApi[0];
+          const currentModelName = currentModel?.name ?? 'Select Model';
+          return (
+            <div className="relative">
+              {showAttachMenu && (
+                <div className="absolute bottom-full mb-2 left-0 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50 py-1 w-56">
+                  <button onClick={() => setShowAttachMenu(false)} className="flex items-center gap-3 w-full px-5 py-3 hover:bg-gray-50 text-left">
+                    <ImageIcon className="w-4 h-4 text-gray-400" />
+                    <span className="text-[13px] text-gray-700">Add photos or videos</span>
+                  </button>
+                  <button onClick={() => setShowAttachMenu(false)} className="flex items-center gap-3 w-full px-5 py-3 hover:bg-gray-50 text-left">
+                    <FileText className="w-4 h-4 text-gray-400" />
+                    <span className="text-[13px] text-gray-700">Add files (docs, PDF...)</span>
+                  </button>
+                </div>
+              )}
+              {/* Model selector dropdown — only models with API configured */}
+              {showModelMenu && (
+                <div className="absolute bottom-full mb-2 left-12 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50 py-2 w-60 max-h-72 overflow-y-auto">
+                  {modelsWithApi.length === 0 ? (
+                    <div className="px-4 py-4 text-center">
+                      <p className="text-[12px] font-semibold text-gray-500">No API key configured</p>
+                      <p className="text-[11px] text-gray-400 mt-1">Go to Settings → AI Models to add a key</p>
+                    </div>
+                  ) : (
+                    modelsWithApi.map(m => (
+                      <button
+                        key={m.id}
+                        onClick={() => { setLocalModel(m.id); setShowModelMenu(false); }}
+                        className={`flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-left ${localModel === m.id ? 'bg-[#5D5FEF]/5' : ''}`}
+                      >
+                        <img src={m.icon} alt={m.provider} className="w-4 h-4 flex-shrink-0" />
+                        <span className="text-[12px] text-gray-700 truncate flex-1">{m.name}</span>
+                        {localModel === m.id && <Check className="w-3 h-3 text-[#5D5FEF] flex-shrink-0" />}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {ttsError && (
+                <div className="flex items-center gap-2 mb-2 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                  <span className="flex-1">{ttsError}</span>
+                  <button onClick={() => setTtsError(null)} className="text-amber-400 hover:text-amber-600 text-lg leading-none">&times;</button>
+                </div>
+              )}
+
+              <div className={`bg-white border rounded-2xl shadow-md overflow-hidden transition-all ${isLoading ? 'border-[#5D5FEF]/30' : 'border-gray-200 focus-within:border-[#5D5FEF]/30'}`}>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                  placeholder="Ask Arcellite anything..."
+                  className="w-full px-5 pt-4 pb-2 min-h-[3.25rem] bg-transparent outline-none text-gray-800 placeholder:text-gray-400 font-medium text-[15px]"
+                  onClick={() => { setShowAttachMenu(false); setShowModelMenu(false); }}
+                />
+                <div className="flex items-center gap-1.5 px-3 pb-3 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => { setShowAttachMenu(!showAttachMenu); setShowModelMenu(false); }}
+                    className="w-8 h-8 flex items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-all flex-shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowModelMenu(!showModelMenu); setShowAttachMenu(false); }}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-gray-200 text-gray-600 text-[11px] font-semibold hover:border-gray-300 transition-all flex-shrink-0 max-w-[160px]"
+                  >
+                    {currentModel?.icon ? (
+                      <img src={currentModel.icon} alt={currentModel.provider} className="w-3.5 h-3.5 flex-shrink-0" />
+                    ) : (
+                      <Sparkles className="w-3 h-3 text-[#5D5FEF] flex-shrink-0" />
+                    )}
+                    <span className="truncate">{currentModelName}</span>
+                    <ChevronDown className="w-2.5 h-2.5 text-gray-400 flex-shrink-0" />
+                  </button>
+                  <div className="flex-1" />
+                  <button
+                    type="button"
+                    title="Voice input"
+                    className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all flex-shrink-0"
+                  >
+                    <Mic className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSend}
+                    disabled={!input.trim() || isLoading}
+                    aria-label="Send message"
+                    className={`w-8 h-8 flex items-center justify-center rounded-xl transition-all flex-shrink-0 ${
+                      input.trim() && !isLoading
+                        ? 'bg-gray-900 text-white hover:bg-gray-800 active:scale-95'
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {isLoading ? <Square className="w-3.5 h-3.5" /> : <ArrowUp className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

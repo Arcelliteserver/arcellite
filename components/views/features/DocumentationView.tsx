@@ -230,7 +230,7 @@ const DocumentationView: React.FC = () => {
             {/* ═══ Getting Started ═══ */}
             <section id="doc-getting-started">
               <div className="bg-gradient-to-br from-[#5D5FEF] to-indigo-700 rounded-[2rem] p-8 md:p-10 text-white mb-8">
-                <h2 className="text-2xl md:text-3xl font-black mb-3">Welcome to Arcellite</h2>
+                <h2 className="text-2xl md:text-3xl font-heading font-bold mb-3">Welcome to Arcellite</h2>
                 <p className="text-white/80 leading-relaxed mb-6">
                   Arcellite is a self-hosted personal cloud platform for file management, AI assistance, database tools,
                   and smart device integrations. This documentation will help you set up and configure all features.

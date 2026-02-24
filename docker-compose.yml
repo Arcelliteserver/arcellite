@@ -1,0 +1,136 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────
+#  Arcellite — Production Docker Compose
+#
+#  Usage:
+#    cp .env.example .env          # fill in your values
+#    docker compose up -d          # start everything
+#    docker compose logs -f        # follow logs
+#    docker compose down           # stop
+#
+#  Volumes are persisted in named volumes for data safety.
+#  PostgreSQL is NOT exposed on any host port — internal only.
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: arcellite-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-arcellite}
+      POSTGRES_USER: ${DB_USER:-arcellite_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # Performance tuning for personal cloud workloads
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    # NOT exposed to host — only accessible by arcellite container
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-arcellite_user} -d ${DB_NAME:-arcellite}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - arcellite-internal
+    # Secure: no host port binding
+    security_opt:
+      - no-new-privileges:true
+
+  # ── Arcellite App ────────────────────────────────────────────────────
+  arcellite:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arcellite-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres          # use service name, not 127.0.0.1
+      DB_PORT: "5432"
+      PORT: "3999"
+    ports:
+      - "${APP_PORT:-3999}:3999"
+    volumes:
+      # User data — persist outside container
+      - arcellite_data:/data
+    networks:
+      - arcellite-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3999/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 256M
+
+  # ── Automated Backups ────────────────────────────────────────────────
+  backup:
+    image: postgres:16-alpine
+    container_name: arcellite-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-arcellite}
+      DB_USER: ${DB_USER:-arcellite_user}
+      PGPASSWORD: ${DB_PASSWORD}
+    volumes:
+      - arcellite_backups:/backups
+      - arcellite_data:/data:ro
+    networks:
+      - arcellite-internal
+    # Run pg_dump every day at 02:00
+    entrypoint: |
+      sh -c '
+        echo "Backup service started"
+        while true; do
+          SLEEP=$$(( (24*3600) - ($(date +%s) % (24*3600)) + 2*3600 ))
+          echo "Next backup in $${SLEEP}s"
+          sleep $$SLEEP
+          STAMP=$$(date +%Y%m%d_%H%M%S)
+          echo "[$$STAMP] Starting backup..."
+          pg_dump --host=$$DB_HOST --port=$$DB_PORT --username=$$DB_USER --format=custom $$DB_NAME \
+            | gzip -9 > /backups/db_$$STAMP.sql.gz \
+            && echo "[$$STAMP] DB backup OK" \
+            || echo "[$$STAMP] DB backup FAILED"
+          # Rotate: keep last 7 backups
+          ls -t /backups/db_*.sql.gz 2>/dev/null | tail -n +8 | xargs rm -f
+        done
+      '
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  arcellite-internal:
+    driver: bridge
+    internal: false  # arcellite needs internet for AI API calls
+
+volumes:
+  postgres_data:
+    name: arcellite-postgres-data
+  arcellite_data:
+    name: arcellite-user-data
+  arcellite_backups:
+    name: arcellite-backups

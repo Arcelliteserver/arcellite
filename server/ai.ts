@@ -1048,7 +1048,7 @@ export async function chatWithAI(
   isFamilyMember: boolean = false,
   userStoragePath?: string,
   userName?: string
-): Promise<{ content: string; error?: string }> {
+): Promise<{ content: string; error?: string; isReasoningOnly?: boolean }> {
   const provider = getProviderForModel(model);
   const apiKey = getApiKey(provider);
   if (!apiKey) {
@@ -1114,7 +1114,13 @@ export async function chatWithAI(
 
       const data: any = await response.json();
       const content = data.content?.[0]?.text || '';
-      return { content };
+      if (!content) {
+        console.warn(`[AI] ${provider} returned empty content. Response:`, JSON.stringify(data).slice(0, 500));
+      } else {
+        const hasActionBlock = /```action/i.test(content) || /```json[\s\n]*\{/i.test(content);
+        console.log(`[AI] ${provider} response: ${content.length} chars, hasActionBlock=${hasActionBlock}`);
+      }
+      return { content, isReasoningOnly: false };
     } catch (e) {
       console.error('[AI] Chat error:', e);
       return { content: '', error: `Failed to connect to ${provider}: ${(e as Error).message}` };
@@ -1129,6 +1135,8 @@ export async function chatWithAI(
     ...messages,
   ];
 
+  console.log(`[AI] Chat request: model=${model} provider=${provider} apiModel=${apiModel} messages=${messages.length}`);
+
   // Helper: make a single chat request with timeout + retry
   const makeRequest = async (requestModel: string, retries: number = 1): Promise<{ content: string; error?: string }> => {
     let lastError: any;
@@ -1137,23 +1145,34 @@ export async function chatWithAI(
       const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout per attempt
 
       try {
-        // deepseek-reasoner doesn't support temperature — omit it
+        // Reasoning models need more tokens: they spend tokens on chain-of-thought before
+        // producing the final answer. Use 8192 so they have room to finish both phases.
+        const isReasoningModel = requestModel === 'deepseek-reasoner'
+          || requestModel.includes('reasoner')
+          || requestModel.includes('thinking');
         const bodyParams: any = {
           model: requestModel,
           messages: fullMessages,
-          max_tokens: 4096,
+          max_tokens: isReasoningModel ? 8192 : 4096,
           stream: false,
         };
-        if (requestModel !== 'deepseek-reasoner') {
+        if (!isReasoningModel) {
           bodyParams.temperature = 0.7;
         }
 
-        const response = await fetch(config.apiUrl, {
+        // Google Gemini via OpenAI compat: also accepts key as URL param for some setups
+        let requestUrl = config.apiUrl;
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        };
+        if (provider === 'Google') {
+          requestUrl = `${config.apiUrl}?key=${apiKey}`;
+        }
+
+        const response = await fetch(requestUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
+          headers,
           body: JSON.stringify(bodyParams),
           signal: controller.signal,
         });
@@ -1172,8 +1191,21 @@ export async function chatWithAI(
         }
 
         const data: any = await response.json();
-        const content = data.choices?.[0]?.message?.content || '';
-        return { content };
+        const msg = data.choices?.[0]?.message;
+        // Reasoning models (deepseek-reasoner, kimi-k2.5, etc.) return the chain-of-thought
+        // in reasoning_content/reasoning and often have an empty content field.
+        // Fall back to reasoning fields so the user always gets a response.
+        const finalContent = msg?.content || '';
+        const reasoningContent = msg?.reasoning_content || msg?.reasoning || '';
+        const isReasoningOnly = !finalContent && !!reasoningContent;
+        const content = finalContent || reasoningContent;
+        if (!content) {
+          console.warn(`[AI] ${provider} returned empty content. Response keys:`, Object.keys(data), data.error || '');
+        } else {
+          const hasActionBlock = /```action/i.test(content) || /```json[\s\n]*\{/i.test(content);
+          console.log(`[AI] ${provider} response: ${content.length} chars, hasActionBlock=${hasActionBlock}, source=${finalContent ? 'content' : reasoningContent ? 'reasoning_content' : 'empty'}`);
+        }
+        return { content, isReasoningOnly };
       } catch (e) {
         lastError = e;
         if (attempt < retries) {

@@ -23,33 +23,40 @@ import {
 } from 'lucide-react';
 import { FileItem } from '../../types';
 import FileIcon from './FileIcon';
+import { getSessionToken } from '@/services/api.client';
 
-const NestDisplayIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" className={className} fill="currentColor">
-    <path d="M480-200q-99 0-169.5-13.5T240-246v-34h-73q-35 0-59-26t-21-61l27-320q2-31 25-52t55-21h572q32 0 55 21t25 52l27 320q3 35-21 61t-59 26h-73v34q0 19-70.5 32.5T480-200ZM167-360h626l-27-320H194l-27 320Zm313-160Z"/>
-  </svg>
-);
+interface CastDevice {
+  id: string;
+  name: string;
+  type: string;
+  controlUrl?: string;
+}
 
-const CAST_DEVICES = [
-  { key: 'gaming_tv', label: 'GamingTV TV', icon: Tv },
-  { key: 'smart_tv', label: 'SmartTV 4K', icon: Monitor },
-  { key: 'my_room', label: 'My Room Display', subtitle: 'Nest Hub', icon: NestDisplayIcon },
-  { key: 'space_tv', label: 'Space TV', subtitle: 'Chromecast', icon: Cast, isDefault: true },
-] as const;
-
-type CastDeviceKey = typeof CAST_DEVICES[number]['key'];
+function castDeviceIcon(type: string): React.FC<{ className?: string }> {
+  const t = type.toLowerCase();
+  if (t.includes('chromecast')) return Cast;
+  if (t.includes('tv') || t.includes('samsung') || t.includes('lg') || t.includes('sony')) return Tv;
+  return Monitor;
+}
 
 interface FileDetailsProps {
   file: FileItem | null;
   onClose: () => void;
   onDelete?: (file: FileItem) => void;
   onFileRenamed?: () => void;
+  /** When user clicks play on an audio file, open the global floating player and play there */
+  onPlayInGlobalPlayer?: (file: FileItem) => void;
 }
 
-const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFileRenamed }) => {
+const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFileRenamed, onPlayInGlobalPlayer }) => {
   const [casting, setCasting] = useState(false);
   const [castMenuOpen, setCastMenuOpen] = useState(false);
   const [castSuccess, setCastSuccess] = useState<string | null>(null);
+  const [castError, setCastError] = useState<string | null>(null);
+  const [castDevices, setCastDevices] = useState<CastDevice[]>([]);
+  const [castDiscovering, setCastDiscovering] = useState(false);
+  const [castMode, setCastMode] = useState<'scan' | 'webhook'>('scan');
+  const [castWebhookUrl, setCastWebhookUrl] = useState('');
   const [titleCopied, setTitleCopied] = useState(false);
   const [aiRenaming, setAiRenaming] = useState(false);
   const [aiRenameResult, setAiRenameResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -101,6 +108,41 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
     if (!file || file.type !== 'audio' || !('mediaSession' in navigator)) return;
     navigator.mediaSession.playbackState = audioPlaying ? 'playing' : 'paused';
   }, [file?.type, audioPlaying]);
+
+  // Load cast mode preference on mount
+  useEffect(() => {
+    const token = getSessionToken();
+    if (!token) return;
+    fetch('/api/auth/settings', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        const s = data.settings;
+        if (s?.castMode === 'scan' || s?.castMode === 'webhook') setCastMode(s.castMode);
+        if (typeof s?.castWebhookUrl === 'string') setCastWebhookUrl(s.castWebhookUrl);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Discover cast devices when dropdown opens (scan mode only); reset on close
+  useEffect(() => {
+    if (!castMenuOpen) {
+      setCastDevices([]);
+      return;
+    }
+    // In webhook mode there's nothing to scan — dropdown shows a "Cast now" button instead
+    if (castMode === 'webhook') return;
+    const token = getSessionToken();
+    if (!token) return;
+    setCastDiscovering(true);
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), 12000);
+    fetch('/api/cast/discover', { headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal })
+      .then(r => r.json())
+      .then(data => { if (data.ok && Array.isArray(data.devices)) setCastDevices(data.devices); })
+      .catch(() => {})
+      .finally(() => { clearTimeout(id); setCastDiscovering(false); });
+    return () => { ctrl.abort(); clearTimeout(id); };
+  }, [castMenuOpen, castMode]);
 
   // Close cast menu on outside click
   useEffect(() => {
@@ -192,7 +234,8 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
 
   const isImage = file.type === 'image';
   const isVideo = file.type === 'video';
-  const isAudio = file.type === 'audio';
+  const audioExts = /\.(mp3|wav|flac|aac|ogg|m4a|wma|opus|aiff)$/i;
+  const isAudio = file.type === 'audio' || audioExts.test(file.name);
   const canCast = isImage || isVideo;
 
   // Get the publicly accessible file URL for casting
@@ -205,37 +248,63 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
     return '';
   };
 
-  const handleCast = async (deviceKey: CastDeviceKey = 'space_tv') => {
-    if (!canCast) return;
-
-    const device = CAST_DEVICES.find(d => d.key === deviceKey);
+  // Webhook mode: POST file info to the configured webhook URL
+  const handleCastWebhook = async () => {
+    if (!canCast || !castWebhookUrl) return;
     try {
       setCasting(true);
       setCastMenuOpen(false);
       const fileUrl = getFileUrl();
-
-      const response = await fetch('https://n8n.arcelliteserver.com/webhook/castc35483a5', {
+      const mimeType = isImage ? 'image/jpeg' : file.name.endsWith('.mkv') ? 'video/x-matroska' : 'video/mp4';
+      const response = await fetch(castWebhookUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileName: file.name,
-          fileType: file.type,
-          fileUrl: fileUrl,
-          mimeType: isImage ? 'image/jpeg' : 'video/mp4',
-          device: deviceKey,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, fileType: file.type, fileUrl, mimeType }),
       });
-
       if (response.ok) {
-        setCastSuccess(device?.label || deviceKey);
+        setCastSuccess('webhook');
         setTimeout(() => setCastSuccess(null), 3000);
       } else {
-        throw new Error('Cast failed');
+        throw new Error(`Webhook returned ${response.status}`);
       }
     } catch (error) {
-      alert('Unable to cast. Make sure your Cast device is connected.');
+      setCastError(`Webhook cast failed: ${(error as Error).message}`);
+      setTimeout(() => setCastError(null), 5000);
+    } finally {
+      setCasting(false);
+    }
+  };
+
+  // Scan mode: cast to a specific discovered device via UPnP/DLNA
+  const handleCast = async (device: CastDevice) => {
+    if (!canCast) return;
+    if (!device.controlUrl) {
+      setCastError(`${device.name} doesn't support direct casting (no control URL).`);
+      setTimeout(() => setCastError(null), 4000);
+      return;
+    }
+    const token = getSessionToken();
+    if (!token) return;
+    try {
+      setCasting(true);
+      setCastMenuOpen(false);
+      const fileUrl = getFileUrl();
+      const mimeType = isImage ? 'image/jpeg' : file.name.endsWith('.mkv') ? 'video/x-matroska' : 'video/mp4';
+      const response = await fetch('/api/cast/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ controlUrl: device.controlUrl, mediaUrl: fileUrl, mimeType, title: file.name }),
+      });
+      if (response.ok) {
+        setCastSuccess(device.name);
+        setTimeout(() => setCastSuccess(null), 3000);
+      } else {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Cast failed');
+      }
+    } catch (error) {
+      setCastError(`Unable to cast to ${device.name}: ${(error as Error).message}`);
+      setTimeout(() => setCastError(null), 5000);
     } finally {
       setCasting(false);
     }
@@ -350,34 +419,74 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
               {/* Cast Device Dropdown */}
               {castMenuOpen && (
                 <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl shadow-black/15 border border-gray-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <div className="px-4 pt-4 pb-2">
+                  <div className="px-4 pt-4 pb-2 flex items-center justify-between">
                     <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">Cast to Device</p>
+                    {castDiscovering && <Loader2 className="w-3 h-3 text-[#5D5FEF] animate-spin" />}
                   </div>
-                  <div className="p-2">
-                    {CAST_DEVICES.map((device) => {
-                      const DeviceIcon = device.icon;
-                      return (
+
+                  {/* ── Webhook mode ── */}
+                  {castMode === 'webhook' ? (
+                    <div className="p-2">
+                      {castWebhookUrl ? (
                         <button
-                          key={device.key}
-                          onClick={() => handleCast(device.key)}
+                          onClick={handleCastWebhook}
                           className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-[#5D5FEF]/5 transition-all group text-left"
                         >
                           <div className="w-9 h-9 rounded-xl bg-[#F0F0FF] border border-[#5D5FEF]/10 flex items-center justify-center group-hover:bg-[#5D5FEF]/10 transition-colors">
-                            <DeviceIcon className="w-4 h-4 text-[#5D5FEF]" />
+                            <Cast className="w-4 h-4 text-[#5D5FEF]" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-gray-800 truncate">{device.label}</p>
-                            {'subtitle' in device && device.subtitle && (
-                              <p className="text-[11px] text-gray-400 font-medium">{device.subtitle}</p>
-                            )}
+                            <p className="text-sm font-bold text-gray-800">Cast via Webhook</p>
+                            <p className="text-[10px] text-gray-400 truncate">{castWebhookUrl}</p>
                           </div>
-                          {'isDefault' in device && device.isDefault && (
-                            <span className="text-[9px] font-black text-[#5D5FEF] bg-[#F0F0FF] px-2 py-0.5 rounded-full uppercase tracking-wider">Default</span>
-                          )}
                         </button>
-                      );
-                    })}
-                  </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2 py-5 px-3 text-gray-400 text-center">
+                          <Cast className="w-5 h-5" />
+                          <p className="text-xs font-medium">No webhook URL configured</p>
+                          <p className="text-[10px]">Go to Settings → Smart Features → Cast Settings to add your webhook URL.</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* ── Scan mode ── */
+                    <div className="p-2">
+                      {castDiscovering && castDevices.length === 0 ? (
+                        <div className="flex flex-col items-center gap-2 py-6 text-gray-400">
+                          <Loader2 className="w-5 h-5 animate-spin text-[#5D5FEF]" />
+                          <p className="text-xs font-medium">Scanning network…</p>
+                        </div>
+                      ) : castDevices.length === 0 ? (
+                        <div className="flex flex-col items-center gap-2 py-6 text-gray-400">
+                          <Cast className="w-5 h-5" />
+                          <p className="text-xs font-medium">No devices found</p>
+                          <p className="text-[10px] text-center px-2">Make sure your TV or Chromecast is on the same network</p>
+                        </div>
+                      ) : (
+                        castDevices.map((device) => {
+                          const DeviceIcon = castDeviceIcon(device.type);
+                          return (
+                            <button
+                              key={device.id}
+                              onClick={() => handleCast(device)}
+                              className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-[#5D5FEF]/5 transition-all group text-left"
+                            >
+                              <div className="w-9 h-9 rounded-xl bg-[#F0F0FF] border border-[#5D5FEF]/10 flex items-center justify-center group-hover:bg-[#5D5FEF]/10 transition-colors">
+                                <DeviceIcon className="w-4 h-4 text-[#5D5FEF]" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-gray-800 truncate">{device.name}</p>
+                                <p className="text-[11px] text-gray-400 font-medium">{device.type}</p>
+                              </div>
+                              {!device.controlUrl && (
+                                <span className="text-[9px] font-black text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full uppercase tracking-wider">No cast</span>
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -400,6 +509,7 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
                   src={file.url || '/images/photo_placeholder.png'}
                   alt={file.name}
                   className="w-full aspect-square object-cover"
+                  decoding="async"
                   onError={(e) => {
                     (e.currentTarget as HTMLImageElement).src = '/images/photo_placeholder.png';
                   }}
@@ -427,10 +537,14 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
                     alt="Music"
                     className="w-full h-full object-cover"
                   />
-                  {/* Play/Pause overlay button */}
+                  {/* Play/Pause overlay button — always visible so user can click without hover */}
                   {file.url && (
                     <button
                       onClick={() => {
+                        if (onPlayInGlobalPlayer && isAudio) {
+                          onPlayInGlobalPlayer(file);
+                          return;
+                        }
                         if (!audioRef.current) return;
                         if (audioPlaying) {
                           audioRef.current.pause();
@@ -438,7 +552,7 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
                           audioRef.current.play();
                         }
                       }}
-                      className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                      className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 opacity-90 group-hover:opacity-100 transition-opacity duration-200"
                     >
                       <div className="w-16 h-16 rounded-full bg-white/90 backdrop-blur flex items-center justify-center shadow-xl">
                         {audioPlaying ? (
@@ -450,13 +564,19 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
                     </button>
                   )}
                 </div>
-                {/* Hidden audio element */}
+                {/* Native audio controls — when user hits play here, open global player and pause local so only global plays */}
                 {file.url && (
                   <audio
                     ref={audioRef}
                     src={file.url}
                     preload="metadata"
-                    onPlay={() => setAudioPlaying(true)}
+                    onPlay={() => {
+                      setAudioPlaying(true);
+                      if (onPlayInGlobalPlayer && isAudio) {
+                        onPlayInGlobalPlayer(file);
+                        setTimeout(() => audioRef.current?.pause(), 0);
+                      }
+                    }}
                     onPause={() => setAudioPlaying(false)}
                     onEnded={() => setAudioPlaying(false)}
                     controls
@@ -618,6 +738,12 @@ const FileDetails: React.FC<FileDetailsProps> = ({ file, onClose, onDelete, onFi
           <div className="mb-3 flex items-center gap-2 bg-[#F0F0FF] border border-[#5D5FEF]/20 text-[#5D5FEF] px-4 py-3 rounded-2xl animate-in fade-in slide-in-from-bottom-2 duration-300">
             <Check className="w-4 h-4 flex-shrink-0" />
             <span className="text-sm font-bold">Casting to {castSuccess}</span>
+          </div>
+        )}
+        {castError && (
+          <div className="mb-3 flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-2xl animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <span className="text-sm font-medium flex-1">{castError}</span>
+            <button onClick={() => setCastError(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">&times;</button>
           </div>
         )}
         <button

@@ -3,16 +3,15 @@ import {
   User,
   LogOut,
   HardDrive,
-  Palette,
-  Activity,
-  Download,
-  Server,
-  Sparkles,
-  ShieldCheck,
+  Wand2,
   Fingerprint,
-  Blocks,
+  Monitor,
+  Brain,
+  ShieldCheck,
   Globe,
-  Users
+  Download,
+  History,
+  ArrowUpCircle,
 } from 'lucide-react';
 import type { UserData } from '@/types';
 
@@ -39,13 +38,15 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
 }) => {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [storageText, setStorageText] = useState<string>('');
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
     const token = localStorage.getItem('sessionToken');
-    fetch('/api/system/storage', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    // Storage info
+    fetch('/api/system/storage', { headers })
       .then(r => r.json())
       .then(data => {
         if (data.familyMemberStorage) {
@@ -55,6 +56,14 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
           const { usedHuman, totalHuman } = data.rootStorage;
           setStorageText(`${usedHuman} / ${totalHuman} used`);
         }
+      })
+      .catch(() => {});
+
+    // Update check (uses 1hr server cache — fast)
+    fetch('/api/update/check', { headers })
+      .then(r => r.json())
+      .then(data => {
+        setUpdateVersion(data.updateAvailable ? data.latestVersion : null);
       })
       .catch(() => {});
   }, [isOpen]);
@@ -100,7 +109,7 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
   return (
     <>
       {/* Unified Dropdown - Fixed on mobile, absolute on desktop */}
-      <div className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-auto sm:mt-3 w-72 sm:w-80 max-w-[calc(100vw-1rem)] sm:max-w-none bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl shadow-gray-200 border border-gray-100 py-3 z-[500] animate-in fade-in zoom-in duration-200 origin-top-right overflow-hidden" ref={dropdownRef}>
+      <div className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-auto sm:mt-3 w-[320px] sm:w-[360px] max-w-[calc(100vw-1rem)] sm:max-w-none bg-white rounded-2xl sm:rounded-[2rem] border border-gray-200 shadow-md shadow-gray-900/5 py-3 z-[9999] animate-in fade-in zoom-in duration-200 origin-top-right overflow-hidden" ref={dropdownRef}>
         <div className="px-6 py-5 bg-[#F5F5F7]/50 border-b border-gray-50 mb-3 flex items-center justify-between">
           <div className="flex items-center gap-4 flex-1 min-w-0">
             {user?.avatarUrl ? (
@@ -131,10 +140,10 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
             </svg>
           </button>
         </div>
-        <div className="px-2 space-y-0.5 max-h-[calc(100vh-280px)] sm:max-h-80 overflow-y-auto custom-scrollbar">
-          {/* Account Section */}
-          <div className="px-3 py-2">
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">Account</p>
+        <div className="px-2 space-y-0.5 max-h-[min(340px,52vh)] overflow-y-auto overflow-x-hidden overscroll-contain">
+          {/* Account */}
+          <div className="py-1 px-1">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Account</p>
             <div className="space-y-0.5">
               <button
                 onClick={() => handleMenuItemClick(onAccountSettings)}
@@ -150,90 +159,87 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
                 <Fingerprint className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Security Vault</span>
               </button>
+              {!isFamilyMember && (
+                <button
+                  onClick={() => handleTabNavigate('sessions')}
+                  className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+                >
+                  <Monitor className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                  <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Sessions</span>
+                </button>
+              )}
               <button
-                onClick={() => handleTabNavigate(isFamilyMember ? 'account' : 'stats')}
+                onClick={() => handleTabNavigate('manage-storage')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
                 <HardDrive className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <span className="text-[14px] sm:text-[15px] font-bold text-gray-700 block">
-                    {isFamilyMember ? 'My Storage' : 'Storage & Usage'}
-                  </span>
-                  <p className="text-[10px] sm:text-[11px] text-gray-400 mt-0.5">
-                    {storageText || (isFamilyMember ? 'Loading...' : '25MB / 219GB used')}
-                  </p>
+                  <span className="text-[14px] sm:text-[15px] font-bold text-gray-700 block">Storage & Usage</span>
+                  {storageText && (
+                    <p className="text-[10px] sm:text-[11px] text-gray-400 mt-0.5">{storageText}</p>
+                  )}
                 </div>
               </button>
-              {!isFamilyMember && (
-                <button
-                  onClick={() => handleTabNavigate('family')}
-                  className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
-                >
-                  <Users className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                  <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Family Sharing</span>
-                </button>
-              )}
             </div>
           </div>
 
-          <div className="my-2 border-t border-gray-50" />
+          <div className="my-2 border-t border-gray-100" />
 
-          {/* Settings Section */}
-          <div className="px-3 py-2">
-            <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">Settings</p>
+          {/* Preferences */}
+          <div className="py-1 px-1">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Preferences</p>
             <div className="space-y-0.5">
               <button
                 onClick={() => handleTabNavigate('appearance')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
-                <Palette className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Appearance</span>
+                <Wand2 className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Smart Features</span>
               </button>
               <button
-                onClick={() => handleTabNavigate('myapps')}
+                onClick={() => handleTabNavigate('activity')}
                 className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
               >
-                <Blocks className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Integrations</span>
-              </button>
-              <button
-                onClick={() => handleTabNavigate('apikeys')}
-                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
-              >
-                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">AI Models</span>
-              </button>
-              <button
-                onClick={() => handleTabNavigate('aisecurity')}
-                className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
-              >
-                <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">AI Security</span>
+                <History className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Activity Log</span>
               </button>
             </div>
           </div>
 
           {!isFamilyMember && (
             <>
-              <div className="my-2 border-t border-gray-50" />
-
-              {/* System Section — admin only */}
-              <div className="px-3 py-2">
-                <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2">System</p>
+              <div className="my-2 border-t border-gray-100" />
+              {/* AI Settings */}
+              <div className="py-1 px-1">
+                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">AI Settings</p>
                 <div className="space-y-0.5">
                   <button
-                    onClick={() => handleTabNavigate('server')}
+                    onClick={() => handleTabNavigate('aimodels')}
                     className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
                   >
-                    <Server className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Server</span>
+                    <Brain className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">AI Models</span>
                   </button>
                   <button
-                    onClick={() => handleTabNavigate('activity')}
+                    onClick={() => handleTabNavigate('aisecurity')}
                     className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
                   >
-                    <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Activity Log</span>
+                    <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">AI Security</span>
+                  </button>
+                </div>
+              </div>
+              <div className="my-2 border-t border-gray-100" />
+              {/* Advanced */}
+              <div className="py-1 px-1">
+                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Advanced</p>
+                <div className="space-y-0.5">
+                  <button
+                    onClick={() => handleTabNavigate('domain')}
+                    className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
+                  >
+                    <Globe className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
+                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Domain</span>
                   </button>
                   <button
                     onClick={() => handleTabNavigate('export')}
@@ -243,11 +249,21 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
                     <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Export Data</span>
                   </button>
                   <button
-                    onClick={() => handleTabNavigate('domain')}
+                    onClick={() => handleTabNavigate('updates')}
                     className="flex items-center gap-4 w-full px-5 py-3 hover:bg-[#F5F5F7] active:bg-gray-200 transition-all text-left group rounded-2xl"
                   >
-                    <Globe className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-hover:text-[#5D5FEF] flex-shrink-0" />
-                    <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">Domain</span>
+                    <ArrowUpCircle className={`w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 ${updateVersion ? 'text-amber-500' : 'text-gray-400 group-hover:text-[#5D5FEF]'}`} />
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
+                      <span className="text-[14px] sm:text-[15px] font-bold text-gray-700">
+                        {updateVersion ? 'Update Available' : 'Check for Updates'}
+                      </span>
+                      {updateVersion && (
+                        <span className="text-[10px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
+                          v{updateVersion}
+                        </span>
+                      )}
+                    </div>
+                    {updateVersion && <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />}
                   </button>
                 </div>
               </div>

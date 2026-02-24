@@ -18,6 +18,18 @@ import { FileItem } from '../../types';
 import FileIcon from './FileIcon';
 import { usePdfThumbnail } from './usePdfThumbnail';
 
+/** Build serve URL when file.url is missing (e.g. recent items from API that omit it) */
+function getFileServeUrl(file: FileItem): string | undefined {
+  if (file.url) return file.url;
+  if (!file.category || file.isFolder) return undefined;
+  const pathMatch = file.id.match(/^server-(general|media|video_vault|music|external)-(.+)$/);
+  if (!pathMatch) return undefined;
+  const category = pathMatch[1];
+  const path = pathMatch[2];
+  if (category === 'external') return `/api/files/serve-external?path=${encodeURIComponent(path)}`;
+  return `/api/files/serve?category=${category}&path=${encodeURIComponent(path)}`;
+}
+
 const LOCK_ICON_SRC = '/assets/icons/password_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
 const STACKS_ICON_SRC = '/assets/icons/stacks_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg';
 
@@ -29,6 +41,7 @@ interface FileGridProps {
   allFiles?: FileItem[]; // Pass all files to calculate folder counts
   availableFolders?: FileItem[]; // Pass available folders for Move option
   pdfThumbnails?: boolean; // Enable/disable PDF thumbnail rendering
+  videoThumbnails?: boolean; // Enable/disable video thumbnail rendering
   aiRenamedSet?: Set<string>; // Set of "category/relPath" keys for AI-renamed files
   mobileColumns?: 2 | 3; // Number of columns on mobile (default: 2)
   onFileDrop?: (file: FileItem, targetFolder: FileItem) => void; // Drag-and-drop into folder
@@ -56,8 +69,9 @@ const CustomFolderIcon = ({ className }: { className?: string }) => (
 );
 
 /** Renders a PDF/book first-page thumbnail with graceful fallback */
-const PdfBookThumbnail: React.FC<{ file: FileItem; isPdf?: boolean; enabled?: boolean }> = ({ file, isPdf, enabled = true }) => {
-  const thumb = usePdfThumbnail(file.url, enabled);
+const PdfBookThumbnail: React.FC<{ file: FileItem; isPdf?: boolean; enabled?: boolean; url?: string }> = ({ file, isPdf, enabled = true, url: urlOverride }) => {
+  const urlToUse = urlOverride ?? getFileServeUrl(file) ?? file.url;
+  const thumb = usePdfThumbnail(urlToUse, enabled);
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   const isPdfFile = isPdf || ext === 'pdf';
   
@@ -112,7 +126,7 @@ const PdfBookThumbnail: React.FC<{ file: FileItem; isPdf?: boolean; enabled?: bo
   );
 };
 
-const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [], pdfThumbnails = true, aiRenamedSet, mobileColumns = 2, onFileDrop, isFolderLocked, onBulkAction }) => {
+const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId, onAction, allFiles = [], availableFolders = [], pdfThumbnails = true, videoThumbnails = true, aiRenamedSet, mobileColumns = 2, onFileDrop, isFolderLocked, onBulkAction }) => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
@@ -361,7 +375,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
               )}
               <div className="absolute -top-1.5 left-5 w-14 h-5 bg-[#5D5FEF] rounded-t-2xl transition-opacity md:group-hover:opacity-100 opacity-100 shadow-md" />
               
-              <div className={`relative w-full aspect-[1.6/1] rounded-2xl sm:rounded-3xl bg-[#5D5FEF] transition-all duration-300 border border-[#5D5FEF] ${
+              <div className={`relative w-full aspect-[1.6/1] rounded-2xl sm:rounded-3xl bg-[#5D5FEF] transition-all duration-300 ${
                 isDragSelected
                   ? 'ring-4 ring-[#5D5FEF]/40 shadow-2xl'
                   : isSelected 
@@ -459,7 +473,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                 ? 'border-[#5D5FEF] shadow-xl ring-4 ring-[#5D5FEF]/20'
                 : isSelected 
                 ? 'border-[#5D5FEF] shadow-xl ring-4 ring-[#5D5FEF]/5' 
-                : 'border-gray-200 shadow-md shadow-gray-200/20 md:hover:border-gray-300 md:hover:shadow-2xl md:hover:shadow-gray-200/40 md:hover:-translate-y-1'
+                : 'border-gray-200 shadow-md md:hover:border-[#5D5FEF]/30 md:hover:shadow-lg md:hover:-translate-y-0.5'
             } ${isMenuOpen ? 'z-50' : 'z-0'}`}
           >
             {/* Drag-select checkbox */}
@@ -490,18 +504,20 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
               <div className="relative w-full h-full transform transition-transform duration-500 md:group-hover:scale-105 flex items-center justify-center">
                 {isImage ? (
                   <img
-                    src={file.url || `/images/photo_placeholder.png`}
+                    src={getFileServeUrl(file) || file.url || `/images/photo_placeholder.png`}
                     alt={file.name}
                     className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                     onError={(e) => {
                       (e.currentTarget as HTMLImageElement).src = '/images/photo_placeholder.png';
                     }}
                   />
                 ) : isVideo ? (
                   <div className="relative w-full h-full bg-gray-900 flex items-center justify-center">
-                    {file.url ? (
+                    {videoThumbnails && (getFileServeUrl(file) || file.url) ? (
                       <video
-                        src={file.url}
+                        src={(getFileServeUrl(file) || file.url) || ''}
                         className="w-full h-full object-cover opacity-60"
                         preload="metadata"
                       />
@@ -520,7 +536,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                     </div>
                   </div>
                 ) : isPdf ? (
-                  <PdfBookThumbnail file={file} isPdf enabled={pdfThumbnails} />
+                  <PdfBookThumbnail file={file} isPdf enabled={pdfThumbnails} url={getFileServeUrl(file) || file.url} />
                 ) : file.type === 'code' ? (
                   <div className="relative w-full h-full bg-gradient-to-br from-emerald-50 to-teal-50 flex items-center justify-center">
                     <div className="absolute inset-0 opacity-[0.07]">
@@ -597,7 +613,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onFileClick, selectedFileId,
                     <FileIcon type={file.type} className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 text-green-500 group-hover:text-green-600 transition-colors relative z-10" />
                   </div>
                 ) : file.type === 'book' ? (
-                  <PdfBookThumbnail file={file} enabled={pdfThumbnails} />
+                  <PdfBookThumbnail file={file} enabled={pdfThumbnails} url={getFileServeUrl(file) || file.url} />
                 ) : (
                   <FileIcon type={file.type} fileName={file.name} className="w-7 h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 text-gray-400 group-hover:text-[#5D5FEF] transition-colors" />
                 )}

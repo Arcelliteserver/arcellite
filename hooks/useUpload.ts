@@ -30,6 +30,7 @@ export function useUpload({
   const [uploadProgressVisible, setUploadProgressVisible] = useState(false);
   const [aiAutoRename, setAiAutoRename] = useState(false);
   const [pdfThumbnails, setPdfThumbnails] = useState(true);
+  const [videoThumbnails, setVideoThumbnails] = useState(true);
   const [aiRenamedSet, setAiRenamedSet] = useState<Set<string>>(new Set());
 
   const loadAiRenamedFiles = useCallback(async () => {
@@ -213,6 +214,8 @@ export function useUpload({
     setAiAutoRename,
     pdfThumbnails,
     setPdfThumbnails,
+    videoThumbnails,
+    setVideoThumbnails,
     aiRenamedSet,
     setAiRenamedSet,
     loadAiRenamedFiles,

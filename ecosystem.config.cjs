@@ -22,10 +22,21 @@ module.exports = {
     args: '--host 0.0.0.0 --port 3000',
     interpreter: 'none',
     cwd: __dirname,
-    env: envVars,
+    env: {
+      ...envVars,
+      NODE_ENV: 'production',
+    },
     node_args: '--max-old-space-size=512',
     watch: false,
-    max_memory_restart: '500M',
+    max_memory_restart: '1G',
     log_date_format: 'YYYY-MM-DD HH:mm:ss',
+    error_file: '~/.arcellite/logs/pm2-error.log',
+    out_file: '~/.arcellite/logs/pm2-out.log',
+    merge_logs: true,
+    // Restart on crash, with exponential backoff
+    autorestart: true,
+    restart_delay: 3000,
+    max_restarts: 10,
+    min_uptime: '10s',
   }],
 };

@@ -224,43 +224,44 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
       <div className="mb-4 sm:mb-8">
         <div className="relative">
           <div className="absolute -left-2 sm:-left-3 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h1 className="text-[28px] sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative">
+          <h1 className="text-[28px] sm:text-2xl md:text-3xl lg:text-4xl font-heading font-bold tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative">
             Shared Files
           </h1>
+          <p className="text-gray-500 font-medium text-xs md:text-sm pl-3 sm:pl-4 md:pl-6 mt-1">Files shared between you and your family members</p>
         </div>
       </div>
 
-      {/* Tabs + Refresh — compact on mobile */}
+      {/* Tabs + Refresh */}
       <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
-        <div className="flex items-center gap-1 bg-gray-100/80 rounded-xl sm:rounded-2xl p-1 flex-1 sm:flex-none sm:w-auto">
+        <div className="flex items-center gap-1 p-1 bg-white rounded-xl border border-gray-200 shadow-sm">
           <button
             onClick={() => setTab('received')}
-            className={`flex items-center justify-center gap-1.5 flex-1 sm:flex-none sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[12px] sm:text-[13px] font-bold transition-all ${
+            className={`flex items-center justify-center gap-1.5 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg text-[12px] sm:text-[13px] font-bold transition-all ${
               tab === 'received'
-                ? 'bg-white text-[#5D5FEF] shadow-sm'
-                : 'text-gray-500'
+                ? 'bg-[#5D5FEF] text-white shadow-sm'
+                : 'text-gray-500 hover:bg-gray-50'
             }`}
           >
             <ArrowDownToLine className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span className="truncate">Received</span>
             {received.length > 0 && (
-              <span className={`px-1.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black ${tab === 'received' ? 'bg-[#5D5FEF]/10 text-[#5D5FEF]' : 'bg-gray-200 text-gray-500'}`}>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black ${tab === 'received' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-500'}`}>
                 {received.length}
               </span>
             )}
           </button>
           <button
             onClick={() => setTab('sent')}
-            className={`flex items-center justify-center gap-1.5 flex-1 sm:flex-none sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[12px] sm:text-[13px] font-bold transition-all ${
+            className={`flex items-center justify-center gap-1.5 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg text-[12px] sm:text-[13px] font-bold transition-all ${
               tab === 'sent'
-                ? 'bg-white text-[#5D5FEF] shadow-sm'
-                : 'text-gray-500'
+                ? 'bg-[#5D5FEF] text-white shadow-sm'
+                : 'text-gray-500 hover:bg-gray-50'
             }`}
           >
             <ArrowUpFromLine className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span className="truncate">Sent</span>
             {sent.length > 0 && (
-              <span className={`px-1.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black ${tab === 'sent' ? 'bg-[#5D5FEF]/10 text-[#5D5FEF]' : 'bg-gray-200 text-gray-500'}`}>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black ${tab === 'sent' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-500'}`}>
                 {sent.length}
               </span>
             )}
@@ -269,10 +270,10 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
         <button
           onClick={() => fetchShares(true)}
           disabled={refreshing}
-          className="w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-xl flex items-center justify-center sm:gap-2 text-[13px] font-bold text-[#5D5FEF] hover:bg-[#5D5FEF]/5 transition-all disabled:opacity-50 flex-shrink-0"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#5D5FEF] text-white hover:bg-[#4B4DD4] transition-all disabled:opacity-60 shadow-sm shadow-[#5D5FEF]/20 flex-shrink-0"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">Refresh</span>
+          <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
 
@@ -297,20 +298,20 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
 
       {/* Content */}
       {loading ? (
-        <div className="bg-white rounded-2xl sm:rounded-[2rem] border border-gray-100 p-12 sm:p-16 flex flex-col items-center justify-center">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 shadow-sm p-12 sm:p-16 flex flex-col items-center justify-center">
           <Loader2 className="w-10 h-10 text-[#5D5FEF] animate-spin mb-3" />
           <p className="text-sm text-gray-400 font-medium">Loading shared files...</p>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl sm:rounded-[2rem] border border-gray-100 p-8 sm:p-12 text-center">
-          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl sm:rounded-3xl bg-[#5D5FEF]/5 flex items-center justify-center mx-auto mb-4 sm:mb-5">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 shadow-sm py-16 sm:py-24 px-8 text-center">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl sm:rounded-3xl bg-[#5D5FEF]/5 flex items-center justify-center mx-auto mb-5 sm:mb-6">
             {tab === 'received' ? (
               <ArrowDownToLine className="w-7 h-7 sm:w-9 sm:h-9 text-[#5D5FEF]/40" />
             ) : (
               <ArrowUpFromLine className="w-7 h-7 sm:w-9 sm:h-9 text-[#5D5FEF]/40" />
             )}
           </div>
-          <h3 className="text-base sm:text-lg font-black text-gray-900 mb-2">
+          <h3 className="text-lg sm:text-xl font-heading font-bold text-gray-900 mb-2">
             {searchQuery
               ? 'No matching files'
               : tab === 'received'
@@ -318,7 +319,7 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
                 : "You haven't shared any files yet"
             }
           </h3>
-          <p className="text-gray-500 text-[13px] sm:text-sm max-w-sm mx-auto">
+          <p className="text-gray-400 text-sm max-w-md mx-auto">
             {searchQuery
               ? 'Try a different search term'
               : tab === 'received'
@@ -330,7 +331,7 @@ const SharedView: React.FC<SharedViewProps> = ({ showToast }) => {
       ) : (
         <div className="space-y-4 sm:space-y-6">
           {personGroups.map(({ person, files }) => (
-            <div key={person.id} className="bg-white rounded-2xl sm:rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm">
+            <div key={person.id} className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 overflow-hidden shadow-sm">
               {/* Person header */}
               <div className="px-4 sm:px-8 py-3.5 sm:py-5 bg-[#F5F5F7]/50 border-b border-gray-100">
                 <div className="flex items-center gap-3">

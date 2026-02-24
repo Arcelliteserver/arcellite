@@ -13,16 +13,23 @@ import { handleVaultRoutes } from './vault.routes.js';
 import { handleAppsRoutes } from './apps.routes.js';
 import { handleFamilyRoutes } from './family.routes.js';
 import { handleShareRoutes } from './share.routes.js';
+import { handleHealthRoutes } from './health.routes.js';
+import { handleBackupRoutes } from './backup.routes.js';
+import { handleUpdateRoutes } from './update.routes.js';
 
 /**
  * Central router that handles all API routes
  * Returns true if a route was handled, false otherwise
  */
-export function handleApiRoutes(
+export async function handleApiRoutes(
   req: IncomingMessage,
   res: ServerResponse,
   url: string
-): boolean {
+): Promise<boolean> {
+  // Health check — unauthenticated, first priority for uptime monitors
+  if (await handleHealthRoutes(req, res, url)) return true;
+  if (await handleBackupRoutes(req, res, url)) return true;
+  if (await handleUpdateRoutes(req, res, url)) return true;
   // Try each route handler in order
   if (handleFileRoutes(req, res, url)) return true;
   if (handleTrashRoutes(req, res, url)) return true;

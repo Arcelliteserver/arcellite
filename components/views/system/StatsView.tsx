@@ -98,13 +98,13 @@ const StatsView: React.FC = () => {
     }
   };
 
-  const getCategoryGradient = (label: string) => {
+  const getCategoryColor = (label: string): { icon: string; bar: string; bg: string } => {
     switch (label) {
-      case 'Photos': return { from: 'from-blue-500', to: 'to-sky-600', shadow: 'shadow-blue-500/25', bar: 'from-blue-400 to-sky-500', badge: 'bg-blue-100 text-blue-700' };
-      case 'Videos': return { from: 'from-purple-500', to: 'to-violet-600', shadow: 'shadow-purple-500/25', bar: 'from-purple-400 to-violet-500', badge: 'bg-purple-100 text-purple-700' };
-      case 'Music': return { from: 'from-pink-500', to: 'to-rose-600', shadow: 'shadow-pink-500/25', bar: 'from-pink-400 to-rose-500', badge: 'bg-pink-100 text-pink-700' };
-      case 'Files': return { from: 'from-emerald-500', to: 'to-green-600', shadow: 'shadow-emerald-500/25', bar: 'from-emerald-400 to-green-500', badge: 'bg-emerald-100 text-emerald-700' };
-      default: return { from: 'from-gray-500', to: 'to-gray-600', shadow: 'shadow-gray-500/25', bar: 'from-gray-400 to-gray-500', badge: 'bg-gray-100 text-gray-700' };
+      case 'Photos': return { icon: 'text-blue-500', bar: 'bg-blue-400', bg: 'bg-blue-50' };
+      case 'Videos': return { icon: 'text-[#5D5FEF]', bar: 'bg-[#5D5FEF]', bg: 'bg-[#5D5FEF]/10' };
+      case 'Music': return { icon: 'text-pink-500', bar: 'bg-pink-400', bg: 'bg-pink-50' };
+      case 'Files': return { icon: 'text-emerald-500', bar: 'bg-emerald-400', bg: 'bg-emerald-50' };
+      default: return { icon: 'text-gray-500', bar: 'bg-gray-400', bg: 'bg-gray-100' };
     }
   };
 
@@ -118,46 +118,31 @@ const StatsView: React.FC = () => {
 
   return (
     <div className="w-full">
-      {/* Header with Divider */}
-      <div className="mb-10">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-          <div className="relative">
-            <div className="absolute -left-2 sm:-left-3 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-            <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative">
-              Vault Intelligence
-              <span className="absolute -top-1 sm:-top-2 -right-4 sm:-right-6 md:-right-8 lg:-right-12 w-8 h-8 sm:w-12 sm:h-12 md:w-16 md:h-16 lg:w-20 lg:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
-            </h1>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={handleExportAudit}
-              disabled={isExporting || loading}
-              className="px-4 py-2.5 rounded-xl text-[13px] font-bold bg-white text-gray-600 border border-gray-100 hover:bg-gray-50 transition-all flex items-center gap-2 disabled:opacity-50"
-            >
-              <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
-              {isExporting ? 'Exporting...' : 'Export'}
-            </button>
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing || loading}
-              className={`px-5 py-2.5 rounded-xl text-[13px] font-bold shadow-lg transition-all flex items-center gap-2 ${
-                refreshSuccess
-                  ? 'bg-green-500 text-white'
-                  : 'bg-[#5D5FEF] text-white hover:bg-[#4D4FCF] disabled:opacity-50'
-              }`}
-            >
-              {isRefreshing ? (
-                <RotateCw className="w-4 h-4 animate-spin" />
-              ) : refreshSuccess ? (
-                <Check className="w-4 h-4" />
-              ) : (
-                <RotateCw className="w-4 h-4" />
-              )}
-              {isRefreshing ? 'Syncing...' : refreshSuccess ? 'Synced!' : 'Refresh'}
-            </button>
-          </div>
+      {/* Action bar */}
+      <div className="flex items-center justify-between mb-6">
+        <p className="text-[13px] font-medium text-gray-400">Real-time storage analytics and health monitoring</p>
+        <div className="flex gap-2">
+          <button
+            onClick={handleExportAudit}
+            disabled={isExporting || loading}
+            className="px-3 py-2 rounded-xl text-[12px] font-bold bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 transition-all flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
+          >
+            <Download className={`w-3.5 h-3.5 ${isExporting ? 'animate-bounce' : ''}`} />
+            {isExporting ? 'Exporting…' : 'Export'}
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing || loading}
+            className={`px-3 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+              refreshSuccess
+                ? 'bg-green-500 text-white'
+                : 'bg-[#5D5FEF] text-white hover:bg-[#4B4DD4] disabled:opacity-50 shadow-[#5D5FEF]/20'
+            }`}
+          >
+            {isRefreshing ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : refreshSuccess ? <Check className="w-3.5 h-3.5" /> : <RotateCw className="w-3.5 h-3.5" />}
+            {isRefreshing ? 'Syncing…' : refreshSuccess ? 'Synced!' : 'Refresh'}
+          </button>
         </div>
-        <p className="text-gray-500 font-medium text-sm pl-3 sm:pl-4 md:pl-6">Real-time storage analytics and health monitoring</p>
       </div>
 
       {loading && (
@@ -178,29 +163,21 @@ const StatsView: React.FC = () => {
           {/* Top Stats Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
             {/* Total Files */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5D5FEF] to-indigo-600 flex items-center justify-center shadow-lg shadow-[#5D5FEF]/25">
                   <Files className="w-5 h-5 text-white" />
                 </div>
-                <div className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700">
-                  Tracked
-                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">{categories.length} types</span>
               </div>
               <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{totalFiles.toLocaleString()}</p>
               <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Total Files</p>
-              <div className="mt-3 pt-3 border-t border-gray-100">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Categories</span>
-                  <span className="text-[10px] sm:text-[11px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">{categories.length}</span>
-                </div>
-              </div>
             </div>
 
             {/* Storage Used */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
                   <Database className="w-5 h-5 text-white" />
                 </div>
                 <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Vault</span>
@@ -209,210 +186,151 @@ const StatsView: React.FC = () => {
               <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Storage Used</p>
               <div className="mt-3 pt-3 border-t border-gray-100">
                 <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-violet-400 to-purple-500 transition-all duration-500"
-                    style={{ width: `${Math.min(currentStorageUtil, 100)}%` }}
-                  />
+                  <div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-500 transition-all duration-500" style={{ width: `${Math.min(currentStorageUtil, 100)}%` }} />
                 </div>
-                <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Used</span>
-                  <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">{currentStorageUtil}%</span>
-                </div>
+                <span className="text-[10px] font-medium text-gray-400 mt-1 block">{currentStorageUtil}% used</span>
               </div>
             </div>
 
             {/* Disk Usage */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${
+                  currentStorageUtil > 90 ? 'bg-gradient-to-br from-red-500 to-rose-600 shadow-red-500/25' :
+                  currentStorageUtil > 70 ? 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/25' :
+                  'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/25'
+                }`}>
                   <HardDrive className="w-5 h-5 text-white" />
                 </div>
-                <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                  currentStorageUtil > 90 ? 'bg-red-100 text-red-700' : currentStorageUtil > 70 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                }`}>
-                  {currentStorageUtil > 90 ? 'Critical' : currentStorageUtil > 70 ? 'Warning' : 'Normal'}
-                </div>
+                <span className={`text-[10px] font-black px-2.5 py-1 rounded-full ${
+                  currentStorageUtil > 90 ? 'bg-red-100 text-red-600' : currentStorageUtil > 70 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-700'
+                }`}>{currentStorageUtil > 90 ? 'Critical' : currentStorageUtil > 70 ? 'Warning' : 'Healthy'}</span>
               </div>
               <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{currentStorageUtil}<span className="text-lg text-gray-300 font-bold">%</span></p>
               <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Disk Usage</p>
               <div className="mt-3 pt-3 border-t border-gray-100">
                 <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full bg-gradient-to-r ${
-                      currentStorageUtil > 90 ? 'from-red-400 to-red-500' : 'from-amber-400 to-orange-500'
-                    } transition-all duration-500`}
-                    style={{ width: `${currentStorageUtil}%` }}
-                  />
+                  <div className={`h-full rounded-full transition-all duration-500 ${
+                    currentStorageUtil > 90 ? 'bg-gradient-to-r from-red-400 to-red-500' :
+                    currentStorageUtil > 70 ? 'bg-gradient-to-r from-amber-400 to-orange-500' :
+                    'bg-gradient-to-r from-emerald-400 to-teal-500'
+                  }`} style={{ width: `${currentStorageUtil}%` }} />
                 </div>
-                <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Capacity</span>
-                  <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">{100 - currentStorageUtil}% free</span>
-                </div>
+                <span className="text-[10px] font-medium text-gray-400 mt-1 block">{100 - currentStorageUtil}% free</span>
               </div>
             </div>
 
-            {/* Health Index */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+            {/* Health Index — purple gradient card (not black) */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${
-                  healthIndex.grade === 'A+' || healthIndex.grade === 'A'
-                    ? 'from-emerald-500 to-green-600 shadow-lg shadow-emerald-500/25'
-                    : healthIndex.grade === 'B'
-                    ? 'from-blue-500 to-cyan-600 shadow-lg shadow-blue-500/25'
-                    : 'from-amber-500 to-yellow-600 shadow-lg shadow-amber-500/25'
-                } flex items-center justify-center`}>
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5D5FEF] to-indigo-700 flex items-center justify-center shadow-lg shadow-[#5D5FEF]/25">
                   <Shield className="w-5 h-5 text-white" />
                 </div>
                 <div className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                  healthIndex.grade === 'A+' || healthIndex.grade === 'A'
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : healthIndex.grade === 'B'
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-amber-100 text-amber-700'
-                }`}>
-                  {healthIndex.status}
-                </div>
+                  healthIndex.efficiency >= 90 ? 'bg-emerald-100 text-emerald-700' :
+                  healthIndex.efficiency >= 70 ? 'bg-amber-100 text-amber-700' :
+                  'bg-red-100 text-red-700'
+                }`}>{healthIndex.status}</div>
               </div>
               <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">{healthIndex.grade}</p>
               <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">Health Index</p>
               <div className="mt-3 pt-3 border-t border-gray-100">
                 <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full bg-gradient-to-r ${
-                      healthIndex.grade === 'A+' || healthIndex.grade === 'A'
-                        ? 'from-emerald-400 to-green-500'
-                        : healthIndex.grade === 'B'
-                        ? 'from-blue-400 to-cyan-500'
-                        : 'from-amber-400 to-yellow-500'
-                    } transition-all duration-500`}
-                    style={{ width: `${healthIndex.efficiency}%` }}
-                  />
+                  <div className="h-full rounded-full bg-gradient-to-r from-[#5D5FEF] to-indigo-500 transition-all duration-500" style={{ width: `${healthIndex.efficiency}%` }} />
                 </div>
-                <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-[10px] sm:text-[11px] font-bold text-gray-500">Efficiency</span>
-                  <span className="text-[10px] sm:text-[11px] font-semibold text-gray-400">{healthIndex.efficiency}%</span>
-                </div>
+                <span className="text-[10px] font-medium text-gray-400 mt-1 block">{healthIndex.efficiency}% efficiency</span>
               </div>
             </div>
           </div>
 
-          {/* Storage Breakdown & System Health — side by side */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-            {/* Category Breakdown */}
-            <div className="lg:col-span-2 bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-6 sm:p-8 shadow-sm">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-[15px] font-black text-gray-900 uppercase tracking-wider">Storage Breakdown</h2>
-                <span className="text-[11px] font-bold text-gray-400">{categories.length} Categories</span>
+          {/* Storage Breakdown */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm mb-6">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <p className="text-[13px] font-black text-gray-900 uppercase tracking-wider">Storage Breakdown</p>
+              <span className="text-[11px] font-bold text-gray-400">{categories.length} categories</span>
+            </div>
+            {categories.length === 0 ? (
+              <div className="flex items-center justify-center py-10 text-gray-300">
+                <Files className="w-10 h-10" />
+                <p className="text-sm font-bold text-gray-400 ml-3">No files stored yet</p>
               </div>
-
-              <div className="space-y-5">
+            ) : (
+              <div className="divide-y divide-gray-50">
                 {categories.map((cat, idx) => {
-                  const gradient = getCategoryGradient(cat.label);
+                  const colors = getCategoryColor(cat.label);
                   return (
-                    <div key={idx} className="group">
-                      <div className="flex items-center justify-between mb-2.5">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradient.from} ${gradient.to} flex items-center justify-center shadow-lg ${gradient.shadow}`}>
-                            <div className="text-white">{getCategoryIcon(cat.label)}</div>
-                          </div>
-                          <div>
-                            <p className="text-[14px] font-black text-gray-900">{cat.label}</p>
-                            <p className="text-[11px] text-gray-500 font-medium">{cat.count.toLocaleString()} files · {cat.sizeHuman}</p>
-                          </div>
-                        </div>
-                        <span className="text-[13px] font-black text-gray-400">{cat.percentage}%</span>
+                    <div key={idx} className="flex items-center gap-4 px-5 py-3.5">
+                      <div className={`w-8 h-8 rounded-lg ${colors.bg} flex items-center justify-center flex-shrink-0 ${colors.icon}`}>
+                        {getCategoryIcon(cat.label)}
                       </div>
-                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full bg-gradient-to-r ${gradient.bar} transition-all duration-1000`}
-                          style={{ width: `${Math.max(cat.percentage, 2)}%` }}
-                        />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[13px] font-bold text-gray-800">{cat.label}</span>
+                          <span className="text-[12px] font-bold text-gray-500">{cat.sizeHuman}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                            <div className={`h-full rounded-full ${colors.bar} transition-all duration-700`} style={{ width: `${Math.max(cat.percentage, 2)}%` }} />
+                          </div>
+                          <span className="text-[11px] text-gray-400 font-medium w-8 text-right">{cat.percentage}%</span>
+                        </div>
+                      </div>
+                      <span className="text-[11px] text-gray-400 font-medium flex-shrink-0">{cat.count.toLocaleString()} files</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Storage Trend */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className="text-[13px] font-black text-gray-900 uppercase tracking-wider">Utilization Trend</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">Storage usage over the last 12 periods</p>
+              </div>
+              <span className="text-[11px] font-black text-[#5D5FEF] bg-[#5D5FEF]/10 px-2.5 py-1 rounded-full">{currentStorageUtil}% now</span>
+            </div>
+            <div className="flex items-end gap-1.5 h-48 relative">
+              {/* Y-axis guide lines */}
+              <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                {[100, 75, 50, 25, 0].map(val => (
+                  <div key={val} className="flex items-center gap-2 w-full" style={{ bottom: `${val}%` }}>
+                    <span className="absolute -left-7 text-[9px] font-medium text-gray-300 w-6 text-right">{val}</span>
+                    <div className="w-full border-t border-dashed border-gray-100" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-end gap-1.5 w-full h-full pl-4">
+                {(data?.storageUtilization || []).map((util, i) => {
+                  const isLast = i === (data?.storageUtilization?.length ?? 0) - 1;
+                  return (
+                    <div
+                      key={i}
+                      className="flex-1 h-full relative group cursor-pointer"
+                      title={`Period ${i + 1}: ${util}%`}
+                    >
+                      <div
+                        className={`absolute inset-x-0 bottom-0 rounded-t-lg transition-all duration-150 ${
+                          isLast
+                            ? 'bg-[#5D5FEF] shadow-md shadow-[#5D5FEF]/20'
+                            : 'bg-[#5D5FEF]/20 group-hover:bg-[#5D5FEF]/50'
+                        }`}
+                        style={{ height: `${Math.max(util, 3)}%` }}
+                      />
+                      <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap z-10">
+                        {util}%
                       </div>
                     </div>
                   );
                 })}
               </div>
-
-              {categories.length === 0 && (
-                <div className="text-center py-8">
-                  <Files className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm font-bold text-gray-400">No files stored yet</p>
-                </div>
-              )}
             </div>
-
-            {/* System Health */}
-            <div className="bg-gradient-to-br from-[#5D5FEF] to-[#4D4FCF] rounded-2xl sm:rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
-              <div className="absolute -right-16 -top-16 w-64 h-64 bg-white/10 rounded-full blur-[80px]" />
-              <div className="relative z-10">
-                <h2 className="text-[11px] font-black text-white/60 uppercase tracking-wider mb-6">System Health</h2>
-
-                <div className="text-center py-8 mb-6">
-                  <div className="text-7xl font-black mb-2">{healthIndex.grade}</div>
-                  <p className="text-sm font-bold text-white/80">{healthIndex.status}</p>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex justify-between text-[11px] font-bold text-white/60 mb-2">
-                      <span>EFFICIENCY</span>
-                      <span>{healthIndex.efficiency}%</span>
-                    </div>
-                    <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-white rounded-full transition-all duration-1000"
-                        style={{ width: `${healthIndex.efficiency}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-[11px] font-bold text-white/60 mb-2">
-                      <span>STORAGE</span>
-                      <span>{100 - currentStorageUtil}% free</span>
-                    </div>
-                    <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-white rounded-full transition-all duration-1000"
-                        style={{ width: `${100 - currentStorageUtil}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div className="flex justify-between text-[10px] font-medium text-gray-300 mt-3 pl-4">
+              <span>Oldest</span>
+              <span className="text-[#5D5FEF] font-bold">Now</span>
             </div>
-          </div>
-
-          {/* Storage Trend */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 p-6 sm:p-8 pb-8 sm:pb-10 shadow-sm">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-[15px] font-black text-gray-900 uppercase tracking-wider">Storage Utilization Trend</h2>
-                <span className="text-[11px] font-bold text-gray-400">Last 12 Periods</span>
-              </div>
-
-              <div className="flex items-end gap-2 h-56">
-                {(data?.storageUtilization || []).map((util, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 h-full bg-gray-50 rounded-t-xl relative group hover:bg-[#5D5FEF]/10 transition-all cursor-pointer"
-                    title={`Period ${i + 1}: ${util}%`}
-                  >
-                    <div
-                      className="absolute bottom-0 left-0 right-0 bg-[#5D5FEF]/20 rounded-t-xl transition-all duration-500 group-hover:bg-[#5D5FEF]"
-                      style={{ height: `${util}%` }}
-                    />
-                    <div className="absolute -top-5 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap">
-                      {util}%
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex justify-between text-[10px] font-bold text-gray-300 mt-4">
-                <span>Period 1</span>
-                <span>Period 6</span>
-                <span>Current</span>
-              </div>
           </div>
         </>
       )}

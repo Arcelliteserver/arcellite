@@ -111,50 +111,133 @@ const ActivityLogView: React.FC = () => {
 
   return (
     <div className="w-full">
-      <div className="mb-10">
-        <div className="relative">
-          <div className="absolute -left-2 sm:-left-3 md:-left-4 top-0 w-1 h-full bg-gradient-to-b from-[#5D5FEF] to-[#5D5FEF]/20 rounded-full opacity-60" />
-          <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-gray-900 pl-3 sm:pl-4 md:pl-6 relative mb-2">
-            Activity Log
-            <span className="absolute -top-1 sm:-top-2 -right-4 sm:-right-6 md:-right-8 lg:-right-12 w-8 h-8 sm:w-12 sm:h-12 md:w-16 md:h-16 lg:w-20 lg:h-20 bg-[#5D5FEF]/5 rounded-full blur-2xl opacity-50" />
-          </h1>
-        </div>
-        <p className="text-gray-500 font-medium text-sm pl-3 sm:pl-4 md:pl-6">View all your recent activities</p>
+      {/* Top summary + context */}
+      <div className="flex items-center justify-between mb-6">
+        <p className="text-[13px] font-medium text-gray-400">Recent account activity and events</p>
+        {!loading && (
+          <span className="text-[11px] font-bold text-gray-400">
+            {activities.length} event{activities.length === 1 ? '' : 's'}
+          </span>
+        )}
       </div>
+
+      {/* Summary cards (similar style to other System top cards) */}
+      {!loading && activities.length > 0 && (() => {
+        const now = new Date();
+        const todayKey = now.toDateString();
+        const todayCount = activities.filter(a => new Date(a.createdAt).toDateString() === todayKey).length;
+        const loginCount = activities.filter(a => a.action === 'login').length;
+        const fileActions = activities.filter(a =>
+          ['upload', 'download', 'delete', 'create', 'edit', 'profile_update'].includes(a.action)
+        ).length;
+        const securityActions = activities.filter(a =>
+          ['settings', 'profile_update'].includes(a.action)
+        ).length;
+
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            {/* Events Today */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5D5FEF] to-indigo-600 flex items-center justify-center shadow-lg shadow-[#5D5FEF]/25">
+                  <Activity className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Today</span>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">
+                {todayCount}
+              </p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">
+                Events Today
+              </p>
+            </div>
+
+            {/* Sign-ins */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                  <LogIn className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Accounts</span>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">
+                {loginCount}
+              </p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">
+                Sign-ins
+              </p>
+            </div>
+
+            {/* File activity */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-sky-500 flex items-center justify-center shadow-lg shadow-blue-500/25">
+                  <FileText className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Vault</span>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">
+                {fileActions}
+              </p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">
+                File Actions
+              </p>
+            </div>
+
+            {/* Security & settings */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-200 p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                  <Settings className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">Security</span>
+              </div>
+              <p className="text-3xl sm:text-4xl font-black text-gray-900 leading-none">
+                {securityActions}
+              </p>
+              <p className="text-[11px] sm:text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">
+                Security & Settings
+              </p>
+            </div>
+          </div>
+        );
+      })()}
 
       {loading ? (
         <div className="bg-white rounded-[2rem] border border-gray-100 p-12 flex items-center justify-center">
           <Loader2 className="w-8 h-8 text-[#5D5FEF] animate-spin" />
         </div>
       ) : activities.length > 0 ? (
-        <div className="bg-white rounded-[2rem] border border-gray-100 p-8 shadow-sm">
-          <div className="space-y-4">
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="divide-y divide-gray-50">
             {activities.map((activity) => (
               <div
                 key={activity.id}
-                className="flex items-center gap-4 p-5 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-all"
+                className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50/60 transition-all group"
               >
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${getColor(activity.action)}`}>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${getColor(activity.action)}`}>
                   {getIcon(activity.action)}
                 </div>
-                <div className="flex-1">
-                  <p className="text-[14px] font-bold text-gray-900">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-bold text-gray-900 truncate">
                     {getLabel(activity.action)}
                   </p>
                   {activity.details && (
-                    <p className="text-[12px] text-gray-500 mt-0.5">{activity.details}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5 truncate">{activity.details}</p>
                   )}
                 </div>
-                <span className="text-[11px] font-bold text-gray-400">{formatTime(activity.createdAt)}</span>
+                <span className="text-[11px] font-medium text-gray-400 flex-shrink-0">{formatTime(activity.createdAt)}</span>
               </div>
             ))}
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-[2rem] border border-gray-100 p-12 text-center">
-          <Activity className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-black text-gray-900 mb-2">No Activity Yet</h3>
-          <p className="text-gray-500 text-sm">Your activity log will appear here as you use Arcellite</p>
+        <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center shadow-sm">
+          <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
+            <Activity className="w-7 h-7 text-gray-400" />
+          </div>
+          <h3 className="text-[15px] font-black text-gray-900 mb-1">No Activity Yet</h3>
+          <p className="text-[12px] text-gray-400">Your activity log will appear here as you use Arcellite</p>
         </div>
       )}
     </div>

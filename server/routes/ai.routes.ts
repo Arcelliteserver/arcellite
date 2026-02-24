@@ -202,29 +202,92 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
         // Track already-executed discord_send actions to prevent duplicates
         const executedDiscordSends = new Set<string>();
 
+        console.log(`[AI Chat] Starting chat: model=${model}, messages=${currentMessages.length}, user=${userEmail || 'unknown'}`);
+
         for (let iteration = 0; iteration < MAX_CONTINUATION_ITERATIONS; iteration++) {
+          console.log(`[AI Chat] Iteration ${iteration}: calling chatWithAI...`);
           const result = await chatWithAI(currentMessages, model, userEmail, isFamilyMember, (req as any).user?.storagePath, (req as any).user?.firstName);
 
           if (result.error) {
+            console.error(`[AI Chat] Error from chatWithAI:`, result.error);
             sendSSE('error', { error: result.error });
             break;
           }
 
+          console.log(`[AI Chat] Got response: ${(result.content || '').length} chars, isReasoningOnly=${result.isReasoningOnly}`);
+
           // Parse action blocks from the response
-          // Accept both ```action\n{...}``` and ```action {..}``` (inline JSON, no newline)
-          const actionRegex = /```action[\s\n]*(\{[\s\S]*?\})[\s\n]*```/g;
-          let match;
-          const actions: any[] = [];
-          while ((match = actionRegex.exec(result.content)) !== null) {
+          // Flexible: match ```action, ```json, or bare ``` code fences containing action JSON
+          // IMPORTANT: skip action parsing when content came from reasoning_content only —
+          // that's internal chain-of-thought, not final instructions, so we must not execute it.
+          function repairJSON(raw: string): string {
+            let s = raw.trim();
+            // Remove trailing commas before } or ]
+            s = s.replace(/,\s*([\]}])/g, '$1');
+            // Replace single-quoted keys/values with double quotes (simple cases)
+            s = s.replace(/'/g, '"');
+            return s;
+          }
+          function tryParseAction(raw: string): any | null {
+            const trimmed = raw.trim();
             try {
-              actions.push(JSON.parse(match[1].trim()));
-            } catch {
-              // Skip malformed JSON
-            }
+              const obj = JSON.parse(trimmed);
+              if (obj && typeof obj === 'object' && obj.type) return obj;
+            } catch {}
+            try {
+              const obj = JSON.parse(repairJSON(trimmed));
+              if (obj && typeof obj === 'object' && obj.type) return obj;
+            } catch {}
+            return null;
           }
 
-          // Stream text content immediately
-          const cleanContent = result.content.replace(/```action[\s\S]*?```/g, '').trim();
+          const actions: any[] = [];
+          const matchedRanges: [number, number][] = [];
+
+          // Only parse action blocks from final content (not reasoning chain-of-thought)
+          if (!result.isReasoningOnly) {
+            // Pass 1: strict ```action blocks
+            const strictRegex = /```action[\s\n]*(\{[\s\S]*?\})[\s\n]*```/gi;
+            let match;
+            while ((match = strictRegex.exec(result.content)) !== null) {
+              const parsed = tryParseAction(match[1]);
+              if (parsed) {
+                actions.push(parsed);
+                matchedRanges.push([match.index, match.index + match[0].length]);
+              } else {
+                console.warn('[AI] Action block found but JSON parse failed:', match[1].slice(0, 200));
+              }
+            }
+
+            // Pass 2: if no actions found, try ```json blocks and bare ``` blocks with action-like JSON
+            if (actions.length === 0) {
+              const looseRegex = /```(?:json)?[\s\n]*(\{[\s\S]*?"type"\s*:\s*"[^"]*?"[\s\S]*?\})[\s\n]*```/gi;
+              while ((match = looseRegex.exec(result.content)) !== null) {
+                const parsed = tryParseAction(match[1]);
+                if (parsed) {
+                  actions.push(parsed);
+                  matchedRanges.push([match.index, match.index + match[0].length]);
+                } else {
+                  console.warn('[AI] Loose action block found but JSON parse failed:', match[1].slice(0, 200));
+                }
+              }
+            }
+
+            if (actions.length > 0) {
+              console.log(`[AI] Parsed ${actions.length} action(s): ${actions.map(a => a.type).join(', ')}`);
+            }
+          } else {
+            console.log('[AI] isReasoningOnly=true — skipping action block parsing to avoid executing chain-of-thought');
+          }
+
+          // Stream text content immediately (strip all matched action blocks)
+          let cleanContent = result.content;
+          // Remove matched ranges in reverse order to preserve indices
+          for (const [start, end] of [...matchedRanges].reverse()) {
+            cleanContent = cleanContent.slice(0, start) + cleanContent.slice(end);
+          }
+          // Also strip any remaining code fence blocks that look like actions
+          cleanContent = cleanContent.replace(/```(?:action|json)?[\s\n]*\{[\s\S]*?\}[\s\n]*```/gi, '').trim();
           if (cleanContent) {
             sendSSE('text', { content: cleanContent });
           }
@@ -271,8 +334,14 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
             }
           }
 
-          // If no actions were executed, check if the AI should have used an action block
+          // If no actions were executed, check if the AI should have used an action block.
+          // Skip hallucination detection when content came from reasoning_content — it's
+          // internal chain-of-thought and common patterns would give false positives.
           if (actions.length === 0) {
+            if (result.isReasoningOnly) {
+              // Reasoning-only response: show it as-is and stop the loop
+              break;
+            }
             const lowerContent = (result.content || '').toLowerCase();
             // Detect: AI described an action outcome without emitting a block (hallucination)
             const hallucinatedOutcomePatterns = [
@@ -296,7 +365,7 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
               console.warn(`[AI] Detected ${looksDeclined ? 'declined action' : 'hallucinated outcome'} without action block, forcing retry (iteration ${iteration})...`);
               currentMessages.push({
                 role: 'assistant',
-                content: result.content,
+                content: result.content || '[No content]',
               });
               const correctionMsg = looksDeclined
                 ? `[SYSTEM — MANDATORY RETRY] You said you cannot perform this action, but you are REQUIRED to try by emitting the action block. The system will execute it and return the real result. You do NOT know the outcome until the system runs it. Emit the \`\`\`action block NOW — do not describe what you cannot do, just try it.`
@@ -308,9 +377,13 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
           }
 
           // ── Continuation: feed action results back to AI ──
+          // Use a compact placeholder when isReasoningOnly to avoid polluting
+          // the context window with thousands of tokens of chain-of-thought.
           currentMessages.push({
             role: 'assistant',
-            content: result.content,
+            content: result.isReasoningOnly
+              ? '[Reasoning completed. Proceeding with actions.]'
+              : result.content,
           });
 
           const resultsSummary = iterationResults.map((r: any, i: number) => {
@@ -385,9 +458,16 @@ export function handleAIRoutes(req: IncomingMessage, res: ServerResponse, url: s
           return;
         }
 
-        const { analyzeImageForTitle } = await import('../ai.js');
+        const { analyzeImageForTitle, getApiKey } = await import('../ai.js');
         const { listDir, moveFile } = await import('../files.js');
         const { markAsAiRenamed, isAiRenamed } = await import('../ai-metadata.js');
+
+        // Pre-flight: verify Google API key is configured before starting SSE stream
+        const googleKey = getApiKey('Google');
+        if (!googleKey) {
+          sendError(res, 'No Google Gemini API key configured. Go to Settings → API Keys to add your key.', 400);
+          return;
+        }
 
         // Set SSE headers for streaming progress
         res.writeHead(200, {

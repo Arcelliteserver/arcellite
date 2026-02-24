@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Sidebar from './components/sidebar/Sidebar';
 import Header from './components/header/Header';
 import FileDetails from './components/files/FileDetails';
@@ -14,6 +14,7 @@ import InstallPrompt from './components/pwa/InstallPrompt';
 
 // Settings
 import AccountSettingsView from './components/views/settings/AccountSettingsView';
+import SessionsView from './components/views/settings/SessionsView';
 import AppearanceView from './components/views/settings/AppearanceView';
 import AIModelsView from './components/views/settings/AIModelsView';
 import APIKeysView from './components/views/settings/APIKeysView';
@@ -22,16 +23,15 @@ import NotificationsView from './components/views/settings/NotificationsView';
 import FamilySharingView from './components/views/settings/FamilySharingView';
 
 // System
-import ServerView from './components/views/system/ServerView';
+import SystemView from './components/views/system/SystemView';
+import UpdateView from './components/views/system/UpdateView';
 import RemovableStorageView from './components/views/system/RemovableStorageView';
 import MountedDeviceView from './components/views/system/MountedDeviceView';
 import SecurityVaultView from './components/views/system/SecurityVaultView';
-import ActivityLogView from './components/views/system/ActivityLogView';
 import ExportDataView from './components/views/system/ExportDataView';
 import DomainSetupView from './components/views/settings/DomainSetupView';
-import StatsView from './components/views/system/StatsView';
-import SystemLogsView from './components/views/system/SystemLogsView';
 import TrashView from './components/views/system/TrashView';
+import ActivityLogView from './components/views/system/ActivityLogView';
 import DatabaseView from './components/views/system/DatabaseView';
 import FilesView from './components/views/files/FilesView';
 import SharedView from './components/views/files/SharedView';
@@ -42,6 +42,7 @@ import MobileAccessDeniedView from './components/mobile/MobileAccessDeniedView';
 import ConfirmModal from './components/common/ConfirmModal';
 import ShareDialog from './components/common/ShareDialog';
 import UploadProgress from './components/common/UploadProgress';
+import GlobalMusicPlayer from './components/common/GlobalMusicPlayer';
 import Toast from './components/common/Toast';
 import LockScreen from './components/common/LockScreen';
 import SetupWizard from './components/onboarding/SetupWizard';
@@ -57,8 +58,10 @@ import { useUpload } from './hooks/useUpload';
 import { useScreenLock } from './hooks/useScreenLock';
 import { useFolderLock } from './hooks/useFolderLock';
 import { useLayout } from './hooks/useLayout';
+import type { FileItem } from './types';
 
 const App: React.FC = () => {
+  const [nowPlaying, setNowPlaying] = useState<FileItem | null>(null);
   // ── Hooks ────────────────────────────────────────────────────────
   const auth = useAuth();
   const nav = useNavigation();
@@ -122,6 +125,7 @@ const App: React.FC = () => {
     ]).then(([settingsRes, secStatus]: [any, any]) => {
       const s = settingsRes.settings || {};
       upload.setPdfThumbnails(s.pdfThumbnails ?? true);
+      upload.setVideoThumbnails(s.videoThumbnails ?? true);
       upload.setAiAutoRename(s.aiAutoRename ?? false);
       screenLock.initFromSettings(s);
       folderLock.initFromSettings(s);
@@ -222,11 +226,22 @@ const App: React.FC = () => {
   // ── Early renders ────────────────────────────────────────────────
   if (auth.checkingSetup) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-[#5D5FEF]/5 via-white to-[#5D5FEF]/5">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#5D5FEF] mx-auto"></div>
-          <p className="mt-4 text-gray-600 font-medium">Loading...</p>
+      <div className="flex h-screen flex-col items-center justify-center bg-gray-50 px-6">
+        <div className="w-full max-w-sm space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-gray-200 animate-pulse" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 w-3/4 rounded bg-gray-200 animate-pulse" />
+              <div className="h-3 w-1/2 rounded bg-gray-100 animate-pulse" />
+            </div>
+          </div>
+          <div className="h-20 rounded-xl bg-gray-100 animate-pulse" />
+          <div className="flex gap-2">
+            <div className="h-9 flex-1 rounded-lg bg-gray-200 animate-pulse" />
+            <div className="h-9 flex-1 rounded-lg bg-gray-200 animate-pulse" />
+          </div>
         </div>
+        <p className="mt-6 text-sm text-gray-400 font-medium">Loading…</p>
       </div>
     );
   }
@@ -246,6 +261,7 @@ const App: React.FC = () => {
           ]).then(([settingsRes, secStatus]: [any, any]) => {
             const s = settingsRes.settings || {};
             upload.setPdfThumbnails(s.pdfThumbnails ?? true);
+            upload.setVideoThumbnails(s.videoThumbnails ?? true);
             upload.setAiAutoRename(s.aiAutoRename ?? false);
             screenLock.initFromSettings(s);
             folderLock.initFromSettings(s);
@@ -261,8 +277,12 @@ const App: React.FC = () => {
     if (showDenied) return layout.isMobile ? <MobileAccessDeniedView /> : <AccessDeniedView />;
     if (auth.accessStatus === 'pending') {
       return (
-        <div className="min-h-screen bg-gradient-to-br from-[#5D5FEF]/8 via-white to-[#5D5FEF]/5 flex items-center justify-center">
-          <div className="w-8 h-8 rounded-full border-2 border-[#5D5FEF]/30 border-t-[#5D5FEF] animate-spin" />
+        <div className="flex min-h-screen items-center justify-center bg-gray-50">
+          <div className="w-full max-w-sm space-y-4 px-6">
+            <div className="h-10 w-10 rounded-xl bg-gray-200 animate-pulse" />
+            <div className="h-4 w-2/3 rounded bg-gray-100 animate-pulse" />
+            <div className="h-12 rounded-xl bg-gray-100 animate-pulse" />
+          </div>
         </div>
       );
     }
@@ -308,6 +328,7 @@ const App: React.FC = () => {
           selectedModel={layout.selectedModel}
           onModelChange={layout.handleModelChange}
           pdfThumbnails={upload.pdfThumbnails}
+          videoThumbnails={upload.videoThumbnails}
           aiRenamedSet={upload.aiRenamedSet}
           showToast={layout.showToast}
           onRefreshFiles={() => {
@@ -336,6 +357,7 @@ const App: React.FC = () => {
           }}
           onSettingsChange={(s) => {
             upload.setPdfThumbnails(s.pdfThumbnails);
+            upload.setVideoThumbnails(s.videoThumbnails);
             upload.setAiAutoRename(s.aiAutoRename);
           }}
           onDeleteAccount={handleDeleteAccount}
@@ -529,7 +551,7 @@ const App: React.FC = () => {
 
   // ── Desktop ──────────────────────────────────────────────────────
   return (
-    <div className={`flex h-screen bg-white text-[#1d1d1f] antialiased overflow-hidden max-w-full ${layout.isResizing ? 'cursor-col-resize select-none' : ''}`}>
+    <div className={`flex h-screen bg-[#111214] text-[#1d1d1f] antialiased overflow-hidden max-w-full ${layout.isResizing ? 'cursor-col-resize select-none' : ''}`}>
 
       {layout.isMobileMenuOpen && (
         <div className="fixed inset-0 z-[499] md:hidden"
@@ -537,8 +559,8 @@ const App: React.FC = () => {
           onClick={() => layout.setIsMobileMenuOpen(false)} />
       )}
 
-      <div className={`fixed md:relative top-0 left-0 bottom-0 md:inset-y-0 md:left-0 z-[600] md:z-10 transform transition-all duration-300 ${layout.isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} ${layout.sidebarCollapsed ? 'md:-translate-x-full md:w-0 md:min-w-0 md:overflow-hidden' : 'md:translate-x-0'}`}>
-        <div className="h-full md:bg-white overflow-y-auto">
+      <div className={`fixed md:relative top-0 left-0 bottom-0 md:inset-y-0 md:left-0 z-[600] md:z-10 transform transition-all duration-300 ${layout.isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        <div className="h-full overflow-hidden">
           <Sidebar
             activeTab={nav.activeTab}
             setActiveTab={(tab) => {
@@ -557,7 +579,7 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      <main className={`flex-1 flex flex-col h-full overflow-hidden bg-white w-full md:w-auto min-w-0 max-w-full relative ${layout.isMobileMenuOpen ? 'z-[400]' : 'z-0'} md:z-auto`}>
+      <main className={`flex-1 flex flex-col h-full overflow-hidden bg-white md:rounded-tl-[20px] w-full md:w-auto min-w-0 max-w-full relative ${layout.isMobileMenuOpen ? 'z-[400]' : 'z-0'} md:z-auto`}>
         {/* Suspension banner — shown only to suspended family members */}
         {auth.currentUser?.isSuspended && (
           <div className="flex items-center justify-center gap-3 px-4 py-2.5 bg-amber-500 text-white text-xs font-bold z-50 flex-shrink-0">
@@ -610,20 +632,18 @@ const App: React.FC = () => {
             }
           }} />
         ) : (
-          <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 md:px-6 lg:px-10 pb-6 sm:pb-8 md:pb-12 pt-20 sm:pt-24 md:pt-8 scroll-smooth custom-scrollbar">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 md:px-6 lg:px-10 pb-6 sm:pb-8 md:pb-12 pt-5 md:pt-8 scroll-smooth custom-scrollbar">
             <div className="max-w-[1600px] mx-auto min-h-fit md:min-h-full pb-8 sm:pb-12 md:pb-20 w-full">
-              {nav.activeTab === 'stats' ? (
-                <StatsView />
-              ) : nav.activeTab === 'server' ? (
-                <ServerView onNavigateToLogs={() => nav.setActiveTab('logs')} />
-              ) : nav.activeTab === 'logs' ? (
-                <SystemLogsView />
+              {nav.activeTab === 'system' ? (
+                <SystemView />
               ) : nav.activeTab === 'usb' ? (
                 <RemovableStorageView onMountedDeviceOpen={(dev) => { layout.setMountedDevice(dev); nav.setActiveTab('drive'); }} />
               ) : nav.activeTab === 'drive' && layout.mountedDevice ? (
                 <MountedDeviceView device={layout.mountedDevice} onFileSelect={(file: any) => nav.setSelectedFile(file)} selectedFile={nav.selectedFile} />
               ) : nav.activeTab === 'drive' ? (
                 <div className="flex items-center justify-center py-20 text-gray-400"><p className="text-sm font-bold">No device mounted</p></div>
+              ) : nav.activeTab === 'sessions' ? (
+                <SessionsView onNavigate={nav.setActiveTab} />
               ) : nav.activeTab === 'settings' ? (
                 <AccountSettingsView
                   selectedModel={layout.selectedModel}
@@ -642,9 +662,9 @@ const App: React.FC = () => {
                 <NotificationsView />
               ) : nav.activeTab === 'appearance' ? (
                 <AppearanceView showToast={layout.showToast}
-                  onSettingsChange={(s) => { upload.setPdfThumbnails(s.pdfThumbnails); upload.setAiAutoRename(s.aiAutoRename); }} />
+                  onSettingsChange={(s) => { upload.setPdfThumbnails(s.pdfThumbnails); upload.setVideoThumbnails(s.videoThumbnails); upload.setAiAutoRename(s.aiAutoRename); }} />
               ) : nav.activeTab === 'aimodels' ? (
-                <AIModelsView />
+                <AIModelsView showToast={layout.showToast} />
               ) : nav.activeTab === 'apikeys' ? (
                 <APIKeysView showToast={layout.showToast} />
               ) : nav.activeTab === 'aisecurity' ? (
@@ -667,8 +687,10 @@ const App: React.FC = () => {
                 <DatabaseView />
               ) : nav.activeTab === 'shared' ? (
                 <SharedView showToast={layout.showToast} />
+              ) : nav.activeTab === 'updates' ? (
+                <UpdateView />
               ) : nav.activeTab === 'manage-storage' ? (
-                <ManageStorageView />
+                <ManageStorageView isFamilyMember={auth.currentUser?.isFamilyMember === true} />
               ) : (
                 <FilesView
                   activeTab={nav.activeTab}
@@ -691,6 +713,7 @@ const App: React.FC = () => {
                   selectedFile={nav.selectedFile}
                   onGoBack={() => nav.handleGoBack(fileSystem.loadServerFolders)}
                   pdfThumbnails={upload.pdfThumbnails}
+                  videoThumbnails={upload.videoThumbnails}
                   aiRenamedSet={upload.aiRenamedSet}
                   onFileDrop={fileOps.handleFileDrop}
                   isFolderLocked={fileOps.isFolderLocked}
@@ -704,7 +727,7 @@ const App: React.FC = () => {
 
       {showFileControls && nav.selectedFile && (
         <>
-          <div onMouseDown={layout.startResizing} className={`w-1 h-full cursor-col-resize hover:bg-[#5D5FEF]/20 transition-colors z-20 ${layout.isResizing ? 'bg-[#5D5FEF]' : 'bg-gray-50'}`} />
+          <div onMouseDown={layout.startResizing} className={`w-px h-full cursor-col-resize hover:bg-[#5D5FEF]/30 transition-colors z-20 ${layout.isResizing ? 'bg-[#5D5FEF]' : 'bg-gray-200'}`} />
           <div className="flex-shrink-0 h-full overflow-hidden" style={{ width: layout.detailsWidth }}>
             <FileDetails
               file={nav.selectedFile}
@@ -715,12 +738,17 @@ const App: React.FC = () => {
                 fileSystem.loadRecentFiles();
                 upload.loadAiRenamedFiles();
               }}
+              onPlayInGlobalPlayer={(f) => setNowPlaying(f)}
             />
           </div>
         </>
       )}
 
       <InstallPrompt />
+
+      {!layout.isMobile && nowPlaying && nowPlaying.url && (nowPlaying.type === 'audio' || /\.(mp3|wav|flac|aac|ogg|m4a|wma|opus|aiff)$/i.test(nowPlaying.name)) && (
+        <GlobalMusicPlayer file={nowPlaying} onClose={() => setNowPlaying(null)} />
+      )}
 
       <UploadProgress
         files={upload.uploadProgress}

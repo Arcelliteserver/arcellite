@@ -2,8 +2,44 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import os from 'os';
 import nodePath from 'path';
 import fs from 'fs';
+import dgram from 'dgram';
+import { exec, execSync as cpExecSync } from 'child_process';
+import bcrypt from 'bcrypt';
 import * as authService from '../services/auth.service.js';
 import { pool } from '../db/connection.js';
+
+/**
+ * Read and JSON-parse the request body.
+ * Uses synchronous pull (req.read()) first so it works even if the body
+ * data events fired before the route handler had a chance to attach listeners.
+ */
+function parseBody(req: IncomingMessage): Promise<Record<string, any>> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    // Try synchronous pull first — reads any data already buffered in the stream
+    try {
+      let chunk: Buffer | null;
+      while ((chunk = req.read() as Buffer | null) !== null) {
+        chunks.push(chunk);
+      }
+    } catch { /* stream may not support read() */ }
+
+    if (chunks.length > 0) {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+      catch { resolve({}); }
+      return;
+    }
+
+    // No buffered data yet — fall back to event-based reading
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+      catch { resolve({}); }
+    });
+    // If stream already ended before we attached listeners, resolve immediately
+    if ((req as any).readableEnded) resolve({});
+  });
+}
 
 /** Resolve the storage base directory for the current request's user.
  *  Falls back to the global path for unauthenticated or owner requests. */
@@ -55,6 +91,164 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// ── SSDP: discover UPnP/DLNA devices on the LAN ──
+function ssdpDiscover(): Promise<Array<{ location: string; server?: string }>> {
+  return new Promise((resolve) => {
+    const devices: Array<{ location: string; server?: string }> = [];
+    const seen = new Set<string>();
+    const socket = dgram.createSocket('udp4');
+    const SSDP_ADDR = '239.255.255.250';
+    const SSDP_PORT = 1900;
+    const msg = Buffer.from(
+      'M-SEARCH * HTTP/1.1\r\n' +
+      'HOST: 239.255.255.250:1900\r\n' +
+      'MAN: "ssdp:discover"\r\n' +
+      'MX: 3\r\n' +
+      'ST: ssdp:all\r\n\r\n'
+    );
+    const timeout = setTimeout(() => {
+      try { socket.close(); } catch {}
+      resolve(devices);
+    }, 6000);
+    socket.on('message', (data) => {
+      const text = data.toString();
+      const locationMatch = text.match(/LOCATION:\s*(\S+)/i);
+      const serverMatch = text.match(/SERVER:\s*(.+)/i);
+      if (locationMatch) {
+        const loc = locationMatch[1].trim();
+        if (!seen.has(loc)) {
+          seen.add(loc);
+          devices.push({ location: loc, server: serverMatch?.[1]?.trim() });
+        }
+      }
+    });
+    socket.on('error', () => {
+      try { socket.close(); } catch {}
+      clearTimeout(timeout);
+      resolve(devices);
+    });
+    socket.bind(() => {
+      socket.setBroadcast(true);
+      socket.send(msg, 0, msg.length, SSDP_PORT, SSDP_ADDR);
+    });
+  });
+}
+
+// ── Fetch UPnP device XML to get friendly name and control URL ──
+async function fetchUpnpInfo(location: string): Promise<{ friendlyName?: string; manufacturer?: string; controlUrl?: string }> {
+  try {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 3000);
+    const resp = await fetch(location, { signal: controller.signal });
+    clearTimeout(id);
+    const xml = await resp.text();
+    const friendlyName = xml.match(/<friendlyName>([^<]+)<\/friendlyName>/)?.[1];
+    const manufacturer = xml.match(/<manufacturer>([^<]+)<\/manufacturer>/)?.[1];
+    const avCtrl = xml.match(/<serviceType>urn:schemas-upnp-org:service:AVTransport[^<]*<\/serviceType>[\s\S]*?<controlURL>([^<]+)<\/controlURL>/)?.[1];
+    const base = new URL(location).origin;
+    return {
+      friendlyName,
+      manufacturer,
+      controlUrl: avCtrl ? (avCtrl.startsWith('/') ? base + avCtrl : avCtrl) : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+// ── Combine SSDP + avahi-browse into a unified device list ──
+async function discoverCastDevices(): Promise<Array<{ id: string; name: string; type: string; controlUrl?: string }>> {
+  const results: Array<{ id: string; name: string; type: string; controlUrl?: string }> = [];
+  const seen = new Set<string>();
+
+  // SSDP scan
+  const ssdpDevices = await ssdpDiscover();
+  const upnpInfos = await Promise.allSettled(ssdpDevices.map(d => fetchUpnpInfo(d.location)));
+  for (let i = 0; i < ssdpDevices.length; i++) {
+    const info = upnpInfos[i].status === 'fulfilled' ? (upnpInfos[i] as PromiseFulfilledResult<{ friendlyName?: string; manufacturer?: string; controlUrl?: string }>).value : {};
+    const name = info.friendlyName || ssdpDevices[i].server?.split('/')[0] || `Device ${i + 1}`;
+    const mfr = (info.manufacturer || '').toLowerCase();
+    const type = mfr.includes('google') ? 'Chromecast' :
+                 mfr.includes('samsung') ? 'Samsung TV' :
+                 mfr.includes('lg') ? 'LG TV' :
+                 mfr.includes('sony') ? 'Sony TV' : 'DLNA Device';
+    const key = info.controlUrl || name;
+    if (!seen.has(key)) {
+      seen.add(key);
+      results.push({ id: `ssdp-${i}`, name, type, controlUrl: info.controlUrl });
+    }
+  }
+
+  // avahi-browse for Chromecast / mDNS devices
+  try {
+    const avahiOut = cpExecSync('avahi-browse -t -r _googlecast._tcp 2>/dev/null || true', { timeout: 5000, encoding: 'utf8' });
+    for (const line of avahiOut.split('\n')) {
+      const m = line.match(/[+=]\s+\S+\s+IPv\d\s+(.+?)\s+_googlecast/);
+      if (m) {
+        const name = m[1].trim();
+        if (!seen.has(name)) {
+          seen.add(name);
+          results.push({ id: `cast-${results.length}`, name, type: 'Chromecast' });
+        }
+      }
+    }
+  } catch { /* avahi not installed — skip */ }
+
+  // ARP table scan: probe port 8009 on every known LAN host (Chromecast API port)
+  try {
+    const arpContent = fs.readFileSync('/proc/net/arp', 'utf8');
+    const lanHosts = arpContent.split('\n').slice(1)
+      .map(line => line.split(/\s+/)[0])
+      .filter(ip => ip && ip !== '0.0.0.0' && !/^0\./.test(ip));
+    const chromecastProbes = lanHosts.map(async (ip) => {
+      try {
+        const ctrl = new AbortController();
+        const id = setTimeout(() => ctrl.abort(), 1200);
+        const resp = await fetch(`http://${ip}:8009/setup/eureka_info?options=detail`, { signal: ctrl.signal });
+        clearTimeout(id);
+        if (!resp.ok) return;
+        const data = await resp.json() as { name?: string; device_info?: { product_name?: string; manufacturer?: string } };
+        const name = data.name || `Chromecast (${ip})`;
+        const type = data.device_info?.product_name || 'Chromecast';
+        if (!seen.has(name)) {
+          seen.add(name);
+          results.push({ id: `cc-${ip}`, name, type, controlUrl: undefined });
+        }
+      } catch { /* host doesn't have port 8009 — not a Chromecast */ }
+    });
+    await Promise.allSettled(chromecastProbes);
+  } catch { /* /proc/net/arp not available */ }
+
+  return results;
+}
+
+// ── Direct DLNA/UPnP cast via SOAP (SetAVTransportURI + Play) ──
+async function dlnaCast(controlUrl: string, mediaUrl: string, mimeType: string, title: string): Promise<void> {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const setUriSoap = `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID><CurrentURI>${esc(mediaUrl)}</CurrentURI><CurrentURIMetaData>&lt;DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"&gt;&lt;item id="0" parentID="-1" restricted="1"&gt;&lt;dc:title&gt;${esc(title)}&lt;/dc:title&gt;&lt;res protocolInfo="http-get:*:${mimeType}:*"&gt;${esc(mediaUrl)}&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData></u:SetAVTransportURI></s:Body></s:Envelope>`;
+  const playSoap = `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID><Speed>1</Speed></u:Play></s:Body></s:Envelope>`;
+
+  const ctrl1 = new AbortController();
+  const id1 = setTimeout(() => ctrl1.abort(), 8000);
+  await fetch(controlUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': '"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI"' },
+    body: setUriSoap,
+    signal: ctrl1.signal,
+  });
+  clearTimeout(id1);
+
+  const ctrl2 = new AbortController();
+  const id2 = setTimeout(() => ctrl2.abort(), 8000);
+  await fetch(controlUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': '"urn:schemas-upnp-org:service:AVTransport:1#Play"' },
+    body: playSoap,
+    signal: ctrl2.signal,
+  });
+  clearTimeout(id2);
 }
 
 export function handleSystemRoutes(req: IncomingMessage, res: ServerResponse, url: string): boolean {
@@ -1069,24 +1263,16 @@ export function handleSystemRoutes(req: IncomingMessage, res: ServerResponse, ur
       return true;
     }
     const sessionToken = authHeader.substring(7);
-    let bodyStr = '';
-    req.on('data', (chunk) => { bodyStr += chunk; });
-    req.on('end', () => {
-      Promise.all([
-        import('../services/auth.service.js'),
-        import('../db/connection.js'),
-        import('bcrypt'),
-        import('child_process'),
-      ]).then(async ([authMod, { pool }, bcrypt, { exec }]) => {
-        const user = await authMod.validateSession(sessionToken);
+    parseBody(req).then(async (body) => {
+      try {
+        const user = await authService.validateSession(sessionToken);
         if (!user) {
           res.statusCode = 401;
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ error: 'Invalid session' }));
           return;
         }
-        let password = '';
-        try { password = JSON.parse(bodyStr).password || ''; } catch { /* */ }
+        const password = (body.password as string) || '';
         const dbResult = await pool.query('SELECT password_hash FROM users WHERE id = $1', [user.id]);
         const storedHash = dbResult.rows[0]?.password_hash;
         if (!storedHash || !(await bcrypt.compare(password, storedHash))) {
@@ -1102,11 +1288,11 @@ export function handleSystemRoutes(req: IncomingMessage, res: ServerResponse, ur
             if (error) console.error('Reboot error:', error);
           });
         }, 500);
-      }).catch((e) => {
+      } catch (e) {
         res.statusCode = 500;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ error: String((e as Error).message) }));
-      });
+      }
     });
     return true;
   }
@@ -1121,24 +1307,16 @@ export function handleSystemRoutes(req: IncomingMessage, res: ServerResponse, ur
       return true;
     }
     const sessionToken = authHeader.substring(7);
-    let bodyStr = '';
-    req.on('data', (chunk) => { bodyStr += chunk; });
-    req.on('end', () => {
-      Promise.all([
-        import('../services/auth.service.js'),
-        import('../db/connection.js'),
-        import('bcrypt'),
-        import('child_process'),
-      ]).then(async ([authMod, { pool }, bcrypt, { exec }]) => {
-        const user = await authMod.validateSession(sessionToken);
+    parseBody(req).then(async (body) => {
+      try {
+        const user = await authService.validateSession(sessionToken);
         if (!user) {
           res.statusCode = 401;
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ error: 'Invalid session' }));
           return;
         }
-        let password = '';
-        try { password = JSON.parse(bodyStr).password || ''; } catch { /* */ }
+        const password = (body.password as string) || '';
         const dbResult = await pool.query('SELECT password_hash FROM users WHERE id = $1', [user.id]);
         const storedHash = dbResult.rows[0]?.password_hash;
         if (!storedHash || !(await bcrypt.compare(password, storedHash))) {
@@ -1154,11 +1332,112 @@ export function handleSystemRoutes(req: IncomingMessage, res: ServerResponse, ur
             if (error) console.error('Shutdown error:', error);
           });
         }, 500);
-      }).catch((e) => {
+      } catch (e) {
         res.statusCode = 500;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ error: String((e as Error).message) }));
-      });
+      }
+    });
+    return true;
+  }
+
+  // ── System sync: flush filesystem buffers + DB checkpoint (requires auth only, no password needed) ──
+  if (path === '/api/system/sync' && req.method === 'POST') {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.statusCode = 401;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return true;
+    }
+    const sessionToken = authHeader.substring(7);
+    Promise.all([
+      import('../services/auth.service.js'),
+      import('child_process'),
+    ]).then(async ([authMod, { execSync }]) => {
+      const user = await authMod.validateSession(sessionToken);
+      if (!user) {
+        res.statusCode = 401;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Invalid session' }));
+        return;
+      }
+      // Flush filesystem buffers to disk (no sudo required)
+      execSync('sync', { timeout: 10000 });
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, message: 'Filesystem synced successfully' }));
+    }).catch((e) => {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: String((e as Error).message) }));
+    });
+    return true;
+  }
+
+  // ── Cast device discovery ──
+  if (path === '/api/cast/discover' && req.method === 'GET') {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.statusCode = 401;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return true;
+    }
+    const token = authHeader.substring(7);
+    // handleSystemRoutes is synchronous — use async IIFE so we can await
+    (async () => {
+      const user = await authService.validateSession(token);
+      if (!user) {
+        res.statusCode = 401;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Invalid session' }));
+        return;
+      }
+      const devices = await discoverCastDevices();
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, devices }));
+    })().catch((e) => {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: String((e as Error).message) }));
+    });
+    return true;
+  }
+
+  // ── Cast media to a discovered device ──
+  if (path === '/api/cast/send' && req.method === 'POST') {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.statusCode = 401;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return true;
+    }
+    const token = authHeader.substring(7);
+    // handleSystemRoutes is synchronous — use async IIFE so we can await
+    (async () => {
+      const user = await authService.validateSession(token);
+      if (!user) {
+        res.statusCode = 401;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Invalid session' }));
+        return;
+      }
+      const body = await parseBody(req);
+      const { controlUrl, mediaUrl, mimeType = 'video/mp4', title = 'Arcellite Media' } = body;
+      if (!controlUrl || !mediaUrl) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'controlUrl and mediaUrl are required' }));
+        return;
+      }
+      await dlnaCast(controlUrl, mediaUrl, mimeType, title);
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, message: 'Casting started' }));
+    })().catch((e) => {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: String((e as Error).message) }));
     });
     return true;
   }
@@ -1184,9 +1463,16 @@ export function handleSystemRoutes(req: IncomingMessage, res: ServerResponse, ur
         res.end(JSON.stringify({ error: 'Invalid session' }));
         return;
       }
-      execSync('sync; echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null', { timeout: 10000 });
+      // Step 1: flush filesystem buffers (no sudo, always works)
+      execSync('sync', { timeout: 5000 });
+      // Step 2: attempt OS page cache drop (needs sudo — non-fatal if unavailable)
+      try {
+        execSync('echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null 2>&1', { timeout: 8000 });
+      } catch { /* sudo not configured — sync still ran */ }
+      // Step 3: trigger Node.js GC if exposed
+      if (typeof (global as any).gc === 'function') (global as any).gc();
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ ok: true, message: 'Cache cleared successfully' }));
+      res.end(JSON.stringify({ ok: true, message: 'Cache cleared: filesystem synced, memory freed' }));
     }).catch((e) => {
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json');
