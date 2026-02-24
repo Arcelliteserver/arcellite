@@ -32,6 +32,10 @@ import {
   Link,
   Upload,
   Camera,
+  MailCheck,
+  Mail,
+  BadgeCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { authApi, setSessionToken } from '@/services/api.client';
 import type { UserData, RemovableDeviceInfo } from '@/types';
@@ -47,7 +51,7 @@ interface AccountSettingsViewProps {
 }
 
 const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel, onModelChange, onNavigate, user, onUserUpdate, onDeleteAccount, isMobile }) => {
-  const [settingsSection, setSettingsSection] = useState<'profile' | 'preferences' | 'danger' | 'transfer'>('profile');
+  const [settingsSection, setSettingsSection] = useState<'profile' | 'preferences' | 'danger' | 'transfer' | 'verification'>('profile');
   const [storageDevice, setStorageDevice] = useState<'builtin' | 'external'>('builtin');
   const [notifications, setNotifications] = useState(true);
   const [autoMirroring, setAutoMirroring] = useState(true);
@@ -96,6 +100,14 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   const [storageTransferPhase, setStorageTransferPhase] = useState('');
   const [storageTransferCopied, setStorageTransferCopied] = useState(0);
   const transferPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Email Verification state ───────────────────────────────────────────────
+  const [verifyCodeSent, setVerifyCodeSent] = useState(false);
+  const [verifyCode, setVerifyCode] = useState('');
+  const [verifySending, setVerifySending] = useState(false);
+  const [verifySubmitting, setVerifySubmitting] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifySuccess, setVerifySuccess] = useState(false);
 
   // Cleanup transfer polling interval on unmount
   useEffect(() => {
@@ -425,6 +437,54 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
     }
   };
 
+  // ── Email Verification handlers ───────────────────────────────────────────
+
+  const handleSendVerificationCode = async () => {
+    setVerifySending(true);
+    setVerifyError(null);
+    try {
+      const token = localStorage.getItem('sessionToken');
+      const res = await fetch('/api/auth/resend-code', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send code');
+      setVerifyCodeSent(true);
+      setVerifyCode('');
+    } catch (err: any) {
+      setVerifyError(err.message || 'Failed to send verification code');
+    } finally {
+      setVerifySending(false);
+    }
+  };
+
+  const handleSubmitVerificationCode = async () => {
+    if (verifyCode.length !== 6) return;
+    setVerifySubmitting(true);
+    setVerifyError(null);
+    try {
+      const token = localStorage.getItem('sessionToken');
+      const res = await fetch('/api/auth/verify-email', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: verifyCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Verification failed');
+      setVerifySuccess(true);
+      setVerifyCodeSent(false);
+      setVerifyCode('');
+      if (onUserUpdate && user) {
+        onUserUpdate({ ...user, emailVerified: true });
+      }
+    } catch (err: any) {
+      setVerifyError(err.message || 'Invalid or expired code');
+    } finally {
+      setVerifySubmitting(false);
+    }
+  };
+
   // ── Transfer Data handlers ─────────────────────────────────────────────────
 
   const detectTransferDrives = useCallback(async () => {
@@ -491,9 +551,10 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   };
 
 
-  const sidebarItems: { id: typeof settingsSection; label: string; icon: React.ElementType; danger?: boolean }[] = [
+  const sidebarItems: { id: typeof settingsSection; label: string; icon: React.ElementType; danger?: boolean; badge?: boolean }[] = [
     { id: 'profile', label: 'My Profile', icon: User },
     { id: 'preferences', label: 'Preferences', icon: Settings },
+    { id: 'verification', label: 'Verification', icon: MailCheck, badge: !user?.emailVerified },
     ...(!user?.isFamilyMember ? [{ id: 'transfer' as const, label: 'Transfer', icon: ArrowRightLeft }] : []),
     { id: 'danger', label: 'Danger Zone', icon: AlertTriangle, danger: true },
   ];
@@ -520,7 +581,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                 <button
                   key={item.id}
                   onClick={() => setSettingsSection(item.id)}
-                  className={`flex-1 min-w-0 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                  className={`relative flex-1 min-w-0 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                     isActive
                       ? 'bg-[#5D5FEF] text-white shadow-sm'
                       : item.danger
@@ -529,6 +590,9 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                   }`}
                 >
                   {item.label}
+                  {item.badge && (
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />
+                  )}
                 </button>
               );
             })}
@@ -558,7 +622,10 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                           ? 'text-gray-400 group-hover:text-red-400'
                           : 'text-gray-400'
                     }`} />
-                    {item.label}
+                    <span className="flex-1">{item.label}</span>
+                    {item.badge && (
+                      <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                    )}
                   </button>
                 );
               })}
@@ -911,6 +978,141 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ═══ Verification ═══ */}
+          {settingsSection === 'verification' && (
+            <div className="space-y-8">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 mb-1">Email Verification</h2>
+                <p className="text-sm text-gray-400">Verify your email address to enable password reset and account recovery.</p>
+              </div>
+
+              {/* Status card */}
+              {(user?.emailVerified || verifySuccess) ? (
+                <div className="flex items-start gap-4 p-5 bg-[#5D5FEF]/5 border border-[#5D5FEF]/15 rounded-2xl">
+                  <div className="w-10 h-10 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center flex-shrink-0">
+                    <BadgeCheck className="w-5 h-5 text-[#5D5FEF]" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">Email verified</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{user?.email}</p>
+                    <p className="text-xs text-gray-400 mt-1">Your email is verified. Password reset and account recovery are enabled.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-4 p-5 bg-amber-50 border border-amber-100 rounded-2xl">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <ShieldAlert className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">Email not verified</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{user?.email}</p>
+                    <p className="text-xs text-amber-700 mt-1">Without a verified email, you won't be able to reset your password if you forget it.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Action area — only shown if not yet verified */}
+              {!(user?.emailVerified || verifySuccess) && (
+                <div className="space-y-5">
+                  {!verifyCodeSent ? (
+                    <div className="space-y-4">
+                      <p className="text-sm text-gray-500">
+                        We'll send a 6-digit verification code to <span className="font-semibold text-gray-700">{user?.email}</span>. Enter the code here to confirm your email address.
+                      </p>
+                      {verifyError && (
+                        <div className="flex items-center gap-3 p-3 bg-red-50 border border-red-100 rounded-xl">
+                          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                          <p className="text-sm text-red-700">{verifyError}</p>
+                          <button onClick={() => setVerifyError(null)} className="ml-auto"><X className="w-4 h-4 text-red-400 hover:text-red-600" /></button>
+                        </div>
+                      )}
+                      <button
+                        onClick={handleSendVerificationCode}
+                        disabled={verifySending}
+                        className="px-5 py-2.5 text-sm font-bold text-white bg-[#5D5FEF] rounded-xl hover:bg-[#4B4DD4] transition-all flex items-center gap-2 shadow-sm shadow-[#5D5FEF]/20 disabled:opacity-50"
+                      >
+                        {verifySending ? (
+                          <><Loader2 className="w-4 h-4 animate-spin" /> Sending...</>
+                        ) : (
+                          <><Mail className="w-4 h-4" /> Send Verification Code</>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <p className="text-sm text-gray-500">
+                        A code was sent to <span className="font-semibold text-gray-700">{user?.email}</span>. Enter the 6-digit code below.
+                      </p>
+                      {verifyError && (
+                        <div className="flex items-center gap-3 p-3 bg-red-50 border border-red-100 rounded-xl">
+                          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                          <p className="text-sm text-red-700">{verifyError}</p>
+                          <button onClick={() => setVerifyError(null)} className="ml-auto"><X className="w-4 h-4 text-red-400 hover:text-red-600" /></button>
+                        </div>
+                      )}
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={verifyCode}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          placeholder="000000"
+                          className="w-full px-4 py-3 bg-[#F5F5F7] rounded-2xl border border-transparent focus:border-[#5D5FEF]/30 focus:bg-white transition-all text-xl font-black text-center tracking-[0.4em] outline-none placeholder:text-gray-200 placeholder:tracking-[0.4em]"
+                        />
+                        <div className="flex gap-3">
+                          <button
+                            onClick={handleSubmitVerificationCode}
+                            disabled={verifyCode.length !== 6 || verifySubmitting}
+                            className="flex-1 py-2.5 text-sm font-bold text-white bg-[#5D5FEF] rounded-xl hover:bg-[#4B4DD4] transition-all flex items-center justify-center gap-2 shadow-sm shadow-[#5D5FEF]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {verifySubmitting ? (
+                              <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</>
+                            ) : (
+                              <><Check className="w-4 h-4" /> Confirm Code</>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => { setVerifyCodeSent(false); setVerifyCode(''); setVerifyError(null); }}
+                            className="px-4 py-2.5 text-sm font-bold text-gray-500 bg-[#F5F5F7] rounded-xl hover:bg-gray-200 transition-all"
+                          >
+                            Back
+                          </button>
+                        </div>
+                        <button
+                          onClick={handleSendVerificationCode}
+                          disabled={verifySending}
+                          className="text-xs text-[#5D5FEF] hover:underline disabled:opacity-50"
+                        >
+                          {verifySending ? 'Sending...' : 'Resend code'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Info row */}
+              <div className="border-t border-gray-100 pt-6 space-y-3">
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-widest">Why verify?</p>
+                <div className="space-y-2">
+                  {[
+                    'Reset your password if you forget it',
+                    'Receive important security alerts',
+                    'Recover your account if you lose access',
+                  ].map(item => (
+                    <div key={item} className="flex items-center gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-[#5D5FEF]/10 flex items-center justify-center flex-shrink-0">
+                        <Check className="w-2.5 h-2.5 text-[#5D5FEF]" />
+                      </div>
+                      <p className="text-sm text-gray-600">{item}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 

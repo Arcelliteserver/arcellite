@@ -9,7 +9,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 import * as authService from '../services/auth.service.js';
 
 function json(res: ServerResponse, status: number, data: unknown) {
@@ -106,6 +106,174 @@ interface CompletedUpdateJob {
 let runningJob: UpdateJob | null = null;
 let lastCompletedJob: CompletedUpdateJob | null = null;
 
+// ── Shared job runner ─────────────────────────────────────────────────────────
+
+interface JobStep { cmd: string; label: string; }
+
+const UPDATE_STEPS: JobStep[] = [
+  { cmd: 'git pull origin main', label: 'Pulling latest code' },
+  { cmd: 'npm install',          label: 'Installing dependencies' },
+  { cmd: 'npm run build',        label: 'Building frontend' },
+  { cmd: 'npm run build:server', label: 'Compiling server' },
+  { cmd: 'pm2 restart arcellite',label: 'Restarting Arcellite' },
+];
+
+/** Start an async job (update or rollback). Returns startedAt or null if already running. */
+function startJob(
+  steps: JobStep[],
+  jobLabel: string,
+  opts: { clearVersionCache?: boolean } = {}
+): string | null {
+  if (runningJob) return null;
+  const cwd = process.cwd();
+  const startedAt = new Date().toISOString();
+  const log: string[] = [];
+  lastCompletedJob = null;
+
+  const push = (d: string) => { log.push(...d.split('\n').filter(l => l.trim())); };
+  runningJob = { startedAt, step: `Starting ${jobLabel.toLowerCase()}…`, log };
+
+  const runStep = (cmd: string, stepLabel: string) =>
+    new Promise<void>((resolve, reject) => {
+      if (runningJob) runningJob.step = stepLabel;
+      log.push(`\n── ${stepLabel} ──`);
+      const child = exec(cmd, { cwd, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+      child.stdout?.on('data', push);
+      child.stderr?.on('data', push);
+      child.on('close', code => code === 0 ? resolve() : reject(new Error(`${stepLabel} exited with code ${code}`)));
+    });
+
+  (async () => {
+    try {
+      for (const step of steps) await runStep(step.cmd, step.label);
+      log.push(`\n[  OK  ] ${jobLabel} completed successfully!`);
+      if (opts.clearVersionCache) { cachedCheck = null; cacheTime = 0; }
+      lastCompletedJob = { startedAt, finishedAt: new Date().toISOString(), step: `${jobLabel} complete!`, lines: [...log], success: true };
+    } catch (err) {
+      log.push(`\n[ERROR] ${(err as Error).message}`);
+      lastCompletedJob = { startedAt, finishedAt: new Date().toISOString(), step: `${jobLabel} failed`, lines: [...log], success: false };
+    } finally {
+      runningJob = null;
+      setTimeout(() => { lastCompletedJob = null; }, 15 * 60 * 1000);
+    }
+  })();
+
+  return startedAt;
+}
+
+// ── Parse JSON body ───────────────────────────────────────────────────────────
+
+function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise(resolve => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => { try { resolve(JSON.parse(data || '{}')); } catch { resolve({}); } });
+  });
+}
+
+// ── Git commit info ───────────────────────────────────────────────────────────
+
+interface CommitInfo {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  type: string;
+  typeLabel: string;
+  date: string;
+}
+
+function detectCommitType(subject: string): { type: string; typeLabel: string } {
+  const s = subject.toLowerCase();
+  if (/^feat(\(.+\))?[!:]/.test(s)) return { type: 'feature', typeLabel: 'Feature' };
+  if (/^fix(\(.+\))?[!:]/.test(s))  return { type: 'bugfix',  typeLabel: 'Bug Fix' };
+  if (/^perf(\(.+\))?[!:]/.test(s)) return { type: 'perf',    typeLabel: 'Performance' };
+  if (/^refactor(\(.+\))?[!:]/.test(s)) return { type: 'improvement', typeLabel: 'Improvement' };
+  if (/^docs?(\(.+\))?[!:]/.test(s)) return { type: 'docs',  typeLabel: 'Docs' };
+  if (/^(chore|ci|build|test|style)(\(.+\))?[!:]/.test(s)) return { type: 'maintenance', typeLabel: 'Maintenance' };
+  if (/^(add|new|implement)/i.test(s)) return { type: 'feature', typeLabel: 'New' };
+  if (/^(fix|resolve|patch|correct)/i.test(s)) return { type: 'bugfix', typeLabel: 'Bug Fix' };
+  return { type: 'update', typeLabel: 'Update' };
+}
+
+function getGitHistory(n = 15): CommitInfo[] {
+  try {
+    const cwd = process.cwd();
+    const raw = execSync(`git log --pretty=format:"%H|%s|%ci" -${n}`, { cwd, timeout: 8000 }).toString();
+    return raw.split('\n').filter(Boolean).map(line => {
+      const firstPipe  = line.indexOf('|');
+      const secondPipe = line.indexOf('|', firstPipe + 1);
+      const hash    = line.slice(0, firstPipe);
+      const subject = line.slice(firstPipe + 1, secondPipe);
+      const date    = line.slice(secondPipe + 1);
+      const { type, typeLabel } = detectCommitType(subject);
+      return {
+        hash:      hash.trim(),
+        shortHash: hash.trim().slice(0, 7),
+        subject:   subject.trim(),
+        type,
+        typeLabel,
+        date: date ? new Date(date).toLocaleDateString() : '',
+      };
+    });
+  } catch { return []; }
+}
+
+// ── Auto-update schedule ──────────────────────────────────────────────────────
+
+interface UpdateScheduleConfig { enabled: boolean; time: string; }
+
+let scheduleConfig: UpdateScheduleConfig = { enabled: false, time: '02:00' };
+let lastAutoRunDate: string | null = null;
+let scheduleIntervalId: ReturnType<typeof setInterval> | null = null;
+
+const SCHEDULE_FILE = (() => {
+  try {
+    const homeDir = process.env.HOME || process.env.USERPROFILE || '/root';
+    const dir = path.join(homeDir, '.arcellite');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return path.join(dir, 'update-schedule.json');
+  } catch { return ''; }
+})();
+
+function loadScheduleConfig(): void {
+  try {
+    if (SCHEDULE_FILE && fs.existsSync(SCHEDULE_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(SCHEDULE_FILE, 'utf8'));
+      scheduleConfig = { enabled: !!raw.enabled, time: String(raw.time || '02:00') };
+    }
+  } catch { /* use defaults */ }
+}
+
+function saveScheduleConfig(): void {
+  try {
+    if (SCHEDULE_FILE) fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(scheduleConfig, null, 2), 'utf8');
+  } catch { /* silent */ }
+}
+
+function startScheduleTimer(): void {
+  if (scheduleIntervalId) clearInterval(scheduleIntervalId);
+  scheduleIntervalId = setInterval(async () => {
+    if (!scheduleConfig.enabled) return;
+    const [hh, mm] = scheduleConfig.time.split(':').map(Number);
+    if (isNaN(hh) || isNaN(mm)) return;
+    const now = new Date();
+    if (now.getHours() !== hh || now.getMinutes() !== mm) return;
+    const today = now.toISOString().slice(0, 10);
+    if (lastAutoRunDate === today) return; // already triggered today
+    lastAutoRunDate = today;
+    try {
+      const result = await doUpdateCheck();
+      if (result.updateAvailable && !runningJob) {
+        startJob(UPDATE_STEPS, 'Auto-update', { clearVersionCache: true });
+      }
+    } catch { /* silent */ }
+  }, 60_000);
+}
+
+// Initialize schedule on module load
+loadScheduleConfig();
+startScheduleTimer();
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function handleUpdateRoutes(
@@ -141,73 +309,80 @@ export async function handleUpdateRoutes(
   // ── POST /api/update/run ─────────────────────────────────────────────────────
   if (urlPath === '/api/update/run' && req.method === 'POST') {
     if (!(await requireAdmin(req, res))) return true;
+    if (runningJob) { json(res, 409, { error: 'An update is already running' }); return true; }
+    const startedAt = startJob(UPDATE_STEPS, 'Update', { clearVersionCache: true });
+    if (!startedAt) { json(res, 409, { error: 'An update is already running' }); return true; }
+    json(res, 202, { message: 'Update started', startedAt });
+    return true;
+  }
 
-    if (runningJob) {
-      json(res, 409, { error: 'An update is already running' });
+  // ── GET /api/update/schedule ──────────────────────────────────────────────
+  if (urlPath === '/api/update/schedule' && req.method === 'GET') {
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) { json(res, 401, { error: 'Unauthorized' }); return true; }
+    const user = await authService.validateSession(auth.substring(7));
+    if (!user) { json(res, 401, { error: 'Unauthorized' }); return true; }
+    let nextRun: string | null = null;
+    if (scheduleConfig.enabled) {
+      const [hh, mm] = scheduleConfig.time.split(':').map(Number);
+      const candidate = new Date();
+      candidate.setHours(hh, mm, 0, 0);
+      if (candidate <= new Date()) candidate.setDate(candidate.getDate() + 1);
+      nextRun = candidate.toISOString();
+    }
+    json(res, 200, { ...scheduleConfig, nextRun });
+    return true;
+  }
+
+  // ── POST /api/update/schedule ─────────────────────────────────────────────
+  if (urlPath === '/api/update/schedule' && req.method === 'POST') {
+    if (!(await requireAdmin(req, res))) return true;
+    const body = await parseBody(req);
+    const { enabled, time } = body;
+    if (typeof enabled !== 'boolean') { json(res, 400, { error: 'enabled must be boolean' }); return true; }
+    const timeStr = String(time || '');
+    if (!/^\d{2}:\d{2}$/.test(timeStr)) { json(res, 400, { error: 'time must be HH:MM' }); return true; }
+    const [hh, mm] = timeStr.split(':').map(Number);
+    if (hh > 23 || mm > 59) { json(res, 400, { error: 'Invalid time' }); return true; }
+    scheduleConfig = { enabled, time: timeStr };
+    saveScheduleConfig();
+    startScheduleTimer();
+    json(res, 200, { ...scheduleConfig, message: 'Schedule saved' });
+    return true;
+  }
+
+  // ── GET /api/update/changelog ─────────────────────────────────────────────
+  if (urlPath.startsWith('/api/update/changelog') && req.method === 'GET') {
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) { json(res, 401, { error: 'Unauthorized' }); return true; }
+    const user = await authService.validateSession(auth.substring(7));
+    if (!user) { json(res, 401, { error: 'Unauthorized' }); return true; }
+    const nParam = new URL(`http://x${url}`).searchParams.get('n');
+    const n = Math.min(50, Math.max(5, parseInt(nParam || '20', 10) || 20));
+    json(res, 200, { commits: getGitHistory(n) });
+    return true;
+  }
+
+  // ── POST /api/update/rollback ─────────────────────────────────────────────
+  if (urlPath === '/api/update/rollback' && req.method === 'POST') {
+    if (!(await requireAdmin(req, res))) return true;
+    if (runningJob) { json(res, 409, { error: 'An update or rollback is already running' }); return true; }
+    const body = await parseBody(req);
+    const hash = String(body.hash || '');
+    if (!hash || !/^[0-9a-f]{4,40}$/i.test(hash)) {
+      json(res, 400, { error: 'Invalid commit hash' });
       return true;
     }
-
-    const cwd = process.cwd();
-    const startedAt = new Date().toISOString();
-    const log: string[] = [];
-    lastCompletedJob = null;
-
-    const push = (d: string) => {
-      const lines = d.split('\n').filter(l => l.trim());
-      log.push(...lines);
-    };
-
-    runningJob = { startedAt, step: 'Starting update...', log };
-
-    const runStep = (cmd: string, stepLabel: string) =>
-      new Promise<void>((resolve, reject) => {
-        if (runningJob) runningJob.step = stepLabel;
-        log.push(`\n── ${stepLabel} ──`);
-        const child = exec(cmd, { cwd, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
-        child.stdout?.on('data', push);
-        child.stderr?.on('data', push);
-        child.on('close', (code) => {
-          if (code === 0) resolve();
-          else reject(new Error(`${stepLabel} exited with code ${code}`));
-        });
-      });
-
-    // Run all steps in background
-    (async () => {
-      try {
-        await runStep('git pull origin main', 'Pulling latest code');
-        await runStep('npm install', 'Installing dependencies');
-        await runStep('npm run build', 'Building frontend');
-        await runStep('npm run build:server', 'Compiling server');
-        await runStep('pm2 restart arcellite', 'Restarting Arcellite');
-        log.push('\n[  OK  ] Arcellite updated and restarted successfully!');
-        // Bust the version cache so next check shows the new version
-        cachedCheck = null;
-        cacheTime = 0;
-        lastCompletedJob = {
-          startedAt,
-          finishedAt: new Date().toISOString(),
-          step: 'Update complete!',
-          lines: [...log],
-          success: true,
-        };
-      } catch (err) {
-        log.push(`\n[ERROR] ${(err as Error).message}`);
-        lastCompletedJob = {
-          startedAt,
-          finishedAt: new Date().toISOString(),
-          step: 'Update failed',
-          lines: [...log],
-          success: false,
-        };
-      } finally {
-        runningJob = null;
-        // Keep log available for 15 minutes after completion
-        setTimeout(() => { lastCompletedJob = null; }, 15 * 60 * 1000);
-      }
-    })();
-
-    json(res, 202, { message: 'Update started', startedAt });
+    const rollbackSteps: JobStep[] = [
+      { cmd: `git reset --hard ${hash}`, label: 'Rolling back code' },
+      { cmd: 'npm install',              label: 'Installing dependencies' },
+      { cmd: 'npm run build',            label: 'Building frontend' },
+      { cmd: 'npm run build:server',     label: 'Compiling server' },
+      { cmd: 'pm2 restart arcellite',    label: 'Restarting Arcellite' },
+    ];
+    const startedAt = startJob(rollbackSteps, 'Rollback', { clearVersionCache: true });
+    if (!startedAt) { json(res, 409, { error: 'Already running' }); return true; }
+    json(res, 202, { message: 'Rollback started', startedAt, hash });
     return true;
   }
 

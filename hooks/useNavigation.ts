@@ -30,6 +30,7 @@ const TAB_TO_PATH: Record<string, string> = {
   drive: '/drive',
   help: '/help',
   documentation: '/docs',
+  updates: '/updates',
 };
 
 const PATH_TO_TAB: Record<string, string> = Object.fromEntries(

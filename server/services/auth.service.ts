@@ -647,6 +647,8 @@ export async function getUserSettings(userId: number): Promise<{
   aiAutoRename: boolean;
   pdfThumbnails: boolean;
   videoThumbnails: boolean;
+  castMode: string;
+  castWebhookUrl: string;
   secTwoFactor: boolean;
   secFileObfuscation: boolean;
   secGhostFolders: boolean;

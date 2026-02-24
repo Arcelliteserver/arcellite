@@ -726,7 +726,7 @@ export function handleAppsRoutes(req: IncomingMessage, res: ServerResponse, url:
       if (ollamaInstalled) {
         try { execSync('pgrep -x ollama', { stdio: 'ignore', timeout: 3000 }); ollamaRunning = true; } catch {}
       }
-      const statuses: Record<string, { installed: boolean; running: boolean }> = {
+      const statuses: Record<string, { installed: boolean; running: boolean; ports?: Record<string, number> }> = {
         docker: { installed: dockerInstalled, running: dockerInstalled },
         cloudflare: { installed: cloudflareInstalled, running: cloudflareInstalled },
         ollama: { installed: ollamaInstalled, running: ollamaRunning },

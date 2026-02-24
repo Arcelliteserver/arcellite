@@ -414,6 +414,16 @@ export default defineConfig(({ mode }) => {
                 return;
               }
 
+              // SPA history fallback: serve index.html for app routes so /files, /music, /settings etc. work on direct load and refresh
+              const isAppRoute = req.method === 'GET'
+                && !url?.startsWith('/api')
+                && !url?.startsWith('/@')
+                && !url?.startsWith('/node_modules')
+                && !url?.includes('.');
+              if (isAppRoute) {
+                req.url = '/index.html';
+              }
+
               next();
             });
           },

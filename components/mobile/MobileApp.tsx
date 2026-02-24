@@ -469,7 +469,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
             {subPage === 'security' && <MobileSecurityVaultView onAutoLockChange={onAutoLockChange} onFolderLockChange={onFolderLockChange} />}
             {subPage === 'notifications' && <NotificationsView />}
             {subPage === 'appearance' && (
-              <AppearanceView showToast={showToast} onSettingsChange={onSettingsChange} />
+              <AppearanceView showToast={showToast} onSettingsChange={onSettingsChange} isMobile />
             )}
             {subPage === 'apikeys' && <APIKeysView showToast={showToast} />}
             {subPage === 'aisecurity' && <AISecurityView showToast={showToast} isMobile />}

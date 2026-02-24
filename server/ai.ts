@@ -1138,7 +1138,7 @@ export async function chatWithAI(
   console.log(`[AI] Chat request: model=${model} provider=${provider} apiModel=${apiModel} messages=${messages.length}`);
 
   // Helper: make a single chat request with timeout + retry
-  const makeRequest = async (requestModel: string, retries: number = 1): Promise<{ content: string; error?: string }> => {
+  const makeRequest = async (requestModel: string, retries: number = 1): Promise<{ content: string; error?: string; isReasoningOnly?: boolean }> => {
     let lastError: any;
     for (let attempt = 0; attempt <= retries; attempt++) {
       const controller = new AbortController();
