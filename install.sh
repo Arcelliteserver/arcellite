@@ -901,7 +901,8 @@ success ".env generated with secure credentials"
 # ═════════════════════════════════════════════════════════════════════
 step "7/9  Installing npm dependencies"
 
-npm install --production=false 2>&1 | tail -3
+info "Installing npm packages (this may take a minute on first run)..."
+npm install --production=false
 success "npm packages installed"
 
 
@@ -910,12 +911,12 @@ success "npm packages installed"
 # ═════════════════════════════════════════════════════════════════════
 step "8/9  Building Arcellite"
 
-info "Building frontend..."
-npm run build 2>&1 | tail -3
+info "Building frontend (Vite — this may take 20–60 seconds)..."
+npm run build
 success "Frontend built"
 
-info "Compiling server..."
-npm run build:server 2>&1 | tail -3
+info "Compiling server (TypeScript)..."
+npm run build:server
 success "Server compiled"
 
 
