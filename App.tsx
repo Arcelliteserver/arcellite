@@ -223,8 +223,47 @@ const App: React.FC = () => {
     fileSystem.setRecentItems([]);
   };
 
-  // ── Early renders: skeleton matches app layout (sidebar + dashboard), light style ──
+  // ── Early renders: skeleton matches app layout (sidebar + dashboard on desktop; header + content + bottom nav on mobile) ──
   if (auth.checkingSetup) {
+    const useMobileSkeleton = layout.isMobile || layout.isMobileDevice;
+    if (useMobileSkeleton) {
+      return (
+        <div className="flex flex-col h-screen bg-[#F7F7F7] text-[#222222] antialiased overflow-hidden">
+          {/* Mobile skeleton: matches MobileHeader (search bar + bell) */}
+          <header className="fixed top-0 left-0 right-0 z-[200] safe-area-top bg-[#F7F7F7]/95 backdrop-blur-sm border-b border-gray-200/60">
+            <div className="flex items-center gap-3 px-4 sm:px-5 h-[72px] pt-1">
+              <div className="flex-1 min-w-0 h-[48px] bg-white border border-gray-200 rounded-2xl animate-pulse" />
+              <div className="w-[48px] h-[48px] rounded-2xl bg-white border border-gray-200 animate-pulse flex-shrink-0" />
+            </div>
+          </header>
+          {/* Main: same padding as MobileApp main (pt for header, pb for bottom nav) */}
+          <main className="flex-1 min-h-0 pt-[76px] pb-[120px] sm:pb-[130px] overflow-y-auto overflow-x-hidden px-4 sm:px-5 py-5">
+            <div className="mb-5">
+              <div className="h-6 w-28 rounded-lg bg-gray-200 animate-pulse mb-3" />
+              <div className="grid grid-cols-2 gap-3">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="h-24 rounded-2xl bg-gray-100 border border-gray-100 animate-pulse" style={{ animationDelay: `${i * 60}ms` }} />
+                ))}
+              </div>
+            </div>
+            <div className="h-4 w-32 rounded bg-gray-100 animate-pulse mb-2" />
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-20 rounded-2xl bg-gray-100 border border-gray-100 animate-pulse" style={{ animationDelay: `${(i + 4) * 50}ms` }} />
+              ))}
+            </div>
+          </main>
+          {/* Bottom nav: matches MobileBottomNav (dark pill, 5 items) */}
+          <nav className="fixed bottom-0 left-0 right-0 z-[100] px-3 sm:px-4 pb-4 sm:pb-5 safe-area-bottom pointer-events-none">
+            <div className="h-[72px] sm:h-[84px] bg-[#111214] border border-[#2d2d2f] rounded-3xl flex items-center justify-around px-2 shadow-xl shadow-black/20 pointer-events-none">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="w-9 h-9 rounded-xl bg-[#2d2d2f] animate-pulse" style={{ animationDelay: `${i * 40}ms` }} />
+              ))}
+            </div>
+          </nav>
+        </div>
+      );
+    }
     return (
       <div className="flex h-screen bg-gray-100 text-[#1d1d1f] antialiased overflow-hidden">
         {/* Sidebar placeholder */}
@@ -299,6 +338,32 @@ const App: React.FC = () => {
     const showDenied = auth.showAccessDenied || auth.accessStatus === 'denied';
     if (showDenied) return layout.isMobile ? <MobileAccessDeniedView /> : <AccessDeniedView />;
     if (auth.accessStatus === 'pending') {
+      const useMobileSkeleton = layout.isMobile || layout.isMobileDevice;
+      if (useMobileSkeleton) {
+        return (
+          <div className="flex flex-col h-screen bg-[#F7F7F7] text-[#222222] antialiased overflow-hidden">
+            <header className="fixed top-0 left-0 right-0 z-[200] safe-area-top bg-[#F7F7F7]/95 backdrop-blur-sm border-b border-gray-200/60">
+              <div className="flex items-center gap-3 px-4 sm:px-5 h-[72px] pt-1">
+                <div className="flex-1 min-w-0 h-[48px] bg-white border border-gray-200 rounded-2xl animate-pulse" />
+                <div className="w-[48px] h-[48px] rounded-2xl bg-white border border-gray-200 animate-pulse flex-shrink-0" />
+              </div>
+            </header>
+            <main className="flex-1 min-h-0 pt-[76px] pb-[120px] sm:pb-[130px] flex items-center justify-center px-4">
+              <div className="flex items-center gap-2 text-gray-400">
+                <div className="w-5 h-5 rounded-full border-2 border-gray-200 border-t-[#5D5FEF] animate-spin" />
+                <span className="text-sm font-medium">Loading…</span>
+              </div>
+            </main>
+            <nav className="fixed bottom-0 left-0 right-0 z-[100] px-3 sm:px-4 pb-4 sm:pb-5 safe-area-bottom pointer-events-none">
+              <div className="h-[72px] sm:h-[84px] bg-[#111214] border border-[#2d2d2f] rounded-3xl flex items-center justify-around px-2 shadow-xl shadow-black/20">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="w-9 h-9 rounded-xl bg-[#2d2d2f] animate-pulse" />
+                ))}
+              </div>
+            </nav>
+          </div>
+        );
+      }
       return (
         <div className="flex h-screen bg-gray-100 text-[#1d1d1f] antialiased overflow-hidden">
           <div className="w-60 flex-shrink-0 h-full bg-white border-r border-gray-200 flex flex-col">

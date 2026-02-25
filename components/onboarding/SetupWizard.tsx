@@ -40,6 +40,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [codeDigits, setCodeDigits] = useState<string[]>(['', '', '', '', '', '']);
   const codeInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const transferPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [storageType, setStorageType] = useState<'builtin' | 'external'>('builtin');
   const [externalDrives, setExternalDrives] = useState<RemovableDeviceInfo[]>([]);
   const [selectedDrive, setSelectedDrive] = useState<RemovableDeviceInfo | null>(null);
@@ -87,6 +88,12 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
 
   useEffect(() => {
     detectTransferDevices();
+    return () => {
+      if (transferPollRef.current) {
+        clearInterval(transferPollRef.current);
+        transferPollRef.current = null;
+      }
+    };
   }, []);
 
   // Detect external drives when entering storage step
@@ -292,8 +299,8 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
         }),
       });
 
-      // Poll progress
-      const poll = setInterval(async () => {
+      // Poll progress — stored in ref so unmount cleanup can cancel it
+      transferPollRef.current = setInterval(async () => {
         try {
           const res = await fetch('/api/transfer/status');
           const status = await res.json();
@@ -302,7 +309,8 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
           setTransferStatus(status);
 
           if (status.phase === 'done') {
-            clearInterval(poll);
+            clearInterval(transferPollRef.current!);
+            transferPollRef.current = null;
             // Capture session token from import result
             if (status.sessionToken) {
               setTransferSessionToken(status.sessionToken);
@@ -311,12 +319,14 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
             setTransferComplete(true);
             setTransferImporting(false);
           } else if (status.phase === 'error') {
-            clearInterval(poll);
+            clearInterval(transferPollRef.current!);
+            transferPollRef.current = null;
             setTransferImporting(false);
             setError(status.error || 'Import failed');
           }
         } catch {
-          clearInterval(poll);
+          clearInterval(transferPollRef.current!);
+          transferPollRef.current = null;
           setTransferImporting(false);
           setError('Lost connection to server');
         }

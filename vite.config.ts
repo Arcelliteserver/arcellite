@@ -257,6 +257,11 @@ export default defineConfig(({ mode }) => {
                 authRoutes.handleResetSettings(req, res);
                 return;
               }
+              if (url === '/api/auth/change-password' && req.method === 'POST') {
+                const authRoutes = await import('./server/routes/auth.routes.js');
+                authRoutes.handleChangePassword(req, res);
+                return;
+              }
 
               // ── Notification routes ──
               if (url === '/api/notifications' && req.method === 'GET') {

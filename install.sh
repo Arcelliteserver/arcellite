@@ -901,7 +901,7 @@ success ".env generated with secure credentials"
 # ═════════════════════════════════════════════════════════════════════
 step "7/9  Installing npm dependencies"
 
-npm install --production=false 2>&1 | tail -3
+npm install --production=false 2>&1 | tail -5
 success "npm packages installed"
 
 
@@ -910,12 +910,44 @@ success "npm packages installed"
 # ═════════════════════════════════════════════════════════════════════
 step "8/9  Building Arcellite"
 
-info "Building frontend..."
-npm run build 2>&1 | tail -3
+info "Building frontend...  (first build can take 2–8 min — do not interrupt)"
+
+# ── Helper: spinner while a background job runs ──────────────────────
+run_with_spinner() {
+  local label="$1"; shift
+  local log; log=$(mktemp)
+  "$@" >"$log" 2>&1 &
+  local pid=$!
+  local spin=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local i=0 elapsed=0
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\r  \033[0;36m%s\033[0m  %s  \033[2m%ds\033[0m" \
+      "${spin[$i]}" "$label" "$elapsed"
+    i=$(( (i + 1) % 10 ))
+    sleep 0.2
+    # increment elapsed every 5 ticks (≈1s)
+    (( i % 5 == 0 )) && (( elapsed++ )) || true
+  done
+  printf "\r                                                  \r"
+  if wait "$pid"; then
+    tail -5 "$log"
+    rm -f "$log"
+    return 0
+  else
+    echo ""
+    tail -30 "$log"
+    rm -f "$log"
+    return 1
+  fi
+}
+
+run_with_spinner "Building frontend..." npm run build \
+  || fail "Frontend build failed — see output above"
 success "Frontend built"
 
-info "Compiling server..."
-npm run build:server 2>&1 | tail -3
+info "Compiling server TypeScript..."
+run_with_spinner "Compiling server..." npm run build:server \
+  || fail "Server compile failed — see TypeScript errors above"
 success "Server compiled"
 
 

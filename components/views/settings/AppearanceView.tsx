@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Sparkles, FileImage, BookOpen, Film, Loader2, Wand2, Eye, Cast, Wifi, Link2 } from 'lucide-react';
+import { Sparkles, FileImage, BookOpen, Film, Loader2, Wand2, Eye, Cast, Wifi, Link2, History } from 'lucide-react';
 import { authApi } from '@/services/api.client';
 
 interface AppearanceViewProps {
@@ -27,6 +27,38 @@ const AppearanceView: React.FC<AppearanceViewProps> = ({ showToast, onSettingsCh
     log: { oldName: string; newName: string }[];
   } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const [renameHistory, setRenameHistory] = useState<{ key: string; currentName: string; originalName: string; renamedAt: number }[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  const fetchRenameHistory = useCallback(async () => {
+    if (historyLoaded) return;
+    setHistoryLoading(true);
+    try {
+      const token = localStorage.getItem('sessionToken');
+      const res = await fetch('/api/ai/renamed-files', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (data.renamedFiles) {
+        const entries = Object.entries(data.renamedFiles as Record<string, { originalName: string; renamedAt: number }>)
+          .map(([key, val]) => ({
+            key,
+            currentName: key.split('/').pop() || key,
+            originalName: val.originalName,
+            renamedAt: val.renamedAt,
+          }))
+          .sort((a, b) => b.renamedAt - a.renamedAt);
+        setRenameHistory(entries);
+        setHistoryLoaded(true);
+      }
+    } catch {
+      // Silent — history remains empty
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyLoaded]);
 
   useEffect(() => {
     authApi.getSettings()
@@ -153,6 +185,12 @@ const AppearanceView: React.FC<AppearanceViewProps> = ({ showToast, onSettingsCh
 
   type SectionId = 'overview' | 'ai' | 'thumbnails' | 'cast';
   const [activeSection, setActiveSection] = useState<SectionId>('overview');
+
+  useEffect(() => {
+    if (activeSection === 'ai' && aiAutoRename) {
+      fetchRenameHistory();
+    }
+  }, [activeSection, aiAutoRename, fetchRenameHistory]);
 
   const sidebarItems: { id: SectionId; label: string; icon: React.ElementType }[] = [
     { id: 'overview', label: 'Overview', icon: Sparkles },
@@ -368,6 +406,49 @@ const AppearanceView: React.FC<AppearanceViewProps> = ({ showToast, onSettingsCh
                   )}
 
                   <p className="text-[10px] text-gray-400">Requires a Google Gemini API key configured in API Keys settings.</p>
+                </div>
+              )}
+
+              {/* Rename History */}
+              {aiAutoRename && (
+                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <History className="w-4 h-4 text-gray-400" />
+                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Rename History</p>
+                    </div>
+                    {historyLoaded && (
+                      <button
+                        onClick={() => { setHistoryLoaded(false); setRenameHistory([]); fetchRenameHistory(); }}
+                        className="text-[10px] font-bold text-[#5D5FEF] hover:text-[#4B4DD4]"
+                      >
+                        Refresh
+                      </button>
+                    )}
+                  </div>
+
+                  {historyLoading ? (
+                    <div className="flex items-center gap-2 py-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#5D5FEF]" />
+                      <span className="text-xs text-gray-400">Loading...</span>
+                    </div>
+                  ) : renameHistory.length === 0 ? (
+                    <p className="text-xs text-gray-400">No AI renames recorded yet. Photos will appear here after AI Auto-Rename processes them.</p>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto space-y-2">
+                      {renameHistory.map((entry) => (
+                        <div key={entry.key} className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-0">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] text-gray-400 truncate">{entry.originalName}</p>
+                            <p className="text-xs font-medium text-[#5D5FEF] truncate">→ {entry.currentName}</p>
+                          </div>
+                          <p className="text-[10px] text-gray-300 flex-shrink-0 pt-0.5">
+                            {new Date(entry.renamedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -339,9 +339,13 @@ const MobileFileViewer: React.FC<MobileFileViewerProps> = ({
         if (!resp.ok) throw new Error('Direct failed');
       } catch {
         // Use server-side proxy
+        const proxyToken = localStorage.getItem('sessionToken');
         await fetch('/api/apps/webhook-proxy', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(proxyToken ? { Authorization: `Bearer ${proxyToken}` } : {}),
+          },
           body: JSON.stringify({
             webhookUrl,
             method: 'POST',

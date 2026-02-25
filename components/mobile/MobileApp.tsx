@@ -32,6 +32,7 @@ import MobileDatabaseView from './MobileDatabaseView';
 import MobileUSBView from './MobileUSBView';
 import MobileSearchDropdown from './MobileSearchDropdown';
 import MobileFamilySharingView from './MobileFamilySharingView';
+import FamilySharingView from '../views/settings/FamilySharingView';
 import ManageStorageView from '../views/settings/ManageStorageView';
 
 export interface MobileAppProps {
@@ -164,7 +165,7 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
         settings: 'Settings',
         security: 'Security Vault',
         notifications: 'Notifications',
-        appearance: 'Appearance',
+        appearance: 'Smart Features',
         apikeys: 'API Keys',
         aisecurity: 'AI Security',
         export: 'Export Data',
@@ -480,7 +481,10 @@ const MobileApp: React.FC<MobileAppProps> = (props) => {
             {subPage === 'trash' && <TrashView />}
             {subPage === 'database' && <MobileDatabaseView />}
             {subPage === 'shared' && <SharedView showToast={showToast} />}
-            {subPage === 'family' && <MobileFamilySharingView showToast={showToast} />}
+            {subPage === 'family' && (isFamilyMember
+              ? <MobileFamilySharingView showToast={showToast} />
+              : <FamilySharingView showToast={showToast} />
+            )}
             {subPage === 'manage-storage' && <ManageStorageView isFamilyMember={isFamilyMember} />}
           </div>
         ) : mobileTab === 'overview' ? (

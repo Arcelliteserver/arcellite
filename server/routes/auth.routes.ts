@@ -479,6 +479,45 @@ export async function handleUpdateProfile(req: IncomingMessage, res: ServerRespo
 }
 
 /**
+ * POST /api/auth/change-password
+ * Change the authenticated user's password after verifying the current one.
+ */
+export async function handleChangePassword(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    const sessionToken = authHeader.substring(7);
+    const user = await authService.validateSession(sessionToken);
+    if (!user) {
+      sendJson(res, 401, { error: 'Invalid or expired session' });
+      return;
+    }
+    const { currentPassword, newPassword } = await parseBody(req);
+    if (!currentPassword || !newPassword) {
+      sendJson(res, 400, { error: 'Current password and new password are required' });
+      return;
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      sendJson(res, 400, { error: 'New password must be at least 8 characters' });
+      return;
+    }
+    const changed = await authService.changeUserPassword(user.id, currentPassword, newPassword);
+    if (!changed) {
+      sendJson(res, 401, { error: 'Current password is incorrect' });
+      return;
+    }
+    authService.logActivity(user.id, 'change_password', 'Password changed').catch(() => {});
+    sendJson(res, 200, { success: true, message: 'Password changed successfully' });
+  } catch (error: any) {
+    console.error('[Auth] Change password error:', error);
+    sendJson(res, 500, { error: error.message || 'Failed to change password' });
+  }
+}
+
+/**
  * POST /api/auth/complete-setup
  * Mark setup as complete
  */

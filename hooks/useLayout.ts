@@ -4,14 +4,20 @@ import type { ToastData } from '@/components/common/Toast';
 import { AI_MODELS } from '@/constants';
 import { getSessionToken } from '@/services/api.client';
 
+function getIsMobileDeviceUA(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /Android|webOS|iPhone|iPod|iPad|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
 export function useLayout() {
   const [detailsWidth, setDetailsWidth] = useState(340);
   const [isResizing, setIsResizing] = useState(false);
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
-  const [isMobileDevice] = useState(() => {
-    if (typeof navigator === 'undefined') return false;
-    return /Android.*Mobile|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  // Initial isMobile: use viewport OR user-agent so mobile gets correct skeleton on first paint (before viewport meta applies)
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 768 || getIsMobileDeviceUA();
   });
+  const [isMobileDevice] = useState(getIsMobileDeviceUA);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1280);
   const [mountedDevice, setMountedDevice] = useState<RemovableDeviceInfo | null>(() => {

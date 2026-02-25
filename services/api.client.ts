@@ -167,6 +167,12 @@ export const authApi = {
   revokeSession: (sessionId: number) =>
     apiRequest(`/api/auth/sessions/${sessionId}`, { method: 'DELETE' }),
 
+  changePassword: (currentPassword: string, newPassword: string) =>
+    apiRequest('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
   deleteAccount: () =>
     apiRequest('/api/auth/account', { method: 'DELETE' }),
 

@@ -1192,18 +1192,20 @@ const MyAppsView: React.FC<{ isMobile?: boolean }> = ({ isMobile }) => {
       <div className={`flex gap-6 md:gap-8 ${isMobile ? 'flex-col' : 'flex-row'}`}>
         {/* Navigation: top tabs on mobile, sidebar on desktop */}
         {isMobile ? (
-          <div className="flex gap-1 p-1 bg-white rounded-xl border border-gray-200 shadow-sm">
+          <div className="grid grid-cols-2 gap-2 p-2 bg-white rounded-xl border border-gray-200 shadow-sm">
             {sidebarItems.map((item) => {
+              const Icon = item.icon;
               const isActive = activeSection === item.id;
               return (
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
-                  className={`flex-1 min-w-0 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                    isActive ? 'bg-[#5D5FEF] text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100'
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all text-left ${
+                    isActive ? 'bg-[#5D5FEF] text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100 active:bg-gray-100'
                   }`}
                 >
-                  {item.label}
+                  <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400'}`} />
+                  <span className="truncate">{item.label}</span>
                 </button>
               );
             })}

@@ -101,6 +101,14 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   const [storageTransferCopied, setStorageTransferCopied] = useState(0);
   const transferPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Change Password state ──────────────────────────────────────────────────
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
+
   // ── Email Verification state ───────────────────────────────────────────────
   const [verifyCodeSent, setVerifyCodeSent] = useState(false);
   const [verifyCode, setVerifyCode] = useState('');
@@ -148,6 +156,40 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  const handleChangePassword = async () => {
+    setPwError(null);
+    setPwSuccess(false);
+    if (!pwCurrent || !pwNew || !pwConfirm) {
+      setPwError('All fields are required.');
+      return;
+    }
+    if (pwNew.length < 8) {
+      setPwError('New password must be at least 8 characters.');
+      return;
+    }
+    if (pwNew !== pwConfirm) {
+      setPwError('New passwords do not match.');
+      return;
+    }
+    setPwSaving(true);
+    try {
+      const result = await authApi.changePassword(pwCurrent, pwNew);
+      if (result?.error) {
+        setPwError(result.error);
+      } else {
+        setPwSuccess(true);
+        setPwCurrent('');
+        setPwNew('');
+        setPwConfirm('');
+        setTimeout(() => setPwSuccess(false), 4000);
+      }
+    } catch (err: any) {
+      setPwError(err.message || 'Failed to change password.');
+    } finally {
+      setPwSaving(false);
+    }
+  };
 
   const toggleNotifications = async () => {
     const newVal = !notifications;
@@ -553,7 +595,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
 
   const sidebarItems: { id: typeof settingsSection; label: string; icon: React.ElementType; danger?: boolean; badge?: boolean }[] = [
     { id: 'profile', label: 'My Profile', icon: User },
-    { id: 'preferences', label: 'Preferences', icon: Settings },
+    { id: 'preferences', label: isMobile ? 'Smart Features' : 'Preferences', icon: Settings },
     { id: 'verification', label: 'Verification', icon: MailCheck, badge: !user?.emailVerified },
     ...(!user?.isFamilyMember ? [{ id: 'transfer' as const, label: 'Transfer', icon: ArrowRightLeft }] : []),
     { id: 'danger', label: 'Danger Zone', icon: AlertTriangle, danger: true },
@@ -574,24 +616,32 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
       <div className={`flex gap-6 md:gap-8 ${isMobile ? 'flex-col' : 'flex-row'}`}>
         {/* ── Navigation: top tabs on mobile, sidebar on desktop ── */}
         {isMobile ? (
-          <div className="flex gap-1 p-1 bg-white rounded-xl border border-gray-200 shadow-sm flex-wrap">
+          <div className="grid grid-cols-3 gap-2 p-2 bg-white rounded-xl border border-gray-200 shadow-sm">
             {sidebarItems.map((item) => {
+              const Icon = item.icon;
               const isActive = settingsSection === item.id;
               return (
                 <button
                   key={item.id}
                   onClick={() => setSettingsSection(item.id)}
-                  className={`relative flex-1 min-w-0 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                  className={`relative flex flex-col items-center justify-center gap-1.5 min-h-[52px] px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-all text-center ${
                     isActive
                       ? 'bg-[#5D5FEF] text-white shadow-sm'
                       : item.danger
-                        ? 'text-gray-500 hover:bg-red-50 hover:text-red-600'
-                        : 'text-gray-500 hover:bg-gray-100'
+                        ? 'text-gray-500 hover:bg-red-50 hover:text-red-600 active:bg-red-50'
+                        : 'text-gray-500 hover:bg-gray-100 active:bg-gray-100'
                   }`}
                 >
-                  {item.label}
+                  <Icon className={`w-5 h-5 flex-shrink-0 ${
+                    isActive
+                      ? 'text-white'
+                      : item.danger
+                        ? 'text-gray-400'
+                        : 'text-gray-400'
+                  }`} />
+                  <span className="line-clamp-2 leading-tight">{item.label}</span>
                   {item.badge && (
-                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
                   )}
                 </button>
               );
@@ -633,7 +683,7 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
           </nav>
         )}
 
-        {/* ── Content Area ── */}
+        {/* ── Content Area ── (same profile, preferences, danger, transfer, verification on mobile and desktop) */}
         <div className="flex-1 min-w-0">
 
           {/* ═══ My Profile ═══ */}
@@ -697,6 +747,56 @@ const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({ selectedModel
                     <p className="text-sm font-medium text-gray-900">Role</p>
                     <p className="text-sm text-gray-500 mt-0.5">{user?.isFamilyMember ? 'Family Member' : 'Admin'}</p>
                   </div>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100" />
+
+              {/* Change Password */}
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 mb-1">Change Password</h3>
+                <p className="text-sm text-gray-400 mb-5">Update your account password. You'll need to enter your current password to confirm.</p>
+                <div className="space-y-3 max-w-sm">
+                  <input
+                    type="password"
+                    placeholder="Current password"
+                    value={pwCurrent}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setPwCurrent(e.target.value); setPwError(null); }}
+                    className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#5D5FEF]/30 focus:border-[#5D5FEF] transition-all"
+                    autoComplete="current-password"
+                  />
+                  <input
+                    type="password"
+                    placeholder="New password (min. 8 characters)"
+                    value={pwNew}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setPwNew(e.target.value); setPwError(null); }}
+                    className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#5D5FEF]/30 focus:border-[#5D5FEF] transition-all"
+                    autoComplete="new-password"
+                  />
+                  <input
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={pwConfirm}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setPwConfirm(e.target.value); setPwError(null); }}
+                    className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#5D5FEF]/30 focus:border-[#5D5FEF] transition-all"
+                    autoComplete="new-password"
+                  />
+                  {pwError && (
+                    <p className="text-xs text-red-500 font-medium">{pwError}</p>
+                  )}
+                  {pwSuccess && (
+                    <p className="text-xs text-[#5D5FEF] font-medium flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5" /> Password changed successfully.
+                    </p>
+                  )}
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={pwSaving}
+                    className="px-5 py-2.5 text-xs font-bold text-white bg-[#5D5FEF] rounded-xl hover:bg-[#4B4DD4] disabled:opacity-50 transition-all flex items-center gap-2 shadow-sm shadow-[#5D5FEF]/20"
+                  >
+                    {pwSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                    {pwSaving ? 'Saving…' : 'Update Password'}
+                  </button>
                 </div>
               </div>
             </div>

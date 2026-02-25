@@ -13,6 +13,8 @@ import {
   Database,
   Music,
   ChevronDown,
+  HelpCircle,
+  BookOpen,
 } from 'lucide-react';
 
 interface NavItem {
@@ -76,6 +78,13 @@ const navGroups: NavGroup[] = [
     label: 'Governance',
     items: [
       { id: 'family', icon: UsersRound, label: 'Users & Family' },
+    ],
+  },
+  {
+    label: 'Resources',
+    items: [
+      { id: 'documentation', icon: BookOpen, label: 'Documentation' },
+      { id: 'help', icon: HelpCircle, label: 'Help & Support' },
     ],
   },
 ];

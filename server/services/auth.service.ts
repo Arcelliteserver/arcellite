@@ -332,6 +332,30 @@ export async function updateUserProfile(
 }
 
 /**
+ * Change a user's password — verifies the current password before updating.
+ * Returns true on success, false if the current password is wrong.
+ */
+export async function changeUserPassword(
+  userId: number,
+  currentPassword: string,
+  newPassword: string
+): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT password_hash FROM users WHERE id = $1`,
+    [userId]
+  );
+  if (result.rows.length === 0) return false;
+  const isValid = await verifyPassword(currentPassword, result.rows[0].password_hash);
+  if (!isValid) return false;
+  const newHash = await hashPassword(newPassword);
+  await pool.query(
+    `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+    [newHash, userId]
+  );
+  return true;
+}
+
+/**
  * Mark setup as complete
  */
 export async function markSetupComplete(userId: number): Promise<void> {
