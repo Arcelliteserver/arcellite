@@ -65,7 +65,7 @@ async function doUpdateCheck(): Promise<UpdateCheckResult> {
   const currentVersion = getLocalVersion();
   try {
     const resp = await fetch(
-      'https://raw.githubusercontent.com/Roberadesissai/arcellite/main/package.json',
+      'https://raw.githubusercontent.com/Arcelliteserver/arcellite/main/package.json',
       { signal: AbortSignal.timeout(10_000) }
     );
     if (!resp.ok) throw new Error(`GitHub responded with ${resp.status}`);

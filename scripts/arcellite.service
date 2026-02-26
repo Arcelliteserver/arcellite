@@ -1,6 +1,6 @@
 [Unit]
 Description=Arcellite Self-Hosted Personal Cloud
-Documentation=https://github.com/ArcelliteProject/arcellite
+Documentation=https://github.com/Arcelliteserver/arcellite
 After=network.target postgresql.service
 Wants=postgresql.service
 

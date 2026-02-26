@@ -69,7 +69,7 @@ Arcellite is a self-hosted personal cloud platform built with React and Node.js.
 ### One-command install
 
 ```bash
-git clone https://github.com/Roberadesissai/arcellite.git
+git clone https://github.com/Arcelliteserver/arcellite.git
 cd arcellite
 chmod +x install.sh && ./install.sh
 ```
@@ -311,7 +311,7 @@ usermod -aG sudo your_username
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/Roberadesissai/arcellite.git
+git clone https://github.com/Arcelliteserver/arcellite.git
 cd arcellite
 npm install
 ```

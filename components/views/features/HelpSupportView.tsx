@@ -99,14 +99,14 @@ const HelpSupportView: React.FC<HelpSupportViewProps> = ({ user }) => {
       description: 'Read the full Arcellite documentation',
       icon: Book,
       action: 'external',
-      url: 'https://github.com/arcellite/docs'
+      url: 'https://github.com/Arcelliteserver/docs'
     },
     {
       title: 'GitHub Issues',
       description: 'Report bugs or request features',
       icon: Github,
       action: 'external',
-      url: 'https://github.com/arcellite/arcellite/issues'
+      url: 'https://github.com/Arcelliteserver/arcellite/issues'
     },
     {
       title: 'Email Support',

@@ -156,7 +156,7 @@ function emailLayout(options: {
                         </td>
                         <td style="color: #DDDDE3; font-size: 12px;">|</td>
                         <td style="padding: 0 12px;">
-                          <a href="https://github.com/arcellite/arcellite" style="font-family: ${FONT_STACK}; font-size: 12px; font-weight: 500; color: #8787A0; text-decoration: none;">GitHub</a>
+                          <a href="https://github.com/Arcelliteserver/arcellite" style="font-family: ${FONT_STACK}; font-size: 12px; font-weight: 500; color: #8787A0; text-decoration: none;">GitHub</a>
                         </td>
                         <td style="color: #DDDDE3; font-size: 12px;">|</td>
                         <td style="padding: 0 12px;">

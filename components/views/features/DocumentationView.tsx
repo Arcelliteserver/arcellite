@@ -375,7 +375,7 @@ const DocumentationView: React.FC = () => {
               <StepCard number={1} title="Clone the Repository">
                 <p className="mb-2">Clone the Arcellite repository from GitHub onto your server:</p>
                 <CodeBlock
-                  code={`git clone https://github.com/ArcelliteProject/arcellite.git\ncd arcellite`}
+                  code={`git clone https://github.com/Arcelliteserver/arcellite.git\ncd arcellite`}
                   title="Clone Repository"
                 />
               </StepCard>
