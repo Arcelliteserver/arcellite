@@ -106,8 +106,8 @@
 </head>
   <body>
     <div id="root">
-      <!-- Initial skeleton (replaced by React): sidebar + dashboard layout, light style -->
-      <div id="app-skeleton" style="min-height:100vh;background:#f3f4f6;display:flex;font-family:'Inter',sans-serif;">
+      <!-- Desktop skeleton: sidebar + dashboard (hidden on mobile so only one skeleton shows) -->
+      <div id="app-skeleton-desktop" style="min-height:100vh;background:#f3f4f6;display:flex;font-family:'Inter',sans-serif;">
         <div style="width:240px;flex-shrink:0;height:100vh;background:#fff;border-right:1px solid #e5e7eb;display:flex;flex-direction:column;">
           <div style="padding:1rem;border-bottom:1px solid #f3f4f6;"><div style="width:2rem;height:2rem;border-radius:0.75rem;background:#e5e7eb;animation:skel-pulse 1.5s ease-in-out infinite;"></div></div>
           <div style="flex:1;padding:0.5rem;">
@@ -133,7 +133,41 @@
           </div>
         </main>
       </div>
-      <style>@keyframes skel-pulse{0%,100%{opacity:1}50%{opacity:0.6}}</style>
+      <!-- Mobile skeleton: header + content + bottom nav (shown only on small screens to avoid desktop flash) -->
+      <div id="app-skeleton-mobile" style="display:none;min-height:100vh;background:#F7F7F7;flex-direction:column;font-family:'Inter',sans-serif;">
+        <header style="height:72px;background:rgba(247,247,247,0.95);border-bottom:1px solid rgba(229,231,235,0.6);display:flex;align-items:center;gap:12px;padding:0 1rem;padding-top:4px;">
+          <div style="flex:1;height:48px;background:#e5e7eb;border-radius:1rem;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+          <div style="width:48px;height:48px;border-radius:1rem;background:#e5e7eb;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+        </header>
+        <main style="flex:1;padding-top:76px;padding-bottom:120px;padding-left:1rem;padding-right:1rem;overflow:auto;">
+          <div style="margin-bottom:1.25rem;"><div style="height:1.5rem;width:7rem;border-radius:0.5rem;background:#e5e7eb;margin-bottom:0.75rem;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;">
+            <div style="height:6rem;border-radius:1rem;background:#f3f4f6;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+            <div style="height:6rem;border-radius:1rem;background:#f3f4f6;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+            <div style="height:6rem;border-radius:1rem;background:#f3f4f6;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+            <div style="height:6rem;border-radius:1rem;background:#f3f4f6;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+          </div></div>
+          <div style="height:1rem;width:8rem;border-radius:0.25rem;background:#f3f4f6;margin-bottom:0.5rem;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+          <div style="height:5rem;border-radius:1rem;background:#f3f4f6;margin-bottom:0.75rem;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+          <div style="height:5rem;border-radius:1rem;background:#f3f4f6;margin-bottom:0.75rem;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+        </main>
+        <nav style="position:fixed;bottom:0;left:0;right:0;padding:0 0.75rem 1rem;pointer-events:none;">
+          <div style="height:72px;background:#111214;border:1px solid #2d2d2f;border-radius:1.5rem;display:flex;align-items:center;justify-content:space-around;padding:0 0.5rem;">
+            <div style="width:2.25rem;height:2.25rem;border-radius:0.75rem;background:#2d2d2f;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+            <div style="width:2.25rem;height:2.25rem;border-radius:0.75rem;background:#2d2d2f;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+            <div style="width:2.25rem;height:2.25rem;border-radius:0.75rem;background:#2d2d2f;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+            <div style="width:2.25rem;height:2.25rem;border-radius:0.75rem;background:#2d2d2f;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+            <div style="width:2.25rem;height:2.25rem;border-radius:0.75rem;background:#2d2d2f;animation:skel-pulse 1.5s ease-in-out infinite;"></div>
+          </div>
+        </nav>
+      </div>
+      <style>
+        @keyframes skel-pulse{0%,100%{opacity:1}50%{opacity:0.6}}
+        @media (max-width:767px){
+          #app-skeleton-desktop{display:none !important;}
+          #app-skeleton-mobile{display:flex !important;}
+        }
+      </style>
     </div>
   <script type="module" src="/index.tsx"></script>
   <script src="/register-sw.js"></script>

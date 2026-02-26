@@ -278,25 +278,28 @@ const MobileMore: React.FC<MobileMoreProps> = ({ onNavigate, user, isFamilyMembe
               )}
             </button>
 
-            {/* Section Items — 2x2 grid with icon in front (match desktop structure) */}
+            {/* Section Items — original list layout (icon in front, same as desktop) */}
             {expandedSections[section.title] && (
-              <div className="grid grid-cols-2 gap-2 px-3 pb-3">
-                {visibleItems.map((item) => {
+              <div>
+                {visibleItems.map((item, idx) => {
                   const Icon = item.icon;
+                  const isLast = idx === visibleItems.length - 1;
                   return (
                     <button
                       key={item.id}
                       onClick={() => onNavigate(item.id)}
-                      className="flex items-center gap-2.5 p-3 rounded-xl active:bg-gray-50 transition-colors text-left"
+                      className={`w-full flex items-center gap-3 px-[18px] py-[18px] active:bg-gray-50 transition-colors ${
+                        !isLast ? 'border-b border-gray-50' : ''
+                      }`}
                     >
                       <div className="w-9 h-9 rounded-[10px] flex items-center justify-center bg-[#F7F7F7] flex-shrink-0">
                         <Icon className="w-[18px] h-[18px] text-gray-600" />
                       </div>
-                      <span className="flex-1 min-w-0 text-[14px] font-semibold text-gray-800 tracking-tight truncate">
+                      <span className="flex-1 text-left text-[16px] font-semibold text-gray-800 tracking-tight">
                         {item.label}
                       </span>
                       {item.id === 'shared' && shareCount > 0 && (
-                        <span className="min-w-[20px] h-[20px] flex items-center justify-center px-1.5 rounded-full bg-[#5D5FEF] text-white text-[11px] font-black leading-none flex-shrink-0">
+                        <span className="min-w-[20px] h-[20px] flex items-center justify-center px-1.5 rounded-full bg-[#5D5FEF] text-white text-[11px] font-black leading-none mr-1">
                           {shareCount > 99 ? '99+' : shareCount}
                         </span>
                       )}

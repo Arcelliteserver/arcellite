@@ -8,12 +8,14 @@ import ChatView from './components/views/features/ChatView';
 import HelpSupportView from './components/views/features/HelpSupportView';
 import DocumentationView from './components/views/features/DocumentationView';
 import MyAppsView from './components/views/features/MyAppsView';
+import MyTasksView from './components/views/features/MyTasksView';
 
 // PWA
 import InstallPrompt from './components/pwa/InstallPrompt';
 
 // Settings
 import AccountSettingsView from './components/views/settings/AccountSettingsView';
+import PlanBillingView from './components/views/settings/PlanBillingView';
 import SessionsView from './components/views/settings/SessionsView';
 import AppearanceView from './components/views/settings/AppearanceView';
 import AIModelsView from './components/views/settings/AIModelsView';
@@ -785,12 +787,16 @@ const App: React.FC = () => {
                 <AISecurityView showToast={layout.showToast} />
               ) : nav.activeTab === 'myapps' ? (
                 <MyAppsView />
+              ) : nav.activeTab === 'mytasks' ? (
+                <MyTasksView showToast={layout.showToast} onOpenChat={() => { nav.setActiveTab('chat'); nav.handleNavigate(null); }} />
               ) : nav.activeTab === 'activity' ? (
                 <ActivityLogView />
               ) : nav.activeTab === 'export' ? (
                 <ExportDataView />
               ) : nav.activeTab === 'domain' ? (
                 <DomainSetupView showToast={layout.showToast} />
+              ) : nav.activeTab === 'planbilling' ? (
+                <PlanBillingView showToast={layout.showToast} />
               ) : nav.activeTab === 'family' ? (
                 <FamilySharingView showToast={layout.showToast} />
               ) : nav.activeTab === 'help' ? (

@@ -49,6 +49,14 @@ export default defineConfig(({ mode }) => {
               setInterval(() => {
                 cleanupExpiredSessions();
               }, 60 * 60 * 1000);
+
+              // Start AI task automation background worker
+              try {
+                const { startTasksWorker } = await import('./server/services/tasks.worker.js');
+                startTasksWorker();
+              } catch (e: any) {
+                console.warn('[Server] Tasks worker failed to start:', e?.message || e);
+              }
             }
 
             // ── Security Headers Middleware (must run first, before all routes) ──

@@ -370,6 +370,9 @@ export async function handleGetCurrentUser(req: IncomingMessage, res: ServerResp
         emailVerified: user.emailVerified,
         isFamilyMember,
         isSuspended,
+        planType: user.planType,
+        accountType: user.accountType,
+        billingStatus: user.billingStatus,
       },
     });
   } catch (error: any) {

@@ -508,7 +508,8 @@ CAPABILITIES YOU CAN HELP WITH:
 3. **Media**: Help find photos, videos, music files. Help cast media to devices.
 4. **Email**: Send files from the user's storage to their email as attachments.
 5. **Connected Apps**: Show the user's connected integrations (Discord, n8n, databases, etc.). Send messages to Discord channels.
-6. **General Help**: Answer questions about the system, provide guidance
+6. **Task Automation**: Create automation rules that trigger on storage/CPU thresholds, file uploads, or a schedule, and fire actions like email, Discord message, webhook, or dashboard alert.
+7. **General Help**: Answer questions about the system, provide guidance
 
 WHEN THE USER ASKS YOU TO PERFORM AN ACTION, respond with a JSON action block wrapped in \`\`\`action tags. Examples:
 
@@ -817,6 +818,72 @@ MULTI-STEP TASKS (CRITICAL):
 - NEVER stop after just one step if the user asked for multiple things. Always continue until the entire request is fulfilled.
 - After the final step completes, ALWAYS end with a confident confirmation that everything is done. Never leave the conversation hanging without a wrap-up.
 
+TASK AUTOMATION — creating, viewing, and modifying automation rules:
+
+CRITICAL RULES:
+1. ALWAYS emit `list_automation_rules` first before creating any rule, to check if a matching rule already exists.
+2. If the user says "change", "modify", "update", "fix", "adjust", or asks to change the schedule/email/threshold of an EXISTING rule, use `update_automation_rule` on that rule — do NOT create a new one.
+3. Only use `create_automation_rule` when no matching rule exists OR user explicitly asks to add a new one.
+4. When you update a rule, you can delete any old duplicate rules using `delete_automation_rule`.
+
+CHOOSING THE RIGHT TRIGGER TYPE:
+- `database_query`: use for anything that monitors database data (inventory levels, row counts, table values). The rule fires whenever the SQL query returns rows. Use {{column_name}} in action body to include the actual data.
+- `storage_threshold` / `cpu_threshold`: for system metrics.
+- `scheduled`: ONLY for pure time-based reminders that don't reference database data. {{field_name}} placeholders do NOT work with scheduled — only {{timestamp}} is available.
+- NEVER use `scheduled` for inventory or database monitoring — use `database_query` instead.
+
+list_automation_rules — see all existing rules:
+\`\`\`action
+{"type":"list_automation_rules"}
+\`\`\`
+
+create_automation_rule:
+- trigger_type: "storage_threshold" | "cpu_threshold" | "file_upload" | "scheduled" | "database_query"
+- trigger_config:
+  - storage_threshold: {"threshold": <0-100>}
+  - cpu_threshold: {"threshold": <0-100>, "duration_minutes": <number>}
+  - file_upload: {"file_types": ["jpg","png"]} (empty array = any file)
+  - scheduled: {"cron": "0 9 * * 1"} (standard 5-field cron, e.g. "*/2 * * * *" = every 2 min)
+  - database_query: {"database_id": "<id>", "query": "SELECT col1, col2 FROM tbl WHERE condition", "debounce_minutes": 2}
+- action_type: "email" | "discord" | "webhook" | "dashboard_alert"
+- action_config:
+  - email: {"to": "<address or empty if not specified>", "subject": "...", "body": "..."}
+  - discord: {"channel": "<channel-name>", "message": "..."} — ALWAYS use channel name when Discord is connected via My Apps (e.g. "general", "alerts"). NEVER use webhook_url unless Discord is NOT connected.
+  - webhook: {"url": "", "method": "POST", "body": ""}
+  - dashboard_alert: {"title": "...", "message": "...", "severity": "info"|"warning"|"error"}
+- For database_query: use {{column_name}} in subject/body to include values from the first result row.
+- For discord: check CONNECTED APPS section to see which channels are available. Pick the most appropriate channel ("alerts" for warnings, "general" for general notifications).
+
+update_automation_rule — modify an existing rule (get rule_id from list_automation_rules):
+\`\`\`action
+{"type":"update_automation_rule","rule_id":<id>,"trigger_config":{...},"action_config":{...},"name":"...","is_active":true}
+\`\`\`
+Only include the fields to change. rule_id is required.
+
+delete_automation_rule — delete a rule by ID:
+\`\`\`action
+{"type":"delete_automation_rule","rule_id":<id>}
+\`\`\`
+
+Example — inventory low stock alert (CORRECT: use database_query, not scheduled):
+\`\`\`action
+{"type":"create_automation_rule","name":"Keyboard Low Stock Alert","trigger_type":"database_query","trigger_config":{"database_id":"<db-id>","query":"SELECT item_name, sku, quantity, reorder_threshold FROM inventory_items WHERE LOWER(item_name) LIKE '%keyboard%' AND quantity < 10","debounce_minutes":2},"action_type":"email","action_config":{"to":"","subject":"Low Stock: {{item_name}} ({{quantity}} left)","body":"The item '{{item_name}}' (SKU: {{sku}}) is running low!\n\nCurrent Quantity: {{quantity}}\nReorder Threshold: {{reorder_threshold}}\n\nPlease reorder soon to avoid stockouts."},"is_active":true}
+\`\`\`
+
+Example — file upload → Discord notification (use channel, not webhook_url):
+\`\`\`action
+{"type":"create_automation_rule","name":"New File Upload Alert","trigger_type":"file_upload","trigger_config":{"file_types":[],"min_size_mb":0},"action_type":"discord","action_config":{"channel":"alerts","message":"📁 **New File Uploaded**\n**File:** {{file_name}}\n**Type:** {{file_type}}\n**Size:** {{file_size_mb}} MB\n**Uploaded:** {{upload_time}}\n**Preview:** {{file_url}}"},"is_active":true}
+\`\`\`
+
+File upload trigger variables: {{file_name}}, {{file_type}}, {{file_size_bytes}}, {{file_size_mb}}, {{upload_time}}, {{file_url}}
+
+Example — update an existing rule's schedule instead of creating a new one:
+\`\`\`action
+{"type":"update_automation_rule","rule_id":42,"trigger_config":{"cron":"*/2 * * * *"}}
+\`\`\`
+
+After creating or updating a rule, tell the user it's been set up and they can manage it under **My Tasks** in the sidebar.
+
 ACTION EXECUTION (CRITICAL — MANDATORY RULES):
 - You CANNOT perform ANY action (send to Discord, create files, delete, move, email, cast, query databases, etc.) WITHOUT emitting a \`\`\`action block. You have ZERO ability to do anything without action blocks. Action blocks are your ONLY way to interact with the system.
 - NEVER describe the outcome of an action you didn't actually perform. If you want to send something to Discord, you MUST include the \`\`\`action{"type":"discord_send",...}\`\`\` block. If you didn't include the action block, IT DID NOT HAPPEN.
@@ -863,6 +930,10 @@ To send a message to a Discord channel:
 \`\`\`action
 {"type":"discord_send","channel":"general","message":"Hello from Arcellite!"}
 \`\`\`
+
+IMPORTANT — Discord automation rules use channel name, NOT webhook URL:
+- Correct:  {"channel": "alerts", "message": "🔔 Storage at {{storage_percent}}%!"}
+- Incorrect: {"webhook_url": "https://discord.com/...", "message": "..."}
 
 To send a message with a file attachment to Discord:
 \`\`\`action
@@ -2098,6 +2169,130 @@ export async function executeAction(action: any, userEmail?: string, userStorage
           }
         }
         return { success: false, message: 'Discord send failed after multiple retries.' };
+      }
+
+      case 'create_automation_rule': {
+        const { pool } = await import('./db/connection.js');
+        const {
+          name, description, trigger_type, trigger_config,
+          action_type, action_config, is_active,
+        } = action;
+        if (!name || !trigger_type || !action_type) {
+          return { success: false, message: 'Cannot create automation rule: name, trigger_type, and action_type are required.' };
+        }
+        const validTriggers = ['storage_threshold', 'cpu_threshold', 'file_upload', 'scheduled', 'database_query'];
+        const validActions = ['email', 'discord', 'webhook', 'dashboard_alert'];
+        if (!validTriggers.includes(trigger_type)) {
+          return { success: false, message: `Unsupported trigger type: ${trigger_type}` };
+        }
+        if (!validActions.includes(action_type)) {
+          return { success: false, message: `Unsupported action type: ${action_type}` };
+        }
+        // Resolve user_id from email
+        const userRow = await pool.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [userEmail]);
+        if (userRow.rows.length === 0) {
+          return { success: false, message: 'Could not identify user to create automation rule.' };
+        }
+        const userId = userRow.rows[0].id;
+        // Guard: reject if a rule with the same name already exists for this user
+        const dupCheck = await pool.query(
+          `SELECT id FROM automation_rules WHERE user_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1`,
+          [userId, name]
+        );
+        if (dupCheck.rows.length > 0) {
+          return {
+            success: false,
+            message: `A rule named "${name}" already exists (ID ${dupCheck.rows[0].id}). Use update_automation_rule with rule_id ${dupCheck.rows[0].id} to modify it instead of creating a duplicate.`,
+            data: { existing_rule_id: dupCheck.rows[0].id },
+          };
+        }
+        await pool.query(
+          `INSERT INTO automation_rules (user_id, name, description, is_active, trigger_type, trigger_config, action_type, action_config)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [userId, name, description ?? null, is_active ?? true,
+           trigger_type, JSON.stringify(trigger_config ?? {}),
+           action_type, JSON.stringify(action_config ?? {})]
+        );
+        const statusWord = (is_active ?? true) ? 'activated' : 'saved as draft';
+        return {
+          success: true,
+          message: `Automation rule "${name}" created and ${statusWord}. You can manage it under **My Tasks** in the sidebar.`,
+          data: { type: 'automation_rule_created', name, trigger_type, action_type, is_active: is_active ?? true },
+        };
+      }
+
+      case 'list_automation_rules': {
+        const { pool: rPool } = await import('./db/connection.js');
+        const userRowR = await rPool.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [userEmail]);
+        if (userRowR.rows.length === 0) return { success: false, message: 'Could not identify user.' };
+        const uId = userRowR.rows[0].id;
+        const result = await rPool.query(
+          `SELECT id, name, trigger_type, trigger_config, action_type, action_config, is_active, last_triggered, created_at
+           FROM automation_rules WHERE user_id = $1 ORDER BY created_at DESC`,
+          [uId]
+        );
+        if (result.rows.length === 0) {
+          return { success: true, message: 'No automation rules found. You can create one with create_automation_rule.', data: { rules: [] } };
+        }
+        const summary = result.rows.map((r: any) =>
+          `ID ${r.id}: "${r.name}" | trigger: ${r.trigger_type} | action: ${r.action_type} | active: ${r.is_active}`
+        ).join('\n');
+        return {
+          success: true,
+          message: `Found ${result.rows.length} automation rule(s):\n${summary}`,
+          data: { rules: result.rows },
+        };
+      }
+
+      case 'update_automation_rule': {
+        const { pool: uPool } = await import('./db/connection.js');
+        const { rule_id, name, description, trigger_type, trigger_config, action_type, action_config, is_active } = action;
+        if (!rule_id) return { success: false, message: 'update_automation_rule requires rule_id.' };
+        const userRowU = await uPool.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [userEmail]);
+        if (userRowU.rows.length === 0) return { success: false, message: 'Could not identify user.' };
+        const uId = userRowU.rows[0].id;
+        const fields: string[] = [];
+        const values: any[] = [];
+        let idx = 1;
+        if (name !== undefined)           { fields.push(`name = $${idx++}`);           values.push(name); }
+        if (description !== undefined)    { fields.push(`description = $${idx++}`);    values.push(description); }
+        if (trigger_type !== undefined)   { fields.push(`trigger_type = $${idx++}`);   values.push(trigger_type); }
+        if (trigger_config !== undefined) { fields.push(`trigger_config = $${idx++}`); values.push(JSON.stringify(trigger_config)); }
+        if (action_type !== undefined)    { fields.push(`action_type = $${idx++}`);    values.push(action_type); }
+        if (action_config !== undefined)  { fields.push(`action_config = $${idx++}`);  values.push(JSON.stringify(action_config)); }
+        if (is_active !== undefined)      { fields.push(`is_active = $${idx++}`);      values.push(is_active); }
+        if (fields.length === 0) return { success: false, message: 'No fields provided to update.' };
+        fields.push(`updated_at = NOW()`);
+        values.push(uId, rule_id);
+        const upResult = await uPool.query(
+          `UPDATE automation_rules SET ${fields.join(', ')} WHERE user_id = $${idx++} AND id = $${idx} RETURNING name`,
+          values
+        );
+        if (upResult.rowCount === 0) return { success: false, message: `Rule ID ${rule_id} not found.` };
+        return {
+          success: true,
+          message: `Automation rule "${upResult.rows[0].name}" (ID ${rule_id}) updated successfully. Changes are live immediately.`,
+          data: { type: 'automation_rule_updated', rule_id, updated_fields: fields.map(f => f.split(' = ')[0]) },
+        };
+      }
+
+      case 'delete_automation_rule': {
+        const { pool: dPool } = await import('./db/connection.js');
+        const { rule_id } = action;
+        if (!rule_id) return { success: false, message: 'delete_automation_rule requires rule_id.' };
+        const userRowD = await dPool.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [userEmail]);
+        if (userRowD.rows.length === 0) return { success: false, message: 'Could not identify user.' };
+        const uId = userRowD.rows[0].id;
+        const delResult = await dPool.query(
+          `DELETE FROM automation_rules WHERE id = $1 AND user_id = $2 RETURNING name`,
+          [rule_id, uId]
+        );
+        if (delResult.rowCount === 0) return { success: false, message: `Rule ID ${rule_id} not found.` };
+        return {
+          success: true,
+          message: `Automation rule "${delResult.rows[0].name}" (ID ${rule_id}) deleted.`,
+          data: { type: 'automation_rule_deleted', rule_id },
+        };
       }
 
       default:

@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Server,
   LayoutGrid,
+  ListTodo,
   Trash2,
   Users,
   UsersRound,
@@ -15,6 +16,7 @@ import {
   ChevronDown,
   HelpCircle,
   BookOpen,
+  CreditCard,
 } from 'lucide-react';
 
 interface NavItem {
@@ -22,6 +24,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   droppable?: boolean;
+  href?: string; // external link — opens in new tab instead of navigating
 }
 
 interface NavGroup {
@@ -31,7 +34,7 @@ interface NavGroup {
 
 // Tabs hidden from family member accounts
 const FAMILY_HIDDEN_TABS = new Set([
-  'system', 'myapps', 'database', 'family',
+  'system', 'myapps', 'database', 'family', 'mytasks', 'planbilling',
 ]);
 
 interface SidebarNavigationProps {
@@ -48,6 +51,7 @@ const navGroups: NavGroup[] = [
     items: [
       { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
       { id: 'myapps', icon: LayoutGrid, label: 'Integration' },
+      { id: 'mytasks', icon: ListTodo, label: 'My Tasks' },
     ],
   },
   {
@@ -78,12 +82,13 @@ const navGroups: NavGroup[] = [
     label: 'Governance',
     items: [
       { id: 'family', icon: UsersRound, label: 'Users & Family' },
+      { id: 'planbilling', icon: CreditCard, label: 'Plan & Billing' },
     ],
   },
   {
     label: 'Resources',
     items: [
-      { id: 'documentation', icon: BookOpen, label: 'Documentation' },
+      { id: 'documentation', icon: BookOpen, label: 'Documentation', href: 'https://www.arcellite.com/help' },
       { id: 'help', icon: HelpCircle, label: 'Help & Support' },
     ],
   },
@@ -194,7 +199,7 @@ const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                 onClick={() => toggleGroup(group.label)}
                 className="flex items-center justify-between w-full px-4 py-1.5 select-none group/header"
               >
-                <span className="font-heading text-[9px] font-bold uppercase tracking-[0.12em] text-gray-600">
+                <span className="font-sidebar text-[9px] font-medium uppercase tracking-[0.12em] text-gray-500">
                   {group.label}
                 </span>
                 <ChevronDown
@@ -221,7 +226,10 @@ const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => onTabChange(item.id)}
+                      onClick={() => {
+                        if (item.href) { window.open(item.href, '_blank', 'noopener,noreferrer'); return; }
+                        onTabChange(item.id);
+                      }}
                       onDragOver={(e) => handleDragOver(e, item)}
                       onDragLeave={handleDragLeave}
                       onDrop={(e) => handleDrop(e, item)}
@@ -259,7 +267,7 @@ const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                       {/* Label */}
                       {!collapsed && (
-<span className={`font-heading text-[13px] font-semibold tracking-tight whitespace-nowrap flex-1 transition-colors ${
+<span className={`font-sidebar text-[13px] font-medium tracking-tight whitespace-nowrap flex-1 transition-colors ${
                             isActive
                               ? 'text-white'
                               : 'text-gray-400 group-hover:text-gray-100'

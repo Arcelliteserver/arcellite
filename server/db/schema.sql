@@ -177,4 +177,71 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Plan & billing columns on users (migration: safe to run on existing DB)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='account_type') THEN
+    ALTER TABLE users ADD COLUMN account_type VARCHAR(20) DEFAULT 'personal';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='plan_type') THEN
+    ALTER TABLE users ADD COLUMN plan_type VARCHAR(20) DEFAULT 'free';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='billing_status') THEN
+    ALTER TABLE users ADD COLUMN billing_status VARCHAR(20) DEFAULT 'none';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='stripe_customer_id') THEN
+    ALTER TABLE users ADD COLUMN stripe_customer_id VARCHAR(255);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='stripe_subscription_id') THEN
+    ALTER TABLE users ADD COLUMN stripe_subscription_id VARCHAR(255);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='plan_activated_at') THEN
+    ALTER TABLE users ADD COLUMN plan_activated_at TIMESTAMP;
+  END IF;
+END $$;
+
 -- Chat tables are managed in the arcellite_chat_history database (see server/routes/chat.routes.ts)
+
+-- AI Task Automation
+CREATE TABLE IF NOT EXISTS automation_rules (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  is_active BOOLEAN DEFAULT FALSE,
+  trigger_type VARCHAR(50) NOT NULL,
+  trigger_config JSONB NOT NULL DEFAULT '{}',
+  action_type VARCHAR(50) NOT NULL,
+  action_config JSONB NOT NULL DEFAULT '{}',
+  last_triggered TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS rule_execution_logs (
+  id SERIAL PRIMARY KEY,
+  rule_id INTEGER REFERENCES automation_rules(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL,
+  trigger_value JSONB,
+  action_result JSONB,
+  attempt_count INTEGER DEFAULT 1,
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_rules_user ON automation_rules(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rule_exec_logs_rule ON rule_execution_logs(rule_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rule_exec_logs_user ON rule_execution_logs(user_id, created_at DESC);
+
+-- Downgrade enforcement columns (migration: safe to run on existing DB)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='automation_rules' AND column_name='enforcement_status') THEN
+    ALTER TABLE automation_rules ADD COLUMN enforcement_status VARCHAR(50) DEFAULT 'active';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='is_active') THEN
+    ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='enforcement_status') THEN
+    ALTER TABLE users ADD COLUMN enforcement_status VARCHAR(50) DEFAULT 'active';
+  END IF;
+END $$;

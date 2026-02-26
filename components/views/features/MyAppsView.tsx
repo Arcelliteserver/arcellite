@@ -65,6 +65,7 @@ const ALL_POSSIBLE_APPS = [
   { id: 'dropbox', name: 'Dropbox', icon: '/assets/apps/dropbox.svg', description: 'Connect your Dropbox cloud storage', category: 'storage' },
   { id: 'slack', name: 'Slack', icon: '/assets/apps/slack.svg', description: 'Access shared files from Slack channels', category: 'communication' },
   { id: 'discord', name: 'Discord', icon: '/assets/apps/discord.svg', description: 'Connect your Discord server and channels', category: 'communication' },
+  { id: 'gmail', name: 'Gmail', icon: '/assets/apps/gmail.svg', description: 'Send automated emails via Gmail SMTP for task notifications', category: 'communication' },
   { id: 'azure', name: 'Azure', icon: '/assets/apps/azure.svg', description: 'Connect to Microsoft Azure cloud services', category: 'cloud' },
   { id: 'postgresql', name: 'PostgreSQL', icon: '/assets/apps/postgresql.svg', description: 'Connect to an external PostgreSQL database', category: 'database' },
   { id: 'mysql', name: 'MySQL', icon: '/assets/apps/mysql.svg', description: 'Connect to an external MySQL database', category: 'database' },

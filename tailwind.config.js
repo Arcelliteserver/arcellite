@@ -12,7 +12,8 @@ export default {
       fontFamily: {
         heading: ['"Space Grotesk"', 'sans-serif'],
         display: ['"Noto Sans Display"', 'sans-serif'],
-        sidebar: ['"Space Grotesk"', 'sans-serif'],
+        // Sidebar: system UI stack so nav labels look like standard app UI (regular, not display)
+        sidebar: ['ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
       },
     },
   },

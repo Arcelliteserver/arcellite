@@ -18,7 +18,7 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({ onLogoClick, onToggleColl
       >
         <Cloud className="w-6 h-6 text-[#5D5FEF] flex-shrink-0" strokeWidth={2.5} />
         {!collapsed && (
-          <span className="font-heading font-bold text-[18px] tracking-tight text-white leading-none whitespace-nowrap">
+          <span className="font-sidebar font-bold text-[18px] tracking-tight text-white leading-none whitespace-nowrap">
             Arcellite<span className="text-[#5D5FEF]">.</span>
           </span>
         )}

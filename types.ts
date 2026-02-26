@@ -147,6 +147,9 @@ export interface UserData {
   emailVerified?: boolean;
   isFamilyMember?: boolean;
   isSuspended?: boolean;
+  planType?: string;
+  accountType?: string;
+  billingStatus?: string;
 }
 
 export interface User {

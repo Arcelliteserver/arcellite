@@ -428,10 +428,16 @@ export async function getDatabase(id: string): Promise<DatabaseMetadata | null> 
 // ──  Multi-engine table & query operations  ────────────────
 // ═══════════════════════════════════════════════════════════
 
+const SYSTEM_MAIN_DB_ID = '__system_arcellite_main';
+const SYSTEM_MAIN_PG_NAME = process.env.DB_NAME || 'arcellite';
+
 /** Resolve DB metadata (user or system) */
 function getDbMeta(id: string): DatabaseMetadata | null {
   if (id === SYSTEM_CHAT_DB_ID) {
     return { id: SYSTEM_CHAT_DB_ID, name: 'Arcellite', displayName: 'Arcellite', type: 'postgresql', status: 'running', size: '', sizeBytes: 0, created: '', createdTimestamp: 0, pgDatabaseName: SYSTEM_CHAT_PG_NAME, config: { host: PG_CONFIG.host, port: PG_CONFIG.port, username: PG_CONFIG.user, password: PG_CONFIG.password, database: SYSTEM_CHAT_PG_NAME } };
+  }
+  if (id === SYSTEM_MAIN_DB_ID) {
+    return { id: SYSTEM_MAIN_DB_ID, name: 'Arcellite (System)', displayName: 'Arcellite (System)', type: 'postgresql', status: 'running', size: '', sizeBytes: 0, created: '', createdTimestamp: 0, pgDatabaseName: SYSTEM_MAIN_PG_NAME, isSystem: true, config: { host: PG_CONFIG.host, port: PG_CONFIG.port, username: PG_CONFIG.user, password: PG_CONFIG.password, database: SYSTEM_MAIN_PG_NAME } };
   }
   const metadata = loadMetadata();
   return metadata[id] || null;

@@ -41,7 +41,7 @@ const SidebarActions: React.FC<SidebarActionsProps> = ({ onUpload, collapsed }) 
         ) : (
           <button
             onClick={handleUploadClick}
-            className="font-heading flex items-center justify-center gap-2 w-full bg-[#5D5FEF] text-white py-2.5 rounded-xl shadow-lg shadow-[#5D5FEF]/20 hover:bg-[#4D4FCF] transition-all font-semibold text-[13px] tracking-tight active:scale-[0.98]"
+            className="font-sidebar flex items-center justify-center gap-2 w-full bg-[#5D5FEF] text-white py-2.5 rounded-xl shadow-lg shadow-[#5D5FEF]/20 hover:bg-[#4D4FCF] transition-all font-semibold text-[13px] tracking-tight active:scale-[0.98]"
           >
             <Upload className="w-3.5 h-3.5 flex-shrink-0" />
             <span>Upload</span>

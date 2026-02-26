@@ -606,8 +606,8 @@ const ChatView: React.FC<ChatViewProps> = ({ selectedModel, onRefreshFiles, onNa
   ] : [
     { text: 'Create a new database for my app', icon: Database },
     { text: 'Organize my files into folders', icon: FolderPlus },
-    { text: 'Send my latest photos to Discord', icon: Send },
-    { text: 'Find all PDF documents in my files', icon: FileText },
+    { text: 'Email me when storage hits 90%', icon: Mail },
+    { text: 'Alert me when CPU is above 80% for 5 minutes', icon: Settings },
   ];
 
   /** Color presets for clickable option text — purple by default, unique colors only for database engines */

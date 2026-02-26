@@ -255,6 +255,21 @@ export function handleFileRoutes(req: IncomingMessage, res: ServerResponse, url:
 
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ ok: true, files: movedFiles }));
+
+          // Emit file_uploaded events for automation rules (non-blocking)
+          const userId = (req as any).user?.id;
+          if (userId) {
+            import('../services/tasks.worker.js').then(({ taskEvents }) => {
+              const publicUrl = process.env.SERVER_PUBLIC_URL || '';
+              for (const { filename: fn } of movedFiles) {
+                const ext = fn.includes('.') ? fn.split('.').pop()?.toLowerCase() ?? '' : '';
+                const filePath = relativePath ? `${relativePath}/${fn}` : fn;
+                const fileSizeBytes = (() => { try { return fs.statSync(path.join(targetDir, fn)).size; } catch { return 0; } })();
+                const fileUrl = `${publicUrl}/api/files/serve?category=${encodeURIComponent(category)}&path=${encodeURIComponent(filePath)}`;
+                taskEvents.emit('file_uploaded', { fileName: fn, fileType: ext, fileSizeBytes, fileUrl, userId });
+              }
+            }).catch(() => {});
+          }
         } catch (e) {
           for (const { tmpPath } of pendingMoves) {
             try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}

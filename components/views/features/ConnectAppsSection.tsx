@@ -59,6 +59,20 @@ const STATIC_APPS: StaticApp[] = [
     ],
   },
   {
+    id: 'gmail',
+    name: 'Gmail',
+    icon: '/assets/apps/gmail.svg',
+    description: 'Send automated emails via Gmail SMTP. Used by AI Task automation rules.',
+    category: 'Communication',
+    iconBg: 'from-red-100 to-orange-50',
+    fields: [
+      { key: 'smtpHost', label: 'SMTP Host', type: 'text', placeholder: 'smtp.gmail.com' },
+      { key: 'smtpPort', label: 'SMTP Port', type: 'text', placeholder: '587' },
+      { key: 'smtpUser', label: 'Gmail Address', type: 'text', placeholder: 'you@gmail.com' },
+      { key: 'smtpPass', label: 'App Password', type: 'password', placeholder: 'Google App Password (not your Gmail password)' },
+    ],
+  },
+  {
     id: 'postgresql',
     name: 'PostgreSQL',
     icon: '/assets/apps/postgresql.svg',
@@ -171,8 +185,32 @@ const ConnectAppsSection: React.FC = () => {
   const [formFields, setFormFields] = useState<Record<string, Record<string, string>>>({});
   const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
 
-  useEffect(() => { saveState(state); }, [state]);
+  useEffect(() => {
+    saveState(state);
+    // Sync to backend so server-side features (e.g. AI Task email actions) can read connection state
+    const token = localStorage.getItem('sessionToken');
+    if (!token) return;
+    fetch('/api/apps/connections', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(state),
+    }).catch(() => {});
+  }, [state]);
   useEffect(() => { saveMcpInstances(mcpInstances); }, [mcpInstances]);
+
+  // One-time sync of localStorage state to DB on mount (so existing connections are visible server-side)
+  useEffect(() => {
+    const initialState = loadState();
+    if (Object.keys(initialState).length === 0) return;
+    const token = localStorage.getItem('sessionToken');
+    if (!token) return;
+    fetch('/api/apps/connections', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(initialState),
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load connection state from database on mount (fills in apps connected before v3 migration)
   useEffect(() => {

@@ -16,6 +16,8 @@ import { handleShareRoutes } from './share.routes.js';
 import { handleHealthRoutes } from './health.routes.js';
 import { handleBackupRoutes } from './backup.routes.js';
 import { handleUpdateRoutes } from './update.routes.js';
+import { handleTasksRoutes } from './tasks.routes.js';
+import { handleBillingRoutes } from './billing.routes.js';
 
 /**
  * Central router that handles all API routes
@@ -45,6 +47,8 @@ export async function handleApiRoutes(
   if (handleAppsRoutes(req, res, url)) return true;
   if (handleFamilyRoutes(req, res, url)) return true;
   if (handleShareRoutes(req, res, url)) return true;
+  if (await handleTasksRoutes(req, res, url)) return true;
+  if (await handleBillingRoutes(req, res, url)) return true;
   // No route matched
   return false;
 }

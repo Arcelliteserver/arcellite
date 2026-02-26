@@ -23,6 +23,9 @@ export interface User {
   isFamilyMember: boolean;
   isSuspended: boolean;
   createdAt: Date;
+  planType: string;
+  accountType: string;
+  billingStatus: string;
 }
 
 export interface Session {
@@ -92,6 +95,9 @@ export async function createUser(
     isFamilyMember: false,
     isSuspended: false,
     createdAt: row.created_at,
+    planType: 'free',
+    accountType: 'personal',
+    billingStatus: 'none',
   };
 }
 
@@ -101,7 +107,8 @@ export async function createUser(
 export async function authenticateUser(email: string, password: string): Promise<User | null> {
   const result = await pool.query(
     `SELECT id, email, password_hash, first_name, last_name, avatar_url,
-            storage_path, is_setup_complete, email_verified, created_at
+            storage_path, is_setup_complete, email_verified, created_at,
+            plan_type, account_type, billing_status
      FROM users WHERE email = $1`,
     [email]
   );
@@ -129,6 +136,9 @@ export async function authenticateUser(email: string, password: string): Promise
     isFamilyMember: !!row.is_family_member,
     isSuspended: false,
     createdAt: row.created_at,
+    planType: row.plan_type || 'free',
+    accountType: row.account_type || 'personal',
+    billingStatus: row.billing_status || 'none',
   };
 }
 
@@ -247,6 +257,7 @@ export async function validateSession(sessionToken: string): Promise<User | null
   const result = await pool.query(
     `SELECT u.id, u.email, u.first_name, u.last_name, u.avatar_url,
             u.storage_path, u.is_setup_complete, u.email_verified, u.created_at,
+            u.plan_type, u.account_type, u.billing_status,
             fm.id AS fm_id, fm.status AS fm_status
      FROM sessions s
      JOIN users u ON s.user_id = u.id
@@ -279,6 +290,9 @@ export async function validateSession(sessionToken: string): Promise<User | null
     isFamilyMember,
     isSuspended: isFamilyMember && row.fm_status === 'disabled',
     createdAt: row.created_at,
+    planType: row.plan_type || 'free',
+    accountType: row.account_type || 'personal',
+    billingStatus: row.billing_status || 'none',
   };
 }
 
@@ -1299,6 +1313,9 @@ export async function createFamilyUser(params: {
     isFamilyMember: true,
     isSuspended: false,
     createdAt: row.created_at,
+    planType: 'free',
+    accountType: 'personal',
+    billingStatus: 'none',
   };
 }
 

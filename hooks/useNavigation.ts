@@ -13,6 +13,7 @@ const TAB_TO_PATH: Record<string, string> = {
   database: '/database',
   system: '/system',
   myapps: '/integrations',
+  mytasks: '/mytasks',
   family: '/family',
   settings: '/settings',
   sessions: '/sessions',

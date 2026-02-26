@@ -17,6 +17,7 @@ const TAB_NAMES: Record<string, string> = {
   apikeys: 'AI Models',
   aisecurity: 'AI Security',
   myapps: 'Integrations',
+  mytasks: 'My Tasks',
   system: 'System',
   server: 'System',
   stats: 'Monitoring',
@@ -46,7 +47,7 @@ const TAB_PARENTS: Record<string, string> = {
   appearance: 'Settings', apikeys: 'Settings', aisecurity: 'Settings',
   'manage-storage': 'Settings', domain: 'Settings', export: 'Settings', family: 'Settings',
   sessions: 'Security', security: 'Security',
-  myapps: 'Apps', database: 'Apps',
+  myapps: 'Apps', mytasks: 'Vault', database: 'Apps',
   chat: 'AI',
 };
 

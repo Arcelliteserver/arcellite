@@ -326,6 +326,13 @@ const MCPView: React.FC = () => {
     return () => window.removeEventListener('storage', onStorage);
   }, [syncFromStorage]);
 
+  // Re-sync when page/tab becomes visible (e.g. after adding MCP in another tab or same session)
+  useEffect(() => {
+    const onVisibility = () => { if (document.visibilityState === 'visible') syncFromStorage(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [syncFromStorage]);
+
   const addToast = (type: 'success' | 'error', message: string) => {
     const id = ++toastCounter.current;
     setToasts(prev => [...prev, { id, type, message }]);

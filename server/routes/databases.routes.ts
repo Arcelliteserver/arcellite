@@ -82,6 +82,53 @@ export function handleDatabaseRoutes(req: IncomingMessage, res: ServerResponse, 
           }
         } catch { /* non-fatal */ }
 
+        // Inject the main arcellite database (users, files, automation_rules, etc.)
+        try {
+          const rawHost = process.env.DB_HOST || 'localhost';
+          const mainPool = new PgPool({
+            host: rawHost.startsWith('/') ? 'localhost' : rawHost,
+            port: parseInt(process.env.DB_PORT || '5432'),
+            database: process.env.DB_NAME || 'arcellite',
+            user: process.env.DB_USER || 'arcellite_user',
+            password: process.env.DB_PASSWORD,
+            max: 2,
+            connectionTimeoutMillis: 3000,
+          });
+          try {
+            const sizeResult = await mainPool.query('SELECT pg_database_size(current_database()) as size');
+            const sizeBytes = parseInt(sizeResult.rows[0]?.size || '0', 10);
+            const formatBytes = (bytes: number) => {
+              if (bytes === 0) return '0 B';
+              const k = 1024;
+              const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+              const i = Math.floor(Math.log(bytes) / Math.log(k));
+              return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+            };
+            databases.unshift({
+              id: '__system_arcellite_main',
+              name: 'Arcellite (System)',
+              displayName: 'Arcellite (System)',
+              type: 'postgresql',
+              status: 'running',
+              size: formatBytes(sizeBytes),
+              sizeBytes,
+              created: new Date().toISOString(),
+              createdTimestamp: Date.now() + 1,
+              pgDatabaseName: process.env.DB_NAME || 'arcellite',
+              isSystem: true,
+              config: {
+                host: rawHost.startsWith('/') ? 'localhost' : rawHost,
+                port: parseInt(process.env.DB_PORT || '5432'),
+                username: process.env.DB_USER || 'arcellite_user',
+                password: process.env.DB_PASSWORD,
+                database: process.env.DB_NAME || 'arcellite',
+              },
+            });
+          } catch { /* main DB connection failed — skip */ } finally {
+            await mainPool.end();
+          }
+        } catch { /* non-fatal */ }
+
         sendJson(res, { ok: true, databases });
       } catch (e) {
         sendError(res, String((e as Error).message));

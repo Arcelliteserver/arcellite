@@ -220,19 +220,19 @@ const MobileUSBView: React.FC<{
         </div>
       </div>
 
-      {/* Main Storage Card */}
+      {/* System Storage card only — dark background (black) */}
       {data?.rootStorage && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-5 shadow-sm">
+        <div className="bg-[#111214] rounded-2xl border border-[#2d2d2f] p-4 mb-5 shadow-sm">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-              <HardDrive className="w-5 h-5 text-gray-500" />
+            <div className="w-10 h-10 rounded-xl bg-[#2d2d2f] flex items-center justify-center">
+              <HardDrive className="w-5 h-5 text-gray-400" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[14px] font-bold text-gray-900">System Storage</p>
+              <p className="text-[14px] font-bold text-white">System Storage</p>
               <p className="text-[12px] font-medium text-gray-400">{data.rootStorage.usedHuman} of {data.rootStorage.totalHuman}</p>
             </div>
           </div>
-          <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div className="w-full h-2 bg-[#2d2d2f] rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{
