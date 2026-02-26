@@ -265,5 +265,68 @@ export async function handleBillingRoutes(req: IncomingMessage, res: ServerRespo
     return true;
   }
 
+  // ── POST /api/billing/activate-license — claim a founder license token ──────
+  if (pathname === '/api/billing/activate-license' && req.method === 'POST') {
+    const user = await getUser(req, res);
+    if (!user) return true;
+    try {
+      const body = await parseBody(req);
+      const token = typeof body.token === 'string' ? body.token.trim() : '';
+      if (!token) { sendError(res, 'token is required'); return true; }
+
+      // Check if already on a paid plan
+      const planData = await getUserPlan(user.id);
+      if (planData.billing_status === 'active' && planData.plan_type !== 'free') {
+        sendError(res, 'This account already has an active paid plan'); return true;
+      }
+
+      // Validate the token against the Arcellite license server (landing page)
+      const licenseServerUrl =
+        process.env.ARCELLITE_LICENSE_SERVER_URL || 'https://www.arcellite.com';
+
+      let licenseData: { valid: boolean; plan?: string; billing?: string; error?: string };
+      try {
+        const resp = await fetch(`${licenseServerUrl}/api/activate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, email: user.email }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        licenseData = await resp.json() as typeof licenseData;
+      } catch (err) {
+        console.error('[billing] License server unreachable:', err);
+        sendError(res, 'Could not reach the license server. Check your internet connection.', 503);
+        return true;
+      }
+
+      if (!licenseData.valid) {
+        sendError(res, licenseData.error || 'Invalid or already-used license token', 400);
+        return true;
+      }
+
+      // Map plan name — 'startup' | 'growth' (default to startup if unrecognized)
+      const planType: PlanType =
+        licenseData.plan === 'growth' ? 'growth' :
+        licenseData.plan === 'startup' ? 'startup' : 'startup';
+
+      // Grant organization access
+      await activatePlan(user.id, planType);
+
+      // Log the activation
+      await pool.query(
+        `INSERT INTO activity_log (user_id, action, details, resource_type)
+         VALUES ($1, 'license_activated', $2, 'billing')`,
+        [user.id, `Activated ${planType} plan via founder license token`]
+      );
+
+      const newPlanData = await getUserPlan(user.id);
+      const caps = resolveCapabilities(newPlanData.plan_type, newPlanData.account_type, newPlanData.billing_status);
+      sendJson(res, { ok: true, plan: newPlanData, capabilities: caps });
+    } catch (e) {
+      sendError(res, (e as Error).message, 500);
+    }
+    return true;
+  }
+
   return false;
 }

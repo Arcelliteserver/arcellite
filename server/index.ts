@@ -13,6 +13,7 @@ import { getRootStorage, getRemovableDevices, getFirstPartition } from './storag
 import { ensureBaseExists, listDir, listExternal, mkdir, getBaseDir } from './files.js';
 import { getPublicIp } from './stats.js';
 import { validateSession } from './services/auth.service.js';
+import { handleApiRoutes } from './routes/index.js';
 // Note: use .js extension so compiled output (dist/storage.js, dist/files.js) is resolved
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -442,6 +443,14 @@ const server = http.createServer(async (req, res) => {
     await handleFormat(req, res);
     return;
   }
+  // ── Application API routes (auth, billing, files, etc.) ──────────────────
+  if (pathname.startsWith('/api/')) {
+    if (await handleApiRoutes(req, res, rawUrl)) return;
+    // No route matched → 404
+    sendJson(res, 404, { error: 'API endpoint not found' });
+    return;
+  }
+
   if (HAS_DIST) {
     serveStatic(req, res, pathname);
     return;
