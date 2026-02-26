@@ -17,6 +17,10 @@
 
 Arcellite is a self-hosted personal cloud platform built with React and Node.js. It gives you full control over your files, databases, and AI assistant from a clean, modern interface — no third-party cloud required.
 
+<div align="center">
+  <img src="public/images/image.png" alt="Arcellite Application Preview" width="100%" max-width="800" />
+</div>
+
 ## Features
 
 ### File Management
